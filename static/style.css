@@ -339,6 +339,40 @@ body { min-height: 100vh; }
 .form-row input[type="date"]:focus { outline: none; border-color: var(--accent); }
 .modal-actions { display: flex; justify-content: flex-end; gap: 10px; }
 
+/* ---- Mark done ---- */
+.done-btn {
+  background: none;
+  border: 1px solid var(--border);
+  border-radius: 50%;
+  width: 22px; height: 22px;
+  color: var(--text-muted);
+  cursor: pointer;
+  font-size: 12px;
+  display: flex; align-items: center; justify-content: center;
+  flex-shrink: 0;
+  transition: all 0.15s;
+}
+.done-btn:hover { border-color: var(--success); color: var(--success); }
+.done-btn.active { background: var(--success); border-color: var(--success); color: #fff; }
+.todo-done { opacity: 0.55; }
+.todo-done:hover { opacity: 0.75; }
+.over-budget-badge {
+  font-size: 10px;
+  padding: 1px 6px;
+  border-radius: 20px;
+  background: rgba(239,68,68,0.15);
+  color: #f87171;
+  font-weight: 600;
+}
+.completed-toggle {
+  padding: 10px 18px;
+  font-size: 12px;
+  color: var(--text-muted);
+  cursor: pointer;
+  border-top: 1px solid var(--border);
+}
+.completed-toggle:hover { color: var(--text); }
+
 /* ---- Calendar filter ---- */
 .cal-filter-select {
   padding: 6px 12px;

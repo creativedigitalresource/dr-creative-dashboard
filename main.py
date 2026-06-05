@@ -86,20 +86,25 @@ async def _do_refresh():
                 revs   = float(ov["revs"])  if "revs" in ov else (t.get("revs") or 0)
                 sd     = ov.get("start_date") or start_dates.get(str(t["id"]))
                 # Manual logged override takes priority over Everhour
-                logged = float(ov["logged"]) if "logged" in ov else logged
-                total  = (est or 0) + revs
-                progress = min(100, round((logged / total * 100) if total > 0 else 0))
+                logged       = float(ov["logged"])      if "logged"       in ov else logged
+                completed_on = ov.get("completed_on")
+                total        = (est or 0) + revs
+                over_by      = round(max(0, logged - total), 2) if total > 0 else 0
+                progress     = min(100, round((logged / total * 100) if total > 0 else 0))
                 enriched.append({
                     **t,
                     "hdd": hdd, "pdd": pdd, "est": est, "revs": revs,
                     "total_hours": total,
                     "logged": logged, "progress": progress,
+                    "over_by": over_by,
                     "start_date": sd,
+                    "completed_on": completed_on,
                     "overrides": list(ov.keys()),
                 })
-            # Overdue tasks (HDD in the past) still count — they're unfinished work
+            # Overdue tasks count; completed tasks do not
             weekly_est = sum(t.get("total_hours", 0) for t in enriched
-                             if t.get("hdd") and t["hdd"] <= week_end)
+                             if t.get("hdd") and t["hdd"] <= week_end
+                             and not t.get("completed_on"))
             capacity_pct = min(100, round(weekly_est / WEEKLY_CAP * 100))
             designers_out.append({**d, "todos": enriched,
                                    "weekly_est": round(weekly_est, 1),
@@ -257,7 +262,7 @@ async def api_calendar():
 async def set_todo_fields(todo_id: str, request: Request):
     """Save local overrides for hdd, pdd, est, revs, start_date."""
     body = await request.json()
-    allowed = {"hdd", "pdd", "est", "revs", "start_date", "logged"}
+    allowed = {"hdd", "pdd", "est", "revs", "start_date", "logged", "completed_on"}
     for field, value in body.items():
         if field not in allowed:
             continue
@@ -276,7 +281,8 @@ async def set_todo_fields(todo_id: str, request: Request):
                 if "pdd" in body:        t["pdd"]        = ov.get("pdd") or t.get("pdd")
                 if "est" in body:        t["est"]        = float(ov["est"]) if "est" in ov else t.get("est")
                 if "revs" in body:       t["revs"]       = float(ov["revs"]) if "revs" in ov else t.get("revs")
-                if "logged" in body:     t["logged"]     = float(ov["logged"]) if "logged" in ov else t.get("logged", 0)
+                if "logged" in body:       t["logged"]       = float(ov["logged"]) if "logged" in ov else t.get("logged", 0)
+                if "completed_on" in body: t["completed_on"] = ov.get("completed_on")
                 if "start_date" in body: t["start_date"] = ov.get("start_date") or t.get("start_date")
                 t["total_hours"] = (t.get("est") or 0) + (t.get("revs") or 0)
                 total = t["total_hours"]

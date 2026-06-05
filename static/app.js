@@ -106,7 +106,7 @@ async function loadDesigners() {
 
 function renderDesignerGrid(designers) {
   document.getElementById("designer-grid").innerHTML =
-    designers.map(d => renderDesignerCard(d)).join("");
+    designers.map(d => renderDesignerCard(d, !!_completedToggleState[d.bc_id])).join("");
   populateDesignerDropdown();
 }
 
@@ -145,7 +145,7 @@ function calcCapacity(todos, pto) {
   };
 }
 
-function renderDesignerCard(d) {
+function renderDesignerCard(d, showCompleted = false) {
   const { weekly_est, cap, pct, pto_days } = calcCapacity(d.todos, d.pto);
   const barCls = pct < 60 ? "low" : pct < 85 ? "mid" : "high";
   const initials = d.name.split(" ").map(n => n[0]).join("").slice(0, 2).toUpperCase();
@@ -153,9 +153,19 @@ function renderDesignerCard(d) {
     ? `<span class="pto-badge">${pto_days} OOO day${pto_days > 1 ? "s" : ""} this wk</span>`
     : "";
 
-  const todosHtml = d.todos && d.todos.length
-    ? `<ul class="designer-todos">${d.todos.map(t => renderTodoItem(t, d.color)).join("")}</ul>`
-    : `<div class="no-todos">No active tasks</div>`;
+  const active    = (d.todos || []).filter(t => !t.completed_on);
+  const completed = (d.todos || []).filter(t =>  t.completed_on);
+  const visibleTodos = showCompleted ? d.todos : active;
+
+  const completedFooter = completed.length
+    ? `<div class="completed-toggle" onclick="toggleCompleted('${d.bc_id}')">
+        ${showCompleted ? "▲ Hide" : "▼ Show"} ${completed.length} completed task${completed.length !== 1 ? "s" : ""}
+       </div>`
+    : "";
+
+  const todosHtml = visibleTodos.length
+    ? `<ul class="designer-todos">${visibleTodos.map(t => renderTodoItem(t, d.color, showCompleted)).join("")}</ul>${completedFooter}`
+    : `<div class="no-todos">No active tasks</div>${completedFooter}`;
 
   return `
   <div class="designer-card">
@@ -185,7 +195,14 @@ function renderDesignerCard(d) {
   </div>`;
 }
 
-function renderTodoItem(t, color) {
+const _completedToggleState = {}; // {bc_id: bool}
+
+function toggleCompleted(bcId) {
+  _completedToggleState[bcId] = !_completedToggleState[bcId];
+  renderDesignerGrid(_designerData);
+}
+
+function renderTodoItem(t, color, showCompleted = false) {
   const ov = t.overrides || [];
   const hddCls = ov.includes("hdd") ? "hdd overridden" : "hdd";
   const pddCls = ov.includes("pdd") ? "pdd overridden" : "pdd";
@@ -200,33 +217,41 @@ function renderTodoItem(t, color) {
   const total = t.total_hours || 0;
   const logged = t.logged || 0;
   const pct = t.progress || 0;
+  const isDone   = !!t.completed_on;
+  const overBy   = t.over_by || 0;
   const loggedCls = (t.overrides||[]).includes("logged") ? "overridden" : "";
-  const loggedEl = `<span class="meta-pill ${loggedCls} editable" onclick="editField(event,'${t.id}','logged','number','${logged}')" title="Click to log hours">${logged > 0 ? logged + "h logged" : "+ Log hours"}</span>`;
+  const loggedEl  = `<span class="meta-pill ${loggedCls} editable" onclick="editField(event,'${t.id}','logged','number','${logged}')" title="Click to log hours">${logged > 0 ? logged + "h" : "+ Log"}</span>`;
 
   let progressHtml = "";
   if (total > 0) {
+    const barColor = overBy > 0 ? "var(--danger)" : color;
+    const overBadge = overBy > 0 ? `<span class="over-budget-badge">+${overBy}h over</span>` : "";
     progressHtml = `<div class="progress-wrap">
-      <div class="progress-bar-outer"><div class="progress-bar-inner" style="width:${pct}%;background:${color}"></div></div>
-      <span class="progress-label">${logged}h / ${total}h</span>
+      <div class="progress-bar-outer"><div class="progress-bar-inner" style="width:${pct}%;background:${barColor}"></div></div>
+      <span class="progress-label">${logged}h / ${total}h ${overBadge}</span>
       ${loggedEl}
     </div>`;
   } else {
     progressHtml = `<div class="progress-wrap">${loggedEl}</div>`;
   }
 
-  const sdLabel = t.start_date ? `Start: ${fmtDate(t.start_date)}` : `+ Set start date`;
-  const sdCls2 = t.start_date ? "set" : "";
+  const sdLabel = t.start_date ? `Start: ${fmtDate(t.start_date)}` : `+ Start date`;
+  const sdCls2  = t.start_date ? "set" : "";
+  const doneCls = isDone ? "done-btn active" : "done-btn";
+  const doneTitle = isDone ? `Done ${fmtDate(t.completed_on)}` : "Mark done";
+  const doneIcon  = isDone ? "✓" : "○";
 
   return `
-  <li class="todo-item" id="todo-${t.id}">
+  <li class="todo-item${isDone ? " todo-done" : ""}" id="todo-${t.id}">
     <div class="todo-item-left">
-      <div class="todo-item-title" title="${esc(t.title)}">${esc(truncate(t.title, 60))}</div>
+      <div class="todo-item-title" title="${esc(t.title)}">${isDone ? `<s>${esc(truncate(t.title, 55))}</s>` : esc(truncate(t.title, 60))}</div>
       <div class="todo-meta">${hddStr}${pddStr}${estStr}${revsStr}</div>
-      ${progressHtml}
+      ${isDone ? `<div style="font-size:11px;color:var(--success)">Completed ${fmtDate(t.completed_on)}</div>` : progressHtml}
     </div>
     <div class="todo-item-actions">
       ${t.url ? `<a href="${t.url}" target="_blank" class="link-btn" title="Open in Basecamp">↗</a>` : ""}
-      <span class="start-date-badge ${sdCls2}" onclick="openModal('${t.id}', '${esc(t.title.replace(/'/g, "\\'"))}', '${t.start_date || ""}')">${sdLabel}</span>
+      <button class="${doneCls}" onclick="markDone('${t.id}', ${isDone})" title="${doneTitle}">${doneIcon}</button>
+      ${!isDone ? `<span class="start-date-badge ${sdCls2}" onclick="openModal('${t.id}', '${esc(t.title.replace(/'/g, "\\'"))}', '${t.start_date || ""}')">${sdLabel}</span>` : ""}
     </div>
   </li>`;
 }
@@ -260,9 +285,9 @@ function scheduleDesignerEvents(designer) {
   const ptoDates = (designer.pto || []).map(p => p.date);
   const dayUsed = {};
 
-  // Only tasks with a start anchor and hours
+  // Only active tasks with a start anchor and hours
   const tasks = designer.todos
-    .filter(t => (t.start_date || t.hdd) && (t.total_hours || 0) > 0)
+    .filter(t => !t.completed_on && (t.start_date || t.hdd) && (t.total_hours || 0) > 0)
     .sort((a, b) => {
       const ad = a.start_date || a.hdd;
       const bd = b.start_date || b.hdd;
@@ -577,6 +602,33 @@ function dueCls(iso) {
 function updateLastUpdated() {
   const el = document.getElementById("last-updated");
   el.textContent = "Updated " + new Date().toLocaleTimeString("en-US", { hour: "numeric", minute: "2-digit" });
+}
+
+// ---------------------------------------------------------------------------
+// Mark done / re-open
+// ---------------------------------------------------------------------------
+
+async function markDone(todoId, currentlyDone) {
+  const today = new Date().toISOString().split("T")[0];
+  const val = currentlyDone ? null : today;
+  await fetch(`/api/todos/${todoId}/fields`, {
+    method: "PUT",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ completed_on: val }),
+  });
+  // Update in-memory
+  for (const d of _designerData || []) {
+    for (const t of d.todos || []) {
+      if (String(t.id) === String(todoId)) {
+        t.completed_on = val;
+        if (!t.overrides) t.overrides = [];
+        if (val && !t.overrides.includes("completed_on")) t.overrides.push("completed_on");
+        if (!val) t.overrides = t.overrides.filter(f => f !== "completed_on");
+      }
+    }
+  }
+  renderDesignerGrid(_designerData);
+  await loadCalendar();
 }
 
 // ---------------------------------------------------------------------------
