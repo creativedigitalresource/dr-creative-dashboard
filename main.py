@@ -95,8 +95,9 @@ async def _do_refresh():
                     "start_date": sd,
                     "overrides": list(ov.keys()),
                 })
+            # Overdue tasks (HDD in the past) still count — they're unfinished work
             weekly_est = sum(t.get("total_hours", 0) for t in enriched
-                             if t.get("hdd") and week_start <= t["hdd"] <= week_end)
+                             if t.get("hdd") and t["hdd"] <= week_end)
             capacity_pct = min(100, round(weekly_est / WEEKLY_CAP * 100))
             designers_out.append({**d, "todos": enriched,
                                    "weekly_est": round(weekly_est, 1),
