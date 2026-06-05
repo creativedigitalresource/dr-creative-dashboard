@@ -192,6 +192,37 @@ async def manual_refresh():
     return {"ok": True}
 
 
+@app.get("/api/debug")
+async def api_debug():
+    """Diagnostic endpoint — returns raw Basecamp data to check connectivity."""
+    # Test 1: fetch the Creative project
+    project = await bc._get(f"/projects/{bc.CREATIVE_BUCKET_ID}.json")
+    dock_names = [d.get("name") for d in (project or {}).get("dock", [])] if project else []
+
+    # Test 2: get todolists
+    todolists = await bc._get_todolists_in_bucket(bc.CREATIVE_BUCKET_ID)
+    tl_sample = [{"id": t["id"], "title": t.get("title")} for t in (todolists or [])[:5]]
+
+    # Test 3: first todolist's todos (sample)
+    todos_sample = []
+    if todolists:
+        todos = await bc._get_todos_in_todolist(bc.CREATIVE_BUCKET_ID, str(todolists[0]["id"]))
+        todos_sample = [
+            {"id": t["id"], "content": t["content"][:60], "assignees": [a["id"] for a in t.get("assignees", [])]}
+            for t in (todos or [])[:5]
+        ]
+
+    return {
+        "project_found": bool(project),
+        "project_name": (project or {}).get("name"),
+        "dock_names": dock_names,
+        "todolist_count": len(todolists or []),
+        "todolist_sample": tl_sample,
+        "first_todolist_todos_sample": todos_sample,
+        "token_present": bool(store.get_token("access_token")),
+    }
+
+
 # ---------------------------------------------------------------------------
 # SSE
 # ---------------------------------------------------------------------------
