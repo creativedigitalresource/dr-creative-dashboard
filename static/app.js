@@ -134,6 +134,7 @@ function calcCapacity(todos, pto) {
   const ptoDaysThisWeek = (pto || []).filter(p => p.date >= start && p.date <= end).length;
   const cap = Math.max(0, (5 - ptoDaysThisWeek) * 7);
   const weekly_est = (todos || []).reduce((sum, t) => {
+    if (t.completed_on) return sum;            // completed — no longer blocks capacity
     if (t.hdd && t.hdd <= end) return sum + (t.total_hours || 0);
     return sum;
   }, 0);
@@ -285,9 +286,9 @@ function scheduleDesignerEvents(designer) {
   const ptoDates = (designer.pto || []).map(p => p.date);
   const dayUsed = {};
 
-  // Only active tasks with a start anchor and hours
+  // Active tasks first (scheduled normally), then completed tasks (shown faded)
   const tasks = designer.todos
-    .filter(t => !t.completed_on && (t.start_date || t.hdd) && (t.total_hours || 0) > 0)
+    .filter(t => (t.start_date || t.hdd) && (t.total_hours || 0) > 0)
     .sort((a, b) => {
       const ad = a.start_date || a.hdd;
       const bd = b.start_date || b.hdd;
@@ -297,6 +298,29 @@ function scheduleDesignerEvents(designer) {
   const events = [];
 
   for (const t of tasks) {
+    const isDone = !!t.completed_on;
+
+    // Completed tasks: show as a single faded block on their completed_on date
+    if (isDone) {
+      const anchor = t.completed_on;
+      events.push({
+        id: `t-${t.id}-done`,
+        title: `✓ ${truncate(t.title, 38)}`,
+        start: anchor,
+        end: anchor,
+        allDay: true,
+        backgroundColor: designer.color + "30",
+        borderColor: designer.color + "60",
+        textColor: designer.color + "aa",
+        classNames: ["completed-cal-event"],
+        extendedProps: { url: t.url, designer: designer.name, hdd: t.hdd,
+                         est: t.est, logged: t.logged, fullTitle: t.title,
+                         completedOn: t.completed_on },
+      });
+      continue;
+    }
+
+    // Active tasks: schedule with rollover
     let remaining = t.total_hours;
     let day = new Date((t.start_date || t.hdd) + "T12:00:00");
     while (!isWorkDay(day, ptoDates)) day = nextWorkDay(day, ptoDates);

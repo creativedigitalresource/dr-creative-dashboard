@@ -424,6 +424,7 @@ body { min-height: 100vh; }
 }
 .pto-delete:hover { color: var(--danger); }
 .fc-event.pto-event { opacity: 0.4; }
+.fc-event.completed-cal-event { opacity: 0.5; text-decoration: line-through; }
 
 /* ---- SSE pulse dot ---- */
 .live-dot {
