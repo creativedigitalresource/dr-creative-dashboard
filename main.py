@@ -49,8 +49,10 @@ async def _refresh_all():
     start_dates = store.get_all_start_dates()
 
     # --- Unassigned ---
+    print("[refresh] fetching unassigned...")
     try:
         unassigned = await bc.get_unassigned_todos()
+        print(f"[refresh] unassigned done: {len(unassigned)}")
     except Exception as e:
         print(f"[refresh] unassigned error: {e}")
         unassigned = []
@@ -58,6 +60,7 @@ async def _refresh_all():
     # --- Designers (sequential — avoids concurrent connection limits) ---
     designers_out = []
     for d in DESIGNERS:
+        print(f"[refresh] fetching {d['name']}...")
         try:
             todos = await bc.get_designer_todos(d["bc_id"])
             enriched = []

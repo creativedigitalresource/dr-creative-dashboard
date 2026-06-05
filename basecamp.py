@@ -92,7 +92,7 @@ async def _get(path: str, params: dict | None = None) -> dict | list | None:
         "Authorization": f"Bearer {token}",
         "User-Agent": USER_AGENT,
     }
-    async with httpx.AsyncClient(timeout=30) as client:
+    async with httpx.AsyncClient(timeout=10) as client:
         r = await client.get(f"{BC_BASE}{path}", headers=headers, params=params or {})
         if r.status_code == 401:
             refreshed = await _refresh()
