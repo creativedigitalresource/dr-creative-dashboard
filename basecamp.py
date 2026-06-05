@@ -104,8 +104,20 @@ async def _get(path: str, params: dict | None = None) -> dict | list | None:
             headers["Authorization"] = f"Bearer {token}"
             r = await client.get(f"{BC_BASE}{path}", headers=headers, params=params or {})
         if r.status_code != 200:
+            print(f"[bc] {r.status_code} {path} — {r.text[:200]}")
             return None
         return r.json()
+
+
+async def _get_raw_status(path: str) -> tuple[int, str]:
+    """For debugging — returns (status_code, body_snippet)."""
+    token = get_token("access_token")
+    if not token:
+        return 0, "no token"
+    headers = {"Authorization": f"Bearer {token}", "User-Agent": USER_AGENT}
+    async with httpx.AsyncClient(timeout=15) as client:
+        r = await client.get(f"{BC_BASE}{path}", headers=headers)
+        return r.status_code, r.text[:300]
 
 
 async def _get_all_pages(path: str) -> list:
