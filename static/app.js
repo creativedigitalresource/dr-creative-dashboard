@@ -91,14 +91,22 @@ async function loadUnassigned() {
   }).join("");
 }
 
+let _designerData = [];
+
 async function loadDesigners() {
   const designers = await fetch("/api/designers").then(r => r.json()).catch(() => []);
-  const grid = document.getElementById("designer-grid");
   if (!designers.length) {
-    grid.innerHTML = `<div class="loading-card">Fetching from Basecamp — may take up to 60s on first load…</div>`;
+    document.getElementById("designer-grid").innerHTML =
+      `<div class="loading-card">Fetching from Basecamp — may take up to 60s on first load…</div>`;
     return;
   }
-  grid.innerHTML = designers.map(d => renderDesignerCard(d)).join("");
+  _designerData = designers;
+  renderDesignerGrid(designers);
+}
+
+function renderDesignerGrid(designers) {
+  document.getElementById("designer-grid").innerHTML =
+    designers.map(d => renderDesignerCard(d)).join("");
 }
 
 async function loadCalendar() {
@@ -113,8 +121,22 @@ async function loadCalendar() {
 // Designer card rendering
 // ---------------------------------------------------------------------------
 
+function calcCapacity(todos) {
+  // Calculate live from todo data — includes overdue tasks (hdd <= this Friday)
+  const today = new Date();
+  const friday = new Date(today);
+  friday.setDate(today.getDate() + (5 - today.getDay())); // this Friday
+  const weekEnd = friday.toISOString().split("T")[0];
+  const weekly_est = (todos || []).reduce((sum, t) => {
+    if (t.hdd && t.hdd <= weekEnd) return sum + (t.total_hours || 0);
+    return sum;
+  }, 0);
+  const cap = 35;
+  return { weekly_est: Math.round(weekly_est * 10) / 10, cap, pct: Math.min(100, Math.round(weekly_est / cap * 100)) };
+}
+
 function renderDesignerCard(d) {
-  const pct = d.capacity_pct || 0;
+  const { weekly_est, cap, pct } = calcCapacity(d.todos);
   const barCls = pct < 60 ? "low" : pct < 85 ? "mid" : "high";
   const initials = d.name.split(" ").map(n => n[0]).join("").slice(0, 2).toUpperCase();
 
@@ -133,7 +155,7 @@ function renderDesignerCard(d) {
         </div>
       </div>
       <div class="designer-cap-wrap">
-        <div class="cap-label">Week capacity &middot; ${d.weekly_est}h / ${d.weekly_cap}h</div>
+        <div class="cap-label">Week capacity &middot; ${weekly_est}h / ${cap}h</div>
         <div class="cap-bar-outer">
           <div class="cap-bar-inner ${barCls}" style="width:${pct}%"></div>
         </div>
@@ -248,16 +270,31 @@ function editField(evt, todoId, field, inputType, currentValue) {
   const commit = async () => {
     const val = input.value.trim();
     if (val !== currentValue) {
-      await fetch(`/api/todos/${todoId}/fields`, {
+      // Save to server (fire and forget — don't await)
+      fetch(`/api/todos/${todoId}/fields`, {
         method: "PUT",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ [field]: val || null }),
       });
-      // Reload designers to reflect new capacity
-      await loadDesigners();
+      // Update in-memory designer data immediately for instant UI response
+      for (const d of _designerData || []) {
+        for (const t of d.todos || []) {
+          if (String(t.id) === String(todoId)) {
+            if (field === "est")  { t.est = val ? parseFloat(val) : null; }
+            if (field === "revs") { t.revs = val ? parseFloat(val) : 0; }
+            if (field === "hdd")  { t.hdd = val || null; }
+            if (field === "pdd")  { t.pdd = val || null; }
+            if (field === "start_date") { t.start_date = val || null; }
+            t.total_hours = (t.est || 0) + (t.revs || 0);
+            if (!t.overrides) t.overrides = [];
+            if (!t.overrides.includes(field)) t.overrides.push(field);
+          }
+        }
+      }
+      // Re-render from updated in-memory data
+      renderDesignerGrid(_designerData);
       await loadCalendar();
     } else {
-      // No change — restore pill from DOM
       input.insertAdjacentHTML("afterend", orig);
       input.remove();
     }
