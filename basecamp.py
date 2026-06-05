@@ -9,8 +9,8 @@ CLIENT_SECRET = os.environ.get("BC_CLIENT_SECRET", "2c004a1b98104f5eebb8d5c1c16c
 REDIRECT_URI = os.environ.get("BC_REDIRECT_URI", "http://localhost:8000/auth/callback")
 USER_AGENT = "DR Creative Dashboard (richard.vargas@yourdigitalresource.com)"
 
-CREATIVE_BUCKET_ID = "44800196"
-IPM_BUCKET_ID = "45215277"
+CREATIVE_BUCKET_ID = "35685312"
+IPM_BUCKET_ID = "35685957"
 RICHARD_BC_ID = 49482127
 
 # Everhour uses b3:{todo_id} format
@@ -150,26 +150,34 @@ async def _get_todos_in_todolist(bucket_id: str, todolist_id: str) -> list:
 
 
 async def _get_todolists_in_bucket(bucket_id: str) -> list:
-    """Get the todoset for a bucket, then all todolists."""
+    """Get ALL todosets for a bucket, then collect all todolists from each."""
     project = await _get(f"/projects/{bucket_id}.json")
     if not project:
         return []
-    todoset_url = None
-    for dock_item in project.get("dock", []):
-        if dock_item.get("name") == "todoset":
-            todoset_url = dock_item.get("url", "")
-            break
-    if not todoset_url:
+
+    # A project can have multiple todosets — collect all of them
+    todoset_urls = [
+        item.get("url", "")
+        for item in project.get("dock", [])
+        if item.get("name") == "todoset" and item.get("url")
+    ]
+    if not todoset_urls:
         return []
-    path = todoset_url.replace(BC_BASE, "")
-    todoset = await _get(path)
-    if not todoset:
-        return []
-    todolists_url = todoset.get("todolists_url", "")
-    if not todolists_url:
-        return []
-    path2 = todolists_url.replace(BC_BASE, "")
-    return await _get_all_pages(path2)
+
+    all_todolists = []
+    for ts_url in todoset_urls:
+        path = ts_url.replace(BC_BASE, "")
+        todoset = await _get(path)
+        if not todoset:
+            continue
+        todolists_url = todoset.get("todolists_url", "")
+        if not todolists_url:
+            continue
+        path2 = todolists_url.replace(BC_BASE, "")
+        lists = await _get_all_pages(path2)
+        all_todolists.extend(lists or [])
+
+    return all_todolists
 
 
 async def get_unassigned_todos() -> list:
