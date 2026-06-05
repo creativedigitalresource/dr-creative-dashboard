@@ -159,12 +159,17 @@ function renderTodoItem(t, color) {
   const total = t.total_hours || 0;
   const logged = t.logged || 0;
   const pct = t.progress || 0;
-  const progressHtml = total > 0
-    ? `<div class="progress-wrap">
-        <div class="progress-bar-outer"><div class="progress-bar-inner" style="width:${pct}%;background:${color}"></div></div>
-        <span class="progress-label">${logged}h / ${total}h</span>
-       </div>`
-    : "";
+  let progressHtml = "";
+  if (total > 0) {
+    progressHtml = `<div class="progress-wrap">
+      <div class="progress-bar-outer"><div class="progress-bar-inner" style="width:${pct}%;background:${color}"></div></div>
+      <span class="progress-label">${logged}h / ${total}h</span>
+    </div>`;
+  } else if (logged > 0) {
+    progressHtml = `<div class="progress-wrap">
+      <span class="progress-label" style="color:var(--text-muted)">${logged}h logged</span>
+    </div>`;
+  }
 
   const sdLabel = t.start_date ? `Start: ${fmtDate(t.start_date)}` : `+ Set start date`;
   const sdCls2 = t.start_date ? "set" : "";

@@ -66,14 +66,18 @@ async def _do_refresh():
         print(f"[refresh] fetching {d['name']}...")
         try:
             todos = await asyncio.wait_for(bc.get_designer_todos(d["bc_id"]), timeout=60.0)
-            enriched = []
-            for t in todos:
-                logged = 0.0
-                if eh.EH_KEY:
+            # Fetch Everhour time for all todos concurrently (max 3 at once)
+            eh_sem = asyncio.Semaphore(3)
+            async def _eh(tid):
+                async with eh_sem:
                     try:
-                        logged = await asyncio.wait_for(eh.get_time_logged(t["id"]), timeout=5.0)
+                        return await asyncio.wait_for(eh.get_time_logged(tid), timeout=6.0)
                     except Exception:
-                        pass
+                        return 0.0
+            logged_list = await asyncio.gather(*[_eh(t["id"]) for t in todos]) if eh.EH_KEY else [0.0] * len(todos)
+
+            enriched = []
+            for t, logged in zip(todos, logged_list):
                 ov = overrides.get(str(t["id"]), {})
                 # Apply local overrides on top of Basecamp-parsed fields
                 hdd   = ov.get("hdd")   or t.get("hdd")
