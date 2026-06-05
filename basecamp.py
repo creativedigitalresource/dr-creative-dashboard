@@ -176,27 +176,33 @@ async def get_unassigned_todos() -> list:
 
 async def get_designer_todos(designer_bc_id: int) -> list:
     """All incomplete todos assigned to a specific designer via the reports API."""
+    import asyncio
     from parsers import parse_todo_fields
 
-    todos = await _get_all_reports_assigned(designer_bc_id)
+    raw = await _get_all_reports_assigned(designer_bc_id)
+    active = [
+        t for t in raw
+        if not t.get("completed") and not _is_skip(t.get("content", ""))
+    ]
+    if not active:
+        return []
+
+    # Fetch comments for all todos concurrently
+    async def _fetch_comments(t):
+        bucket_id = str((t.get("bucket") or {}).get("id", ""))
+        return await get_comments(bucket_id, str(t["id"])) if bucket_id else []
+
+    all_comments = await asyncio.gather(*[_fetch_comments(t) for t in active])
+
     results = []
-    for t in todos:
-        if t.get("completed"):
-            continue
-        if _is_skip(t.get("content", "")):
-            continue
-
+    for t, comments in zip(active, all_comments):
         bucket = t.get("bucket", {})
-        bucket_id = str(bucket.get("id", ""))
-
-        comments = await get_comments(bucket_id, str(t["id"])) if bucket_id else []
         fields = parse_todo_fields(t["content"], comments)
-
         results.append({
             "id": t["id"],
             "title": t["content"],
             "due_on": t.get("due_on"),
-            "bucket_id": bucket_id,
+            "bucket_id": str(bucket.get("id", "")),
             "bucket_name": bucket.get("name", ""),
             "todolist_name": t.get("parent", {}).get("title", ""),
             "url": t.get("app_url", ""),

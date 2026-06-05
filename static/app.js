@@ -36,7 +36,7 @@ function connectSSE() {
 
   const es = new EventSource("/api/stream");
   es.addEventListener("update", () => loadAll());
-  es.addEventListener("init", () => {});
+  es.addEventListener("init", () => loadAll());
   es.onerror = () => {
     dot.style.background = "var(--danger)";
     setTimeout(connectSSE, 5000);
@@ -56,10 +56,10 @@ async function loadAll() {
 
 async function loadUnassigned() {
   const todos = await fetch("/api/unassigned").then(r => r.json()).catch(() => []);
-  document.getElementById("unassigned-count").textContent = todos.length;
+  document.getElementById("unassigned-count").textContent = todos.length || "";
   const tbody = document.getElementById("unassigned-tbody");
   if (!todos.length) {
-    tbody.innerHTML = `<tr><td colspan="4" class="loading-cell" style="color:var(--success)">No tasks waiting to be delegated</td></tr>`;
+    tbody.innerHTML = `<tr><td colspan="4" class="loading-cell">Fetching from Basecamp — may take up to 60s on first load…</td></tr>`;
     return;
   }
   tbody.innerHTML = todos.map(t => {
@@ -81,7 +81,7 @@ async function loadDesigners() {
   const designers = await fetch("/api/designers").then(r => r.json()).catch(() => []);
   const grid = document.getElementById("designer-grid");
   if (!designers.length) {
-    grid.innerHTML = `<div class="loading-card">No data yet — refresh in a moment.</div>`;
+    grid.innerHTML = `<div class="loading-card">Fetching from Basecamp — may take up to 60s on first load…</div>`;
     return;
   }
   grid.innerHTML = designers.map(d => renderDesignerCard(d)).join("");

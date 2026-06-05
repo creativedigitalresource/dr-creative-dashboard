@@ -42,46 +42,49 @@ DAILY_CAP = 7.0
 WEEKLY_CAP = DAILY_CAP * 5  # 35h
 
 
+async def _build_designer(d: dict, start_dates: dict, week_start: str, week_end: str) -> dict:
+    todos = await bc.get_designer_todos(d["bc_id"])
+    # Fetch Everhour time for all todos concurrently
+    logged_list = await asyncio.gather(*[eh.get_time_logged(t["id"]) for t in todos])
+    enriched = []
+    for t, logged in zip(todos, logged_list):
+        total = t.get("total_hours") or 0
+        progress = min(100, round((logged / total * 100) if total > 0 else 0))
+        sd = start_dates.get(str(t["id"]))
+        enriched.append({**t, "logged": logged, "progress": progress, "start_date": sd})
+
+    weekly_est = sum(
+        t.get("total_hours", 0)
+        for t in enriched
+        if t.get("hdd") and week_start <= t["hdd"] <= week_end
+    )
+    capacity_pct = min(100, round(weekly_est / WEEKLY_CAP * 100))
+    return {
+        **d,
+        "todos": enriched,
+        "weekly_est": round(weekly_est, 1),
+        "weekly_cap": WEEKLY_CAP,
+        "capacity_pct": capacity_pct,
+    }
+
+
 async def _refresh_all():
     today = date.today()
     week_start = (today - timedelta(days=today.weekday())).isoformat()
     week_end = (today + timedelta(days=4 - today.weekday())).isoformat()
     start_dates = store.get_all_start_dates()
 
-    # Unassigned todos
-    unassigned = await bc.get_unassigned_todos()
+    # Fetch unassigned + all designers concurrently
+    results = await asyncio.gather(
+        bc.get_unassigned_todos(),
+        *[_build_designer(d, start_dates, week_start, week_end) for d in DESIGNERS],
+        return_exceptions=True,
+    )
+
+    unassigned = results[0] if not isinstance(results[0], Exception) else []
+    designers_out = [r for r in results[1:] if not isinstance(r, Exception)]
+
     _cached_data["unassigned"] = unassigned
-
-    # Designer data
-    designers_out = []
-    for d in DESIGNERS:
-        todos = await bc.get_designer_todos(d["bc_id"])
-
-        # Attach logged hours + start dates
-        enriched = []
-        for t in todos:
-            logged = await eh.get_time_logged(t["id"])
-            total = t.get("total_hours") or 0
-            progress = min(100, round((logged / total * 100) if total > 0 else 0))
-            sd = start_dates.get(str(t["id"]))
-            enriched.append({**t, "logged": logged, "progress": progress, "start_date": sd})
-
-        # Weekly capacity: sum EST hours for todos whose HDD falls this week
-        weekly_est = sum(
-            t.get("total_hours", 0)
-            for t in enriched
-            if t.get("hdd") and week_start <= t["hdd"] <= week_end
-        )
-        capacity_pct = min(100, round(weekly_est / WEEKLY_CAP * 100))
-
-        designers_out.append({
-            **d,
-            "todos": enriched,
-            "weekly_est": round(weekly_est, 1),
-            "weekly_cap": WEEKLY_CAP,
-            "capacity_pct": capacity_pct,
-        })
-
     _cached_data["designers"] = designers_out
     _cached_data["last_updated"] = time.time()
 
@@ -136,15 +139,11 @@ async def api_status():
 
 @app.get("/api/unassigned")
 async def api_unassigned():
-    if "unassigned" not in _cached_data:
-        await _refresh_all()
     return _cached_data.get("unassigned", [])
 
 
 @app.get("/api/designers")
 async def api_designers():
-    if "designers" not in _cached_data:
-        await _refresh_all()
     return _cached_data.get("designers", [])
 
 
