@@ -1,6 +1,15 @@
 import httpx, os, time
 from store import get_token, set_token
 
+# Single persistent client — reuses TCP connections like Node's fetch
+_http: httpx.AsyncClient | None = None
+
+def get_http() -> httpx.AsyncClient:
+    global _http
+    if _http is None or _http.is_closed:
+        _http = httpx.AsyncClient(timeout=httpx.Timeout(10.0), follow_redirects=True)
+    return _http
+
 ACCOUNT_ID = "5471057"
 BC_BASE = f"https://3.basecampapi.com/{ACCOUNT_ID}"
 AUTH_BASE = "https://launchpad.37signals.com"
@@ -35,7 +44,7 @@ def auth_url() -> str:
 
 
 async def exchange_code(code: str) -> bool:
-    async with httpx.AsyncClient() as client:
+    async with httpx.AsyncClient(timeout=15) as client:
         r = await client.post(
             f"{AUTH_BASE}/authorization/token",
             data={
@@ -59,7 +68,7 @@ async def _refresh() -> bool:
     refresh = get_token("refresh_token")
     if not refresh:
         return False
-    async with httpx.AsyncClient() as client:
+    async with httpx.AsyncClient(timeout=15) as client:
         r = await client.post(
             f"{AUTH_BASE}/authorization/token",
             data={
@@ -92,25 +101,25 @@ async def _get(path: str, params: dict | None = None) -> dict | list | None:
         "Authorization": f"Bearer {token}",
         "User-Agent": USER_AGENT,
     }
-    async with httpx.AsyncClient(timeout=10) as client:
-        r = await client.get(f"{BC_BASE}{path}", headers=headers, params=params or {})
-        if r.status_code == 401:
-            refreshed = await _refresh()
-            if not refreshed:
-                return None
-            token = get_token("access_token")
-            headers["Authorization"] = f"Bearer {token}"
-            r = await client.get(f"{BC_BASE}{path}", headers=headers, params=params or {})
-        if r.status_code == 429:
-            import asyncio
-            wait = int(r.headers.get("Retry-After", "2"))
-            print(f"[bc] 429 rate limit on {path}, waiting {wait}s")
-            await asyncio.sleep(wait)
-            r = await client.get(f"{BC_BASE}{path}", headers=headers, params=params or {})
-        if r.status_code != 200:
-            print(f"[bc] {r.status_code} {path} — {r.text[:200]}")
+    client = get_http()
+    r = await client.get(f"{BC_BASE}{path}", headers=headers, params=params or {})
+    if r.status_code == 401:
+        refreshed = await _refresh()
+        if not refreshed:
             return None
-        return r.json()
+        token = get_token("access_token")
+        headers["Authorization"] = f"Bearer {token}"
+        r = await client.get(f"{BC_BASE}{path}", headers=headers, params=params or {})
+    if r.status_code == 429:
+        import asyncio
+        wait = int(r.headers.get("Retry-After", "2"))
+        print(f"[bc] 429 rate limit on {path}, waiting {wait}s")
+        await asyncio.sleep(wait)
+        r = await client.get(f"{BC_BASE}{path}", headers=headers, params=params or {})
+    if r.status_code != 200:
+        print(f"[bc] {r.status_code} {path} — {r.text[:200]}")
+        return None
+    return r.json()
 
 
 async def _get_raw_status(path: str) -> tuple[int, str]:
@@ -118,9 +127,8 @@ async def _get_raw_status(path: str) -> tuple[int, str]:
     if not token:
         return 0, "no token"
     headers = {"Authorization": f"Bearer {token}", "User-Agent": USER_AGENT}
-    async with httpx.AsyncClient(timeout=15) as client:
-        r = await client.get(f"{BC_BASE}{path}", headers=headers)
-        return r.status_code, r.text[:300]
+    r = await get_http().get(f"{BC_BASE}{path}", headers=headers)
+    return r.status_code, r.text[:300]
 
 
 async def _get_reports_assigned(person_id: str | int, page: int = 1) -> list:
