@@ -194,57 +194,25 @@ async def manual_refresh():
 
 @app.get("/api/debug")
 async def api_debug():
-    """Diagnostic endpoint — returns raw Basecamp data to check connectivity."""
+    """Diagnostic endpoint — returns raw Basecamp connectivity info."""
     token_present = bool(store.get_token("access_token"))
 
-    # Check raw status on the project endpoint
-    proj_status, proj_body = await bc._get_raw_status(f"/projects/{bc.CREATIVE_BUCKET_ID}.json")
+    # Test reports endpoint for Creative Team group
+    reports_status, reports_body = await bc._get_raw_status(
+        f"/reports/todos/assigned/{bc.CREATIVE_TEAM_GROUP_ID}.json"
+    )
+    unassigned = await bc.get_unassigned_todos()
 
-    # Also try listing all projects (first page) to confirm token works
-    all_projects = await bc._get("/projects.json")
-    project_names = [p.get("name") for p in (all_projects or [])[:10]] if isinstance(all_projects, list) else []
-
-    # Try the project fetch
-    project = await bc._get(f"/projects/{bc.CREATIVE_BUCKET_ID}.json")
-    dock_names = [d.get("name") for d in (project or {}).get("dock", [])] if project else []
-
-    # Get todolists
-    todolists = await bc._get_todolists_in_bucket(bc.CREATIVE_BUCKET_ID)
-    tl_sample = [{"id": t["id"], "title": t.get("title")} for t in (todolists or [])[:5]]
-
-    # First todolist todos
-    todos_sample = []
-    if todolists:
-        todos = await bc._get_todos_in_todolist(bc.CREATIVE_BUCKET_ID, str(todolists[0]["id"]))
-        todos_sample = [
-            {"id": t["id"], "content": t["content"][:60], "assignees": [a["id"] for a in t.get("assignees", [])]}
-            for t in (todos or [])[:5]
-        ]
-
-    # Test the reports/todos/assigned/44800196 endpoint directly
-    reports_status, reports_body = await bc._get_raw_status("/reports/todos/assigned/44800196.json")
-    reports_data = await bc._get("/reports/todos/assigned/44800196.json")
-    reports_sample = []
-    if isinstance(reports_data, dict):
-        todos_list = reports_data.get("todos", reports_data.get("data", []))
-        reports_sample = [{"id": t["id"], "content": t["content"][:60], "assignees": [a["id"] for a in t.get("assignees", [])]} for t in (todos_list or [])[:5]]
-    elif isinstance(reports_data, list):
-        reports_sample = [{"id": t["id"], "content": t["content"][:60], "assignees": [a["id"] for a in t.get("assignees", [])]} for t in reports_data[:5]]
+    # Test one designer
+    dexter_todos = await bc.get_designer_todos(44800252)
 
     return {
         "token_present": token_present,
-        "project_endpoint_status": proj_status,
-        "project_endpoint_body": proj_body,
-        "accessible_projects": project_names,
-        "project_found": bool(project),
-        "project_name": (project or {}).get("name"),
-        "dock_names": dock_names,
-        "todolist_count": len(todolists or []),
-        "todolist_sample": tl_sample,
-        "first_todolist_todos_sample": todos_sample,
-        "reports_44800196_status": reports_status,
-        "reports_44800196_body_snippet": reports_body,
-        "reports_44800196_sample": reports_sample,
+        "creative_team_reports_status": reports_status,
+        "unassigned_count": len(unassigned),
+        "unassigned_sample": unassigned[:3],
+        "dexter_todo_count": len(dexter_todos),
+        "dexter_sample": dexter_todos[:2],
     }
 
 

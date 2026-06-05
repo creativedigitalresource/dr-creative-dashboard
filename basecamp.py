@@ -9,11 +9,10 @@ CLIENT_SECRET = os.environ.get("BC_CLIENT_SECRET", "2c004a1b98104f5eebb8d5c1c16c
 REDIRECT_URI = os.environ.get("BC_REDIRECT_URI", "http://localhost:8000/auth/callback")
 USER_AGENT = "DR Creative Dashboard (richard.vargas@yourdigitalresource.com)"
 
-CREATIVE_BUCKET_ID = "35685312"
-IPM_BUCKET_ID = "35685957"
+# 44800196 = "Creative Team" group — todos assigned here need delegation
+CREATIVE_TEAM_GROUP_ID = "44800196"
 RICHARD_BC_ID = 49482127
 
-# Everhour uses b3:{todo_id} format
 SKIP_KEYWORDS = [
     "meeting hours", "weekly overdue", "creative sales", "goals",
     "vector files", "cowork", "🔁", "🚩 weekly", "bi-weekly",
@@ -52,8 +51,7 @@ async def exchange_code(code: str) -> bool:
         data = r.json()
         set_token("access_token", data["access_token"])
         set_token("refresh_token", data["refresh_token"])
-        expires_at = str(time.time() + int(data.get("expires_in", 1209600)))
-        set_token("expires_at", expires_at)
+        set_token("expires_at", str(time.time() + int(data.get("expires_in", 1209600))))
         return True
 
 
@@ -110,7 +108,6 @@ async def _get(path: str, params: dict | None = None) -> dict | list | None:
 
 
 async def _get_raw_status(path: str) -> tuple[int, str]:
-    """For debugging — returns (status_code, body_snippet)."""
     token = get_token("access_token")
     if not token:
         return 0, "no token"
@@ -120,129 +117,90 @@ async def _get_raw_status(path: str) -> tuple[int, str]:
         return r.status_code, r.text[:300]
 
 
-async def _get_all_pages(path: str) -> list:
-    """Fetch all pages from a paginated endpoint."""
+async def _get_reports_assigned(person_id: str | int, page: int = 1) -> list:
+    """Fetch one page of the assigned-todos report for a person/group."""
+    data = await _get(f"/reports/todos/assigned/{person_id}.json", {"page": page})
+    if not data:
+        return []
+    # Response is either a list or {"todos": [...]}
+    if isinstance(data, list):
+        return data
+    return data.get("todos", [])
+
+
+async def _get_all_reports_assigned(person_id: str | int) -> list:
+    """Fetch ALL pages of assigned todos for a person/group."""
     results = []
     page = 1
     while True:
-        data = await _get(path, {"page": page, "per_page": 100})
-        if not data:
+        page_data = await _get_reports_assigned(person_id, page)
+        if not page_data:
             break
-        if isinstance(data, list):
-            results.extend(data)
-            if len(data) < 100:
-                break
-        else:
+        results.extend(page_data)
+        if len(page_data) < 50:  # Basecamp returns up to 50 per page on reports
             break
         page += 1
     return results
 
 
 async def get_comments(bucket_id: str, todo_id: str) -> list:
-    data = await _get_all_pages(f"/buckets/{bucket_id}/recordings/{todo_id}/comments.json")
-    return data or []
-
-
-async def _get_todos_in_todolist(bucket_id: str, todolist_id: str) -> list:
-    return await _get_all_pages(
-        f"/buckets/{bucket_id}/todolists/{todolist_id}/todos.json"
-    )
-
-
-async def _get_todolists_in_bucket(bucket_id: str) -> list:
-    """Get ALL todosets for a bucket, then collect all todolists from each."""
-    project = await _get(f"/projects/{bucket_id}.json")
-    if not project:
+    data = await _get(f"/buckets/{bucket_id}/recordings/{todo_id}/comments.json")
+    if not data:
         return []
-
-    # A project can have multiple todosets — collect all of them
-    todoset_urls = [
-        item.get("url", "")
-        for item in project.get("dock", [])
-        if item.get("name") == "todoset" and item.get("url")
-    ]
-    if not todoset_urls:
-        return []
-
-    all_todolists = []
-    for ts_url in todoset_urls:
-        path = ts_url.replace(BC_BASE, "")
-        todoset = await _get(path)
-        if not todoset:
-            continue
-        todolists_url = todoset.get("todolists_url", "")
-        if not todolists_url:
-            continue
-        path2 = todolists_url.replace(BC_BASE, "")
-        lists = await _get_all_pages(path2)
-        all_todolists.extend(lists or [])
-
-    return all_todolists
+    if isinstance(data, list):
+        return data
+    return data.get("comments", [])
 
 
 async def get_unassigned_todos() -> list:
-    """
-    Todos in the Creative bucket that are incomplete and unassigned
-    (or only assigned to Richard — meaning not yet delegated to a designer).
-    """
-    designer_ids = {44800252, 45896266, 46567979, 48051100, 52244353, 52471282, 46905124}
-
-    todolists = await _get_todolists_in_bucket(CREATIVE_BUCKET_ID)
+    """Todos assigned to the Creative Team group — these need delegation."""
+    todos = await _get_all_reports_assigned(CREATIVE_TEAM_GROUP_ID)
     result = []
-
-    for tl in todolists:
-        tl_id = str(tl["id"])
-        todos = await _get_todos_in_todolist(CREATIVE_BUCKET_ID, tl_id)
-        for t in todos:
-            if t.get("completed"):
-                continue
-            if _is_skip(t.get("content", "")):
-                continue
-            assignee_ids = {a["id"] for a in t.get("assignees", [])}
-            # Include if no assignees, or only Richard is assigned
-            if not assignee_ids or assignee_ids == {RICHARD_BC_ID}:
-                result.append({
-                    "id": t["id"],
-                    "title": t["content"],
-                    "due_on": t.get("due_on"),
-                    "todolist_name": tl.get("title", ""),
-                    "bucket_id": CREATIVE_BUCKET_ID,
-                    "url": t.get("app_url", ""),
-                })
-
+    for t in todos:
+        if t.get("completed"):
+            continue
+        if _is_skip(t.get("content", "")):
+            continue
+        bucket = t.get("bucket", {})
+        result.append({
+            "id": t["id"],
+            "title": t["content"],
+            "due_on": t.get("due_on"),
+            "todolist_name": t.get("parent", {}).get("title", ""),
+            "bucket_id": str(bucket.get("id", "")),
+            "bucket_name": bucket.get("name", ""),
+            "url": t.get("app_url", ""),
+        })
     return result
 
 
 async def get_designer_todos(designer_bc_id: int) -> list:
-    """All incomplete todos assigned to a specific designer across both buckets."""
-    from parsers import parse_todo_fields, strip_html
+    """All incomplete todos assigned to a specific designer via the reports API."""
+    from parsers import parse_todo_fields
 
+    todos = await _get_all_reports_assigned(designer_bc_id)
     results = []
-    for bucket_id in [CREATIVE_BUCKET_ID, IPM_BUCKET_ID]:
-        todolists = await _get_todolists_in_bucket(bucket_id)
-        for tl in todolists:
-            tl_id = str(tl["id"])
-            todos = await _get_todos_in_todolist(bucket_id, tl_id)
-            for t in todos:
-                if t.get("completed"):
-                    continue
-                if _is_skip(t.get("content", "")):
-                    continue
-                assignee_ids = {a["id"] for a in t.get("assignees", [])}
-                if designer_bc_id not in assignee_ids:
-                    continue
+    for t in todos:
+        if t.get("completed"):
+            continue
+        if _is_skip(t.get("content", "")):
+            continue
 
-                comments = await get_comments(bucket_id, str(t["id"]))
-                fields = parse_todo_fields(t["content"], comments)
+        bucket = t.get("bucket", {})
+        bucket_id = str(bucket.get("id", ""))
 
-                results.append({
-                    "id": t["id"],
-                    "title": t["content"],
-                    "due_on": t.get("due_on"),
-                    "bucket_id": bucket_id,
-                    "todolist_name": tl.get("title", ""),
-                    "url": t.get("app_url", ""),
-                    **fields,
-                })
+        comments = await get_comments(bucket_id, str(t["id"])) if bucket_id else []
+        fields = parse_todo_fields(t["content"], comments)
+
+        results.append({
+            "id": t["id"],
+            "title": t["content"],
+            "due_on": t.get("due_on"),
+            "bucket_id": bucket_id,
+            "bucket_name": bucket.get("name", ""),
+            "todolist_name": t.get("parent", {}).get("title", ""),
+            "url": t.get("app_url", ""),
+            **fields,
+        })
 
     return results
