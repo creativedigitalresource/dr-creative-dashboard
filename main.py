@@ -221,6 +221,16 @@ async def api_debug():
             for t in (todos or [])[:5]
         ]
 
+    # Test the reports/todos/assigned/44800196 endpoint directly
+    reports_status, reports_body = await bc._get_raw_status("/reports/todos/assigned/44800196.json")
+    reports_data = await bc._get("/reports/todos/assigned/44800196.json")
+    reports_sample = []
+    if isinstance(reports_data, dict):
+        todos_list = reports_data.get("todos", reports_data.get("data", []))
+        reports_sample = [{"id": t["id"], "content": t["content"][:60], "assignees": [a["id"] for a in t.get("assignees", [])]} for t in (todos_list or [])[:5]]
+    elif isinstance(reports_data, list):
+        reports_sample = [{"id": t["id"], "content": t["content"][:60], "assignees": [a["id"] for a in t.get("assignees", [])]} for t in reports_data[:5]]
+
     return {
         "token_present": token_present,
         "project_endpoint_status": proj_status,
@@ -232,6 +242,9 @@ async def api_debug():
         "todolist_count": len(todolists or []),
         "todolist_sample": tl_sample,
         "first_todolist_todos_sample": todos_sample,
+        "reports_44800196_status": reports_status,
+        "reports_44800196_body_snippet": reports_body,
+        "reports_44800196_sample": reports_sample,
     }
 
 
