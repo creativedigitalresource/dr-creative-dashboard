@@ -165,8 +165,9 @@ async def get_comments(bucket_id: str, todo_id: str) -> list:
 
 
 async def get_unassigned_todos() -> list:
-    """Todos assigned to the Creative Team group — these need delegation."""
-    todos = await _get_all_reports_assigned(CREATIVE_TEAM_GROUP_ID)
+    """Todos assigned to the Creative Team group — these need delegation.
+    Fetches page 1 only (50 most recent) to avoid timeouts on large groups."""
+    todos = await _get_reports_assigned(CREATIVE_TEAM_GROUP_ID, page=1)
     result = []
     for t in todos:
         if t.get("completed"):
