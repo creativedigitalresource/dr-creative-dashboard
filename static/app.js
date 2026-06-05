@@ -92,6 +92,9 @@ async function loadUnassigned() {
 }
 
 let _designerData = [];
+let _workloadFilter = "all";
+let _splitViewActive = false;
+let _splitCalendar = null;
 
 async function loadDesigners() {
   const designers = await fetch("/api/designers").then(r => r.json()).catch(() => []);
@@ -105,9 +108,127 @@ async function loadDesigners() {
 }
 
 function renderDesignerGrid(designers) {
-  document.getElementById("designer-grid").innerHTML =
-    designers.map(d => renderDesignerCard(d, !!_completedToggleState[d.bc_id])).join("");
+  const filtered = _workloadFilter === "all"
+    ? designers
+    : designers.filter(d => String(d.bc_id) === _workloadFilter);
+
+  if (_splitViewActive && filtered.length === 1) {
+    renderSplitView(filtered[0]);
+  } else {
+    hide("split-view");
+    show("designer-grid");
+    document.getElementById("designer-grid").innerHTML =
+      filtered.map(d => renderDesignerCard(d, !!_completedToggleState[d.bc_id])).join("");
+  }
+
   populateDesignerDropdown();
+  populateWorkloadDropdown();
+}
+
+function populateWorkloadDropdown() {
+  const sel = document.getElementById("workload-filter");
+  if (!sel) return;
+  const cur = sel.value;
+  while (sel.options.length > 1) sel.remove(1);
+  for (const d of _designerData || []) {
+    const opt = document.createElement("option");
+    opt.value = d.bc_id;
+    opt.textContent = d.name;
+    sel.appendChild(opt);
+  }
+  sel.value = cur || "all";
+}
+
+function onWorkloadFilterChange() {
+  const sel = document.getElementById("workload-filter");
+  _workloadFilter = sel ? sel.value : "all";
+  const splitBtn = document.getElementById("split-btn");
+  if (_workloadFilter !== "all") {
+    splitBtn.classList.remove("hidden");
+  } else {
+    splitBtn.classList.add("hidden");
+    _splitViewActive = false;
+  }
+  renderDesignerGrid(_designerData);
+}
+
+function toggleSplitView() {
+  _splitViewActive = !_splitViewActive;
+  const btn = document.getElementById("split-btn");
+  btn.textContent = _splitViewActive ? "⊡ Single View" : "⊟ Split View";
+  renderDesignerGrid(_designerData);
+}
+
+// ---------------------------------------------------------------------------
+// Split view
+// ---------------------------------------------------------------------------
+
+function renderSplitView(d) {
+  hide("designer-grid");
+  show("split-view");
+
+  // Left: designer card
+  document.getElementById("split-card-wrap").innerHTML =
+    renderDesignerCard(d, !!_completedToggleState[d.bc_id]);
+
+  // Right: calendar
+  if (!_splitCalendar) {
+    _splitCalendar = new FullCalendar.Calendar(document.getElementById("split-calendar"), {
+      initialView: "timeGridWeek",
+      headerToolbar: { left: "prev,next today", center: "title", right: "" },
+      height: "calc(100vh - 220px)",
+      slotMinTime: "08:00:00",
+      slotMaxTime: "18:00:00",
+      slotDuration: "00:30:00",
+      nowIndicator: true,
+      eventClick(info) {
+        const p = info.event.extendedProps;
+        if (p.url) window.open(p.url, "_blank");
+      },
+      eventDidMount(info) {
+        const p = info.event.extendedProps;
+        if (!p.fullTitle) return;
+        info.el.title = [p.fullTitle, p.hdd ? `HDD: ${fmtDate(p.hdd)}` : "",
+          p.est ? `EST: ${p.est}h` : "", p.logged ? `Logged: ${p.logged}h` : ""].filter(Boolean).join("\n");
+      },
+      datesSet() { updateSplitCapBar(d); },
+    });
+    _splitCalendar.render();
+  }
+
+  _splitCalendar.removeAllEvents();
+  _splitCalendar.addEventSource(scheduleDesignerEvents(d));
+  updateSplitCapBar(d);
+}
+
+function updateSplitCapBar(d) {
+  const wrap = document.getElementById("split-cap-bar");
+  if (!wrap || !_splitCalendar) return;
+  const view = _splitCalendar.view;
+  if (!view) return;
+
+  const viewStart = view.currentStart.toISOString().split("T")[0];
+  const viewEndDate = new Date(view.currentEnd);
+  viewEndDate.setDate(viewEndDate.getDate() - 1);
+  const viewEnd = viewEndDate.toISOString().split("T")[0];
+
+  const ptoDatesInView = (d.pto || []).filter(p => p.date >= viewStart && p.date <= viewEnd).length;
+  const cap = Math.max(0, (5 - ptoDatesInView) * 7);
+
+  const scheduled = (d.todos || []).filter(t => !t.completed_on).reduce((sum, t) => {
+    if (!t.hdd || !t.total_hours) return sum;
+    const anchor = t.start_date || t.hdd;
+    if (anchor >= viewStart && anchor <= viewEnd) return sum + t.total_hours;
+    return sum;
+  }, 0);
+
+  const pct = cap > 0 ? Math.min(100, Math.round(scheduled / cap * 100)) : 100;
+  const barCls = pct < 60 ? "low" : pct < 85 ? "mid" : "high";
+  wrap.innerHTML = `
+    <div class="cal-cap-label">${d.name} &middot; ${Math.round(scheduled*10)/10}h / ${cap}h available${ptoDatesInView ? ` (${ptoDatesInView} OOO)` : ""}</div>
+    <div class="cap-bar-outer" style="width:260px"><div class="cap-bar-inner ${barCls}" style="width:${pct}%"></div></div>
+    <span style="font-size:12px;color:var(--text-muted)">${pct}% booked</span>
+  `;
 }
 
 // loadCalendar — defined below in the calendar section

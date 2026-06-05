@@ -65,12 +65,26 @@
 
       <!-- Tab 2: Designer Workload -->
       <div id="tab-designers" class="tab-panel">
-        <div class="panel-header">
+        <div class="panel-header" style="flex-wrap:wrap;gap:10px">
           <h2>Designer Workload</h2>
-          <span class="panel-hint">6-week rolling view &middot; 35h/week capacity</span>
+          <select id="workload-filter" class="cal-filter-select" onchange="onWorkloadFilterChange()">
+            <option value="all">All Designers</option>
+          </select>
+          <button id="split-btn" class="btn btn-ghost btn-sm hidden" onclick="toggleSplitView()">⊟ Split View</button>
         </div>
+
+        <!-- Normal grid -->
         <div id="designer-grid" class="designer-grid">
           <div class="loading-card">Loading team data...</div>
+        </div>
+
+        <!-- Split view: task list + calendar side by side -->
+        <div id="split-view" class="split-view hidden">
+          <div class="split-left" id="split-card-wrap"></div>
+          <div class="split-right">
+            <div id="split-cap-bar" class="cal-capacity-wrap"></div>
+            <div id="split-calendar"></div>
+          </div>
         </div>
       </div>
 

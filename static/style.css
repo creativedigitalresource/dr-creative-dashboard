@@ -373,6 +373,30 @@ body { min-height: 100vh; }
 }
 .completed-toggle:hover { color: var(--text); }
 
+/* ---- Split view ---- */
+.split-view {
+  display: grid;
+  grid-template-columns: 440px 1fr;
+  gap: 20px;
+  height: calc(100vh - 180px);
+}
+.split-left {
+  overflow-y: auto;
+  padding-right: 4px;
+}
+.split-left .designer-card {
+  height: 100%;
+}
+.split-right {
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
+}
+#split-calendar {
+  flex: 1;
+  min-height: 0;
+}
+
 /* ---- Calendar filter ---- */
 .cal-filter-select {
   padding: 6px 12px;
