@@ -42,60 +42,59 @@ DAILY_CAP = 7.0
 WEEKLY_CAP = DAILY_CAP * 5  # 35h
 
 
-async def _build_designer(d: dict, start_dates: dict, week_start: str, week_end: str) -> dict:
-    todos = await bc.get_designer_todos(d["bc_id"])
-
-    # Fetch Everhour time concurrently, but never let failures kill the designer card
-    if todos and eh.EH_KEY:
-        raw_logged = await asyncio.gather(
-            *[eh.get_time_logged(t["id"]) for t in todos],
-            return_exceptions=True,
-        )
-        logged_list = [v if isinstance(v, float) else 0.0 for v in raw_logged]
-    else:
-        logged_list = [0.0] * len(todos)
-
-    enriched = []
-    for t, logged in zip(todos, logged_list):
-        total = t.get("total_hours") or 0
-        progress = min(100, round((logged / total * 100) if total > 0 else 0))
-        sd = start_dates.get(str(t["id"]))
-        enriched.append({**t, "logged": logged, "progress": progress, "start_date": sd})
-
-    weekly_est = sum(
-        t.get("total_hours", 0)
-        for t in enriched
-        if t.get("hdd") and week_start <= t["hdd"] <= week_end
-    )
-    capacity_pct = min(100, round(weekly_est / WEEKLY_CAP * 100))
-    return {
-        **d,
-        "todos": enriched,
-        "weekly_est": round(weekly_est, 1),
-        "weekly_cap": WEEKLY_CAP,
-        "capacity_pct": capacity_pct,
-    }
-
-
 async def _refresh_all():
     today = date.today()
     week_start = (today - timedelta(days=today.weekday())).isoformat()
     week_end = (today + timedelta(days=4 - today.weekday())).isoformat()
     start_dates = store.get_all_start_dates()
 
-    # Fetch unassigned + all designers concurrently
-    results = await asyncio.gather(
-        bc.get_unassigned_todos(),
-        *[_build_designer(d, start_dates, week_start, week_end) for d in DESIGNERS],
-        return_exceptions=True,
-    )
+    # --- Unassigned ---
+    try:
+        unassigned = await bc.get_unassigned_todos()
+    except Exception as e:
+        print(f"[refresh] unassigned error: {e}")
+        unassigned = []
 
-    unassigned = results[0] if not isinstance(results[0], Exception) else []
-    designers_out = [r for r in results[1:] if not isinstance(r, Exception)]
+    # --- Designers (sequential — avoids concurrent connection limits) ---
+    designers_out = []
+    for d in DESIGNERS:
+        try:
+            todos = await bc.get_designer_todos(d["bc_id"])
+            enriched = []
+            for t in todos:
+                logged = 0.0
+                if eh.EH_KEY:
+                    try:
+                        logged = await eh.get_time_logged(t["id"])
+                    except Exception:
+                        pass
+                total = t.get("total_hours") or 0
+                progress = min(100, round((logged / total * 100) if total > 0 else 0))
+                sd = start_dates.get(str(t["id"]))
+                enriched.append({**t, "logged": logged, "progress": progress, "start_date": sd})
+
+            weekly_est = sum(
+                t.get("total_hours", 0)
+                for t in enriched
+                if t.get("hdd") and week_start <= t["hdd"] <= week_end
+            )
+            capacity_pct = min(100, round(weekly_est / WEEKLY_CAP * 100))
+            designers_out.append({
+                **d,
+                "todos": enriched,
+                "weekly_est": round(weekly_est, 1),
+                "weekly_cap": WEEKLY_CAP,
+                "capacity_pct": capacity_pct,
+            })
+            print(f"[refresh] {d['name']}: {len(enriched)} todos")
+        except Exception as e:
+            print(f"[refresh] {d['name']} error: {e}")
+            designers_out.append({**d, "todos": [], "weekly_est": 0, "weekly_cap": WEEKLY_CAP, "capacity_pct": 0})
 
     _cached_data["unassigned"] = unassigned
     _cached_data["designers"] = designers_out
     _cached_data["last_updated"] = time.time()
+    print(f"[refresh] complete — {len(unassigned)} unassigned, {len(designers_out)} designers")
 
     await _broadcast("update", {"ts": _cached_data["last_updated"]})
 
@@ -116,8 +115,12 @@ async def _poll_loop():
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     store.init_db()
-    asyncio.create_task(_poll_loop())
+    print("[startup] DB ready, launching poll loop")
+    task = asyncio.create_task(_poll_loop())
+    await asyncio.sleep(0)  # yield to event loop so task can start
+    print(f"[startup] poll task created: {task}")
     yield
+    task.cancel()
 
 
 app = FastAPI(lifespan=lifespan)
