@@ -78,15 +78,15 @@ async function loadUnassigned() {
   }
   tbody.innerHTML = todos.map(t => {
     const due = t.due_on ? formatDue(t.due_on) : "";
+    const assigned = t.created_at
+      ? new Date(t.created_at).toLocaleDateString("en-US", { month: "short", day: "numeric", year: "numeric" })
+      : "";
     return `<tr>
-      <td>
-        <div class="todo-title">${esc(t.title)}</div>
-      </td>
+      <td><div class="todo-title">${esc(t.title)}</div></td>
       <td><span class="todolist-name">${esc(t.todolist_name)}</span></td>
+      <td><span class="due-date">${assigned}</span></td>
       <td><span class="due-date ${dueCls(t.due_on)}">${due}</span></td>
-      <td>
-        ${t.url ? `<a href="${t.url}" target="_blank" class="link-btn" title="Open in Basecamp">↗</a>` : ""}
-      </td>
+      <td>${t.url ? `<a href="${t.url}" target="_blank" class="link-btn" title="Open in Basecamp">↗</a>` : ""}</td>
     </tr>`;
   }).join("");
 }
