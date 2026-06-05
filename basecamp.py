@@ -142,18 +142,16 @@ async def _get_reports_assigned(person_id: str | int, page: int = 1) -> list:
     return data.get("todos", [])
 
 
-async def _get_all_reports_assigned(person_id: str | int) -> list:
-    """Fetch ALL pages of assigned todos for a person/group."""
+async def _get_all_reports_assigned(person_id: str | int, max_pages: int = 2) -> list:
+    """Fetch up to max_pages of assigned todos for a person/group."""
     results = []
-    page = 1
-    while True:
+    for page in range(1, max_pages + 1):
         page_data = await _get_reports_assigned(person_id, page)
         if not page_data:
             break
         results.extend(page_data)
-        if len(page_data) < 50:  # Basecamp returns up to 50 per page on reports
+        if len(page_data) < 50:
             break
-        page += 1
     return results
 
 
