@@ -2,31 +2,15 @@ import asyncio, json, os, time
 from datetime import date, timedelta
 from contextlib import asynccontextmanager
 
-from fastapi import FastAPI, Request, Response
-from fastapi.responses import HTMLResponse, JSONResponse, RedirectResponse, StreamingResponse
+from fastapi import FastAPI, Request
+from fastapi.responses import HTMLResponse, RedirectResponse, StreamingResponse
 from fastapi.staticfiles import StaticFiles
 
 import store, basecamp as bc, everhour as eh
 
-# ---------------------------------------------------------------------------
-# App lifecycle
-# ---------------------------------------------------------------------------
-
-_sse_clients: list[asyncio.Queue] = []
 _cached_data: dict = {}
-
-
-async def _broadcast(event: str, data: dict):
-    msg = f"event: {event}\ndata: {json.dumps(data)}\n\n"
-    dead = []
-    for q in _sse_clients:
-        try:
-            q.put_nowait(msg)
-        except asyncio.QueueFull:
-            dead.append(q)
-    for q in dead:
-        _sse_clients.remove(q)
-
+_sse_clients: list[asyncio.Queue] = []
+_refresh_running = False
 
 DESIGNERS = [
     {"name": "Dexter",   "bc_id": 44800252, "eh_id": 1327353,  "color": "#3b82f6"},
@@ -38,29 +22,43 @@ DESIGNERS = [
     {"name": "Melany",   "bc_id": 46905124, "eh_id": None,     "color": "#ef4444"},
 ]
 
-DAILY_CAP = 7.0
-WEEKLY_CAP = DAILY_CAP * 5  # 35h
+WEEKLY_CAP = 35.0
+CACHE_TTL = 300  # 5 minutes
 
+
+# ---------------------------------------------------------------------------
+# Data refresh — runs once per manual trigger, not in a loop
+# ---------------------------------------------------------------------------
 
 async def _refresh_all():
+    global _refresh_running
+    if _refresh_running:
+        print("[refresh] already running, skipping")
+        return
+    _refresh_running = True
+    try:
+        await _do_refresh()
+    finally:
+        _refresh_running = False
+
+
+async def _do_refresh():
     today = date.today()
     week_start = (today - timedelta(days=today.weekday())).isoformat()
     week_end = (today + timedelta(days=4 - today.weekday())).isoformat()
     start_dates = store.get_all_start_dates()
 
-    # --- Unassigned ---
     print("[refresh] fetching unassigned...")
     try:
         unassigned = await asyncio.wait_for(bc.get_unassigned_todos(), timeout=25.0)
-        print(f"[refresh] unassigned done: {len(unassigned)}")
+        print(f"[refresh] unassigned: {len(unassigned)}")
     except asyncio.TimeoutError:
-        print("[refresh] unassigned TIMED OUT after 25s")
-        unassigned = []
+        print("[refresh] unassigned timed out")
+        unassigned = _cached_data.get("unassigned", [])
     except Exception as e:
         print(f"[refresh] unassigned error: {type(e).__name__}: {e}")
-        unassigned = []
+        unassigned = _cached_data.get("unassigned", [])
 
-    # --- Designers (sequential — avoids concurrent connection limits) ---
     designers_out = []
     for d in DESIGNERS:
         print(f"[refresh] fetching {d['name']}...")
@@ -71,68 +69,64 @@ async def _refresh_all():
                 logged = 0.0
                 if eh.EH_KEY:
                     try:
-                        logged = await eh.get_time_logged(t["id"])
+                        logged = await asyncio.wait_for(eh.get_time_logged(t["id"]), timeout=5.0)
                     except Exception:
                         pass
                 total = t.get("total_hours") or 0
                 progress = min(100, round((logged / total * 100) if total > 0 else 0))
-                sd = start_dates.get(str(t["id"]))
-                enriched.append({**t, "logged": logged, "progress": progress, "start_date": sd})
-
-            weekly_est = sum(
-                t.get("total_hours", 0)
-                for t in enriched
-                if t.get("hdd") and week_start <= t["hdd"] <= week_end
-            )
+                enriched.append({**t, "logged": logged, "progress": progress,
+                                  "start_date": start_dates.get(str(t["id"]))})
+            weekly_est = sum(t.get("total_hours", 0) for t in enriched
+                             if t.get("hdd") and week_start <= t["hdd"] <= week_end)
             capacity_pct = min(100, round(weekly_est / WEEKLY_CAP * 100))
-            designers_out.append({
-                **d,
-                "todos": enriched,
-                "weekly_est": round(weekly_est, 1),
-                "weekly_cap": WEEKLY_CAP,
-                "capacity_pct": capacity_pct,
-            })
+            designers_out.append({**d, "todos": enriched,
+                                   "weekly_est": round(weekly_est, 1),
+                                   "weekly_cap": WEEKLY_CAP,
+                                   "capacity_pct": capacity_pct})
             print(f"[refresh] {d['name']}: {len(enriched)} todos")
         except asyncio.TimeoutError:
-            print(f"[refresh] {d['name']} TIMED OUT after 25s")
-            designers_out.append({**d, "todos": [], "weekly_est": 0, "weekly_cap": WEEKLY_CAP, "capacity_pct": 0})
+            print(f"[refresh] {d['name']} timed out")
+            designers_out.append({**d, "todos": [], "weekly_est": 0,
+                                   "weekly_cap": WEEKLY_CAP, "capacity_pct": 0})
         except Exception as e:
             print(f"[refresh] {d['name']} error: {type(e).__name__}: {e}")
-            designers_out.append({**d, "todos": [], "weekly_est": 0, "weekly_cap": WEEKLY_CAP, "capacity_pct": 0})
+            designers_out.append({**d, "todos": [], "weekly_est": 0,
+                                   "weekly_cap": WEEKLY_CAP, "capacity_pct": 0})
 
     _cached_data["unassigned"] = unassigned
     _cached_data["designers"] = designers_out
     _cached_data["last_updated"] = time.time()
-    print(f"[refresh] complete — {len(unassigned)} unassigned, {len(designers_out)} designers")
+    print(f"[refresh] done — {len(unassigned)} unassigned, {len(designers_out)} designers")
 
-    await _broadcast("update", {"ts": _cached_data["last_updated"]})
-
-
-async def _poll_loop():
-    while True:
+    msg = f"event: update\ndata: {json.dumps({'ts': _cached_data['last_updated']})}\n\n"
+    dead = []
+    for q in _sse_clients:
         try:
-            print("[poll] starting refresh...")
-            await _refresh_all()
-            print(f"[poll] done — {len(_cached_data.get('designers', []))} designers, {len(_cached_data.get('unassigned', []))} unassigned")
-        except Exception as e:
-            import traceback
-            print(f"[poll] ERROR: {e}")
-            traceback.print_exc()
-        await asyncio.sleep(int(os.environ.get("POLL_INTERVAL", 60)))
+            q.put_nowait(msg)
+        except asyncio.QueueFull:
+            dead.append(q)
+    for q in dead:
+        _sse_clients.remove(q)
 
+
+def _cache_is_stale() -> bool:
+    last = _cached_data.get("last_updated")
+    return not last or (time.time() - last) > CACHE_TTL
+
+
+# ---------------------------------------------------------------------------
+# App lifecycle — no background loop
+# ---------------------------------------------------------------------------
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     store.init_db()
-    print("[startup] DB ready, launching poll loop")
-    task = asyncio.create_task(_poll_loop())
-    await asyncio.sleep(0)  # yield to event loop so task can start
-    print(f"[startup] poll task created: {task}")
+    print("[startup] ready")
     yield
-    task.cancel()
 
 
 app = FastAPI(lifespan=lifespan)
+
 
 # ---------------------------------------------------------------------------
 # Auth
@@ -159,11 +153,18 @@ async def auth_callback(code: str):
 @app.get("/api/status")
 async def api_status():
     token = store.get_token("access_token")
-    return {"authenticated": bool(token), "last_updated": _cached_data.get("last_updated")}
+    return {
+        "authenticated": bool(token),
+        "last_updated": _cached_data.get("last_updated"),
+        "refreshing": _refresh_running,
+        "stale": _cache_is_stale(),
+    }
 
 
 @app.get("/api/unassigned")
 async def api_unassigned():
+    if _cache_is_stale() and not _refresh_running:
+        asyncio.create_task(_refresh_all())
     return _cached_data.get("unassigned", [])
 
 
@@ -213,65 +214,40 @@ async def set_start_date(todo_id: str, request: Request):
 @app.post("/api/refresh")
 async def manual_refresh():
     asyncio.create_task(_refresh_all())
-    return {"ok": True}
+    return {"ok": True, "refreshing": True}
 
 
 @app.get("/api/test")
 async def api_test():
-    """Lightweight test — one API call, immediate result."""
     import sys
     token = store.get_token("access_token")
     if not token:
-        return {"error": "no token — need to login first", "python": sys.version}
-    # One direct call, no parsing
+        return {"error": "no token", "python": sys.version}
     status, body = await bc._get_raw_status("/reports/todos/assigned/44800252.json")
     return {
         "python": sys.version,
         "token_present": True,
         "dexter_status": status,
         "dexter_body_snippet": body[:200],
-        "poll_ran": "designers" in _cached_data,
+        "data_loaded": "designers" in _cached_data,
         "designer_count": len(_cached_data.get("designers", [])),
         "unassigned_count": len(_cached_data.get("unassigned", [])),
-    }
-
-
-@app.get("/api/debug")
-async def api_debug():
-    """Diagnostic endpoint — returns raw Basecamp connectivity info."""
-    token_present = bool(store.get_token("access_token"))
-
-    # Test reports endpoint for Creative Team group
-    reports_status, reports_body = await bc._get_raw_status(
-        f"/reports/todos/assigned/{bc.CREATIVE_TEAM_GROUP_ID}.json"
-    )
-    unassigned = await bc.get_unassigned_todos()
-
-    # Test one designer
-    dexter_todos = await bc.get_designer_todos(44800252)
-
-    return {
-        "token_present": token_present,
-        "creative_team_reports_status": reports_status,
-        "unassigned_count": len(unassigned),
-        "unassigned_sample": unassigned[:3],
-        "dexter_todo_count": len(dexter_todos),
-        "dexter_sample": dexter_todos[:2],
+        "refreshing": _refresh_running,
+        "stale": _cache_is_stale(),
     }
 
 
 # ---------------------------------------------------------------------------
-# SSE
+# SSE — push notification when refresh completes
 # ---------------------------------------------------------------------------
 
 @app.get("/api/stream")
 async def sse_stream():
-    q: asyncio.Queue = asyncio.Queue(maxsize=20)
+    q: asyncio.Queue = asyncio.Queue(maxsize=10)
     _sse_clients.append(q)
 
     async def generator():
-        # Send current state immediately on connect
-        yield f"event: init\ndata: {json.dumps({'ts': _cached_data.get('last_updated', 0)})}\n\n"
+        yield f"event: init\ndata: {json.dumps({'ts': _cached_data.get('last_updated', 0), 'refreshing': _refresh_running})}\n\n"
         try:
             while True:
                 msg = await asyncio.wait_for(q.get(), timeout=30)
@@ -282,18 +258,12 @@ async def sse_stream():
             if q in _sse_clients:
                 _sse_clients.remove(q)
 
-    return StreamingResponse(
-        generator(),
-        media_type="text/event-stream",
-        headers={
-            "Cache-Control": "no-cache",
-            "X-Accel-Buffering": "no",
-        },
-    )
+    return StreamingResponse(generator(), media_type="text/event-stream",
+                             headers={"Cache-Control": "no-cache", "X-Accel-Buffering": "no"})
 
 
 # ---------------------------------------------------------------------------
-# Serve frontend
+# Frontend
 # ---------------------------------------------------------------------------
 
 app.mount("/static", StaticFiles(directory="static"), name="static")

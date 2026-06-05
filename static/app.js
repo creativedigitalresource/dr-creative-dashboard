@@ -10,6 +10,8 @@ let _modalTodoTitle = "";
 // Boot
 // ---------------------------------------------------------------------------
 
+let _pollTimer = null;
+
 async function boot() {
   const status = await fetch("/api/status").then(r => r.json()).catch(() => null);
   if (!status || !status.authenticated) {
@@ -22,26 +24,38 @@ async function boot() {
   initTabs();
   initCalendar();
   connectSSE();
-  loadAll();
+  // If data is stale or missing, hitting /api/unassigned will auto-trigger a refresh
+  await loadAll();
+  // If still loading, start polling until data arrives
+  if (!status.last_updated || status.stale) {
+    startPolling();
+  }
+}
+
+function startPolling() {
+  if (_pollTimer) return;
+  _pollTimer = setInterval(async () => {
+    const s = await fetch("/api/status").then(r => r.json()).catch(() => null);
+    if (!s) return;
+    if (!s.refreshing && s.last_updated) {
+      clearInterval(_pollTimer);
+      _pollTimer = null;
+      await loadAll();
+    }
+  }, 3000);
 }
 
 // ---------------------------------------------------------------------------
-// SSE
+// SSE — only used to push update notifications when refresh completes
 // ---------------------------------------------------------------------------
 
 function connectSSE() {
-  const dot = document.createElement("span");
-  dot.className = "live-dot";
-  document.getElementById("auth-status").appendChild(dot);
-
   const es = new EventSource("/api/stream");
-  es.addEventListener("update", () => loadAll());
-  es.addEventListener("init", () => loadAll());
-  es.onerror = () => {
-    dot.style.background = "var(--danger)";
-    setTimeout(connectSSE, 5000);
-    es.close();
-  };
+  es.addEventListener("update", async () => {
+    if (_pollTimer) { clearInterval(_pollTimer); _pollTimer = null; }
+    await loadAll();
+  });
+  es.onerror = () => { setTimeout(connectSSE, 10000); es.close(); };
 }
 
 // ---------------------------------------------------------------------------
