@@ -51,10 +51,13 @@ async def _refresh_all():
     # --- Unassigned ---
     print("[refresh] fetching unassigned...")
     try:
-        unassigned = await bc.get_unassigned_todos()
+        unassigned = await asyncio.wait_for(bc.get_unassigned_todos(), timeout=25.0)
         print(f"[refresh] unassigned done: {len(unassigned)}")
+    except asyncio.TimeoutError:
+        print("[refresh] unassigned TIMED OUT after 25s")
+        unassigned = []
     except Exception as e:
-        print(f"[refresh] unassigned error: {e}")
+        print(f"[refresh] unassigned error: {type(e).__name__}: {e}")
         unassigned = []
 
     # --- Designers (sequential — avoids concurrent connection limits) ---
@@ -62,7 +65,7 @@ async def _refresh_all():
     for d in DESIGNERS:
         print(f"[refresh] fetching {d['name']}...")
         try:
-            todos = await bc.get_designer_todos(d["bc_id"])
+            todos = await asyncio.wait_for(bc.get_designer_todos(d["bc_id"]), timeout=25.0)
             enriched = []
             for t in todos:
                 logged = 0.0
@@ -90,8 +93,11 @@ async def _refresh_all():
                 "capacity_pct": capacity_pct,
             })
             print(f"[refresh] {d['name']}: {len(enriched)} todos")
+        except asyncio.TimeoutError:
+            print(f"[refresh] {d['name']} TIMED OUT after 25s")
+            designers_out.append({**d, "todos": [], "weekly_est": 0, "weekly_cap": WEEKLY_CAP, "capacity_pct": 0})
         except Exception as e:
-            print(f"[refresh] {d['name']} error: {e}")
+            print(f"[refresh] {d['name']} error: {type(e).__name__}: {e}")
             designers_out.append({**d, "todos": [], "weekly_est": 0, "weekly_cap": WEEKLY_CAP, "capacity_pct": 0})
 
     _cached_data["unassigned"] = unassigned
