@@ -94,9 +94,13 @@ async def _refresh_all():
 async def _poll_loop():
     while True:
         try:
+            print("[poll] starting refresh...")
             await _refresh_all()
+            print(f"[poll] done — {len(_cached_data.get('designers', []))} designers, {len(_cached_data.get('unassigned', []))} unassigned")
         except Exception as e:
-            print(f"[poll] error: {e}")
+            import traceback
+            print(f"[poll] ERROR: {e}")
+            traceback.print_exc()
         await asyncio.sleep(int(os.environ.get("POLL_INTERVAL", 60)))
 
 
