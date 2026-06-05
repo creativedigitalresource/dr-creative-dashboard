@@ -63,7 +63,7 @@ async def _do_refresh():
     for d in DESIGNERS:
         print(f"[refresh] fetching {d['name']}...")
         try:
-            todos = await asyncio.wait_for(bc.get_designer_todos(d["bc_id"]), timeout=25.0)
+            todos = await asyncio.wait_for(bc.get_designer_todos(d["bc_id"]), timeout=60.0)
             enriched = []
             for t in todos:
                 logged = 0.0

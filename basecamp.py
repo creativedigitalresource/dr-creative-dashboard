@@ -188,22 +188,34 @@ async def get_unassigned_todos() -> list:
 
 
 async def get_designer_todos(designer_bc_id: int) -> list:
-    """All incomplete todos assigned to a specific designer via the reports API.
-    Parses PDD/HDD/EST/REVS from the todo title only (no comment fetching) to
-    avoid rate-limiting Basecamp with hundreds of concurrent requests.
+    """All incomplete todos assigned to a specific designer.
+    Fetches comments with a 3-request concurrency limit to get EST/REVS
+    without flooding the Basecamp API.
     """
+    import asyncio
     from parsers import parse_todo_fields
 
     raw = await _get_all_reports_assigned(designer_bc_id)
+    active = [t for t in raw
+              if not t.get("completed") and not _is_skip(t.get("content", ""))]
+    if not active:
+        return []
+
+    sem = asyncio.Semaphore(3)
+
+    async def fetch_comments_limited(t):
+        bucket_id = str((t.get("bucket") or {}).get("id", ""))
+        if not bucket_id:
+            return []
+        async with sem:
+            return await get_comments(bucket_id, str(t["id"]))
+
+    all_comments = await asyncio.gather(*[fetch_comments_limited(t) for t in active])
+
     results = []
-    for t in raw:
-        if t.get("completed"):
-            continue
-        if _is_skip(t.get("content", "")):
-            continue
+    for t, comments in zip(active, all_comments):
         bucket = t.get("bucket", {})
-        # Parse fields from title only — no comment API calls
-        fields = parse_todo_fields(t["content"], [])
+        fields = parse_todo_fields(t["content"], comments)
         results.append({
             "id": t["id"],
             "title": t["content"],
