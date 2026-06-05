@@ -44,8 +44,17 @@ WEEKLY_CAP = DAILY_CAP * 5  # 35h
 
 async def _build_designer(d: dict, start_dates: dict, week_start: str, week_end: str) -> dict:
     todos = await bc.get_designer_todos(d["bc_id"])
-    # Fetch Everhour time for all todos concurrently
-    logged_list = await asyncio.gather(*[eh.get_time_logged(t["id"]) for t in todos])
+
+    # Fetch Everhour time concurrently, but never let failures kill the designer card
+    if todos and eh.EH_KEY:
+        raw_logged = await asyncio.gather(
+            *[eh.get_time_logged(t["id"]) for t in todos],
+            return_exceptions=True,
+        )
+        logged_list = [v if isinstance(v, float) else 0.0 for v in raw_logged]
+    else:
+        logged_list = [0.0] * len(todos)
+
     enriched = []
     for t, logged in zip(todos, logged_list):
         total = t.get("total_hours") or 0

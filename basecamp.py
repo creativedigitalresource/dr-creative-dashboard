@@ -101,6 +101,12 @@ async def _get(path: str, params: dict | None = None) -> dict | list | None:
             token = get_token("access_token")
             headers["Authorization"] = f"Bearer {token}"
             r = await client.get(f"{BC_BASE}{path}", headers=headers, params=params or {})
+        if r.status_code == 429:
+            import asyncio
+            wait = int(r.headers.get("Retry-After", "2"))
+            print(f"[bc] 429 rate limit on {path}, waiting {wait}s")
+            await asyncio.sleep(wait)
+            r = await client.get(f"{BC_BASE}{path}", headers=headers, params=params or {})
         if r.status_code != 200:
             print(f"[bc] {r.status_code} {path} — {r.text[:200]}")
             return None
