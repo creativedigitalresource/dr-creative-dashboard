@@ -80,12 +80,14 @@ async def _do_refresh():
             for t, logged in zip(todos, logged_list):
                 ov = overrides.get(str(t["id"]), {})
                 # Apply local overrides on top of Basecamp-parsed fields
-                hdd   = ov.get("hdd")   or t.get("hdd")
-                pdd   = ov.get("pdd")   or t.get("pdd")
-                est   = float(ov["est"])   if "est"  in ov else t.get("est")
-                revs  = float(ov["revs"])  if "revs" in ov else (t.get("revs") or 0)
-                sd    = ov.get("start_date") or start_dates.get(str(t["id"]))
-                total = (est or 0) + revs
+                hdd    = ov.get("hdd")   or t.get("hdd")
+                pdd    = ov.get("pdd")   or t.get("pdd")
+                est    = float(ov["est"])   if "est"  in ov else t.get("est")
+                revs   = float(ov["revs"])  if "revs" in ov else (t.get("revs") or 0)
+                sd     = ov.get("start_date") or start_dates.get(str(t["id"]))
+                # Manual logged override takes priority over Everhour
+                logged = float(ov["logged"]) if "logged" in ov else logged
+                total  = (est or 0) + revs
                 progress = min(100, round((logged / total * 100) if total > 0 else 0))
                 enriched.append({
                     **t,
@@ -255,7 +257,7 @@ async def api_calendar():
 async def set_todo_fields(todo_id: str, request: Request):
     """Save local overrides for hdd, pdd, est, revs, start_date."""
     body = await request.json()
-    allowed = {"hdd", "pdd", "est", "revs", "start_date"}
+    allowed = {"hdd", "pdd", "est", "revs", "start_date", "logged"}
     for field, value in body.items():
         if field not in allowed:
             continue
@@ -274,8 +276,11 @@ async def set_todo_fields(todo_id: str, request: Request):
                 if "pdd" in body:        t["pdd"]        = ov.get("pdd") or t.get("pdd")
                 if "est" in body:        t["est"]        = float(ov["est"]) if "est" in ov else t.get("est")
                 if "revs" in body:       t["revs"]       = float(ov["revs"]) if "revs" in ov else t.get("revs")
+                if "logged" in body:     t["logged"]     = float(ov["logged"]) if "logged" in ov else t.get("logged", 0)
                 if "start_date" in body: t["start_date"] = ov.get("start_date") or t.get("start_date")
                 t["total_hours"] = (t.get("est") or 0) + (t.get("revs") or 0)
+                total = t["total_hours"]
+                t["progress"] = min(100, round((t.get("logged",0) / total * 100) if total > 0 else 0))
                 t["overrides"] = list(ov.keys())
     return {"ok": True}
 

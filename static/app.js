@@ -200,16 +200,18 @@ function renderTodoItem(t, color) {
   const total = t.total_hours || 0;
   const logged = t.logged || 0;
   const pct = t.progress || 0;
+  const loggedCls = (t.overrides||[]).includes("logged") ? "overridden" : "";
+  const loggedEl = `<span class="meta-pill ${loggedCls} editable" onclick="editField(event,'${t.id}','logged','number','${logged}')" title="Click to log hours">${logged > 0 ? logged + "h logged" : "+ Log hours"}</span>`;
+
   let progressHtml = "";
   if (total > 0) {
     progressHtml = `<div class="progress-wrap">
       <div class="progress-bar-outer"><div class="progress-bar-inner" style="width:${pct}%;background:${color}"></div></div>
       <span class="progress-label">${logged}h / ${total}h</span>
+      ${loggedEl}
     </div>`;
-  } else if (logged > 0) {
-    progressHtml = `<div class="progress-wrap">
-      <span class="progress-label" style="color:var(--text-muted)">${logged}h logged</span>
-    </div>`;
+  } else {
+    progressHtml = `<div class="progress-wrap">${loggedEl}</div>`;
   }
 
   const sdLabel = t.start_date ? `Start: ${fmtDate(t.start_date)}` : `+ Set start date`;
@@ -443,12 +445,14 @@ function editField(evt, todoId, field, inputType, currentValue) {
       for (const d of _designerData || []) {
         for (const t of d.todos || []) {
           if (String(t.id) === String(todoId)) {
-            if (field === "est")  { t.est = val ? parseFloat(val) : null; }
-            if (field === "revs") { t.revs = val ? parseFloat(val) : 0; }
-            if (field === "hdd")  { t.hdd = val || null; }
-            if (field === "pdd")  { t.pdd = val || null; }
+            if (field === "est")    { t.est = val ? parseFloat(val) : null; }
+            if (field === "revs")   { t.revs = val ? parseFloat(val) : 0; }
+            if (field === "logged") { t.logged = val ? parseFloat(val) : 0; }
+            if (field === "hdd")    { t.hdd = val || null; }
+            if (field === "pdd")    { t.pdd = val || null; }
             if (field === "start_date") { t.start_date = val || null; }
             t.total_hours = (t.est || 0) + (t.revs || 0);
+            t.progress = t.total_hours > 0 ? Math.min(100, Math.round(t.logged / t.total_hours * 100)) : 0;
             if (!t.overrides) t.overrides = [];
             if (!t.overrides.includes(field)) t.overrides.push(field);
           }
