@@ -1,0 +1,95 @@
+import sqlite3, json, os, time
+from contextlib import contextmanager
+
+DB_PATH = os.environ.get("DB_PATH", "dashboard.db")
+
+
+def _conn():
+    c = sqlite3.connect(DB_PATH)
+    c.row_factory = sqlite3.Row
+    return c
+
+
+@contextmanager
+def get_db():
+    c = _conn()
+    try:
+        yield c
+        c.commit()
+    finally:
+        c.close()
+
+
+def init_db():
+    with get_db() as c:
+        c.executescript("""
+            CREATE TABLE IF NOT EXISTS tokens (
+                key TEXT PRIMARY KEY,
+                value TEXT NOT NULL,
+                updated_at REAL DEFAULT (unixepoch())
+            );
+            CREATE TABLE IF NOT EXISTS start_dates (
+                todo_id TEXT PRIMARY KEY,
+                start_date TEXT NOT NULL,
+                updated_at REAL DEFAULT (unixepoch())
+            );
+            CREATE TABLE IF NOT EXISTS cache (
+                key TEXT PRIMARY KEY,
+                value TEXT NOT NULL,
+                expires_at REAL NOT NULL
+            );
+        """)
+
+
+def set_token(key: str, value: str):
+    with get_db() as c:
+        c.execute(
+            "INSERT OR REPLACE INTO tokens (key, value, updated_at) VALUES (?, ?, unixepoch())",
+            (key, value),
+        )
+
+
+def get_token(key: str) -> str | None:
+    with get_db() as c:
+        row = c.execute("SELECT value FROM tokens WHERE key=?", (key,)).fetchone()
+        return row["value"] if row else None
+
+
+def set_start_date(todo_id: str, start_date: str):
+    with get_db() as c:
+        c.execute(
+            "INSERT OR REPLACE INTO start_dates (todo_id, start_date, updated_at) VALUES (?, ?, unixepoch())",
+            (str(todo_id), start_date),
+        )
+
+
+def get_start_date(todo_id: str) -> str | None:
+    with get_db() as c:
+        row = c.execute(
+            "SELECT start_date FROM start_dates WHERE todo_id=?", (str(todo_id),)
+        ).fetchone()
+        return row["start_date"] if row else None
+
+
+def get_all_start_dates() -> dict:
+    with get_db() as c:
+        rows = c.execute("SELECT todo_id, start_date FROM start_dates").fetchall()
+        return {r["todo_id"]: r["start_date"] for r in rows}
+
+
+def cache_set(key: str, value, ttl_seconds: int = 60):
+    with get_db() as c:
+        c.execute(
+            "INSERT OR REPLACE INTO cache (key, value, expires_at) VALUES (?, ?, ?)",
+            (key, json.dumps(value), time.time() + ttl_seconds),
+        )
+
+
+def cache_get(key: str):
+    with get_db() as c:
+        row = c.execute(
+            "SELECT value, expires_at FROM cache WHERE key=?", (key,)
+        ).fetchone()
+        if row and row["expires_at"] > time.time():
+            return json.loads(row["value"])
+        return None

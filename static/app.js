@@ -1,0 +1,309 @@
+/* ============================================================
+   DR Creative Dashboard — Frontend
+   ============================================================ */
+
+let calendar = null;
+let _modalTodoId = null;
+let _modalTodoTitle = "";
+
+// ---------------------------------------------------------------------------
+// Boot
+// ---------------------------------------------------------------------------
+
+async function boot() {
+  const status = await fetch("/api/status").then(r => r.json()).catch(() => null);
+  if (!status || !status.authenticated) {
+    show("login-screen");
+    hide("main-content");
+    return;
+  }
+  hide("login-screen");
+  show("main-content");
+  initTabs();
+  initCalendar();
+  connectSSE();
+  loadAll();
+}
+
+// ---------------------------------------------------------------------------
+// SSE
+// ---------------------------------------------------------------------------
+
+function connectSSE() {
+  const dot = document.createElement("span");
+  dot.className = "live-dot";
+  document.getElementById("auth-status").appendChild(dot);
+
+  const es = new EventSource("/api/stream");
+  es.addEventListener("update", () => loadAll());
+  es.addEventListener("init", () => {});
+  es.onerror = () => {
+    dot.style.background = "var(--danger)";
+    setTimeout(connectSSE, 5000);
+    es.close();
+  };
+}
+
+// ---------------------------------------------------------------------------
+// Data loading
+// ---------------------------------------------------------------------------
+
+async function loadAll() {
+  await Promise.all([loadUnassigned(), loadDesigners()]);
+  await loadCalendar();
+  updateLastUpdated();
+}
+
+async function loadUnassigned() {
+  const todos = await fetch("/api/unassigned").then(r => r.json()).catch(() => []);
+  document.getElementById("unassigned-count").textContent = todos.length;
+  const tbody = document.getElementById("unassigned-tbody");
+  if (!todos.length) {
+    tbody.innerHTML = `<tr><td colspan="4" class="loading-cell" style="color:var(--success)">No tasks waiting to be delegated</td></tr>`;
+    return;
+  }
+  tbody.innerHTML = todos.map(t => {
+    const due = t.due_on ? formatDue(t.due_on) : "";
+    return `<tr>
+      <td>
+        <div class="todo-title">${esc(t.title)}</div>
+      </td>
+      <td><span class="todolist-name">${esc(t.todolist_name)}</span></td>
+      <td><span class="due-date ${dueCls(t.due_on)}">${due}</span></td>
+      <td>
+        ${t.url ? `<a href="${t.url}" target="_blank" class="link-btn" title="Open in Basecamp">↗</a>` : ""}
+      </td>
+    </tr>`;
+  }).join("");
+}
+
+async function loadDesigners() {
+  const designers = await fetch("/api/designers").then(r => r.json()).catch(() => []);
+  const grid = document.getElementById("designer-grid");
+  if (!designers.length) {
+    grid.innerHTML = `<div class="loading-card">No data yet — refresh in a moment.</div>`;
+    return;
+  }
+  grid.innerHTML = designers.map(d => renderDesignerCard(d)).join("");
+}
+
+async function loadCalendar() {
+  const events = await fetch("/api/calendar").then(r => r.json()).catch(() => []);
+  if (calendar) {
+    calendar.removeAllEvents();
+    calendar.addEventSource(events);
+  }
+}
+
+// ---------------------------------------------------------------------------
+// Designer card rendering
+// ---------------------------------------------------------------------------
+
+function renderDesignerCard(d) {
+  const pct = d.capacity_pct || 0;
+  const barCls = pct < 60 ? "low" : pct < 85 ? "mid" : "high";
+  const initials = d.name.split(" ").map(n => n[0]).join("").slice(0, 2).toUpperCase();
+
+  const todosHtml = d.todos && d.todos.length
+    ? `<ul class="designer-todos">${d.todos.map(t => renderTodoItem(t, d.color)).join("")}</ul>`
+    : `<div class="no-todos">No active tasks</div>`;
+
+  return `
+  <div class="designer-card">
+    <div class="designer-card-header">
+      <div class="designer-name-wrap">
+        <div class="designer-avatar" style="background:${d.color}">${initials}</div>
+        <div>
+          <div class="designer-name">${esc(d.name)}</div>
+          <div style="font-size:11px;color:var(--text-muted)">${d.todos ? d.todos.length : 0} task${d.todos?.length !== 1 ? "s" : ""}</div>
+        </div>
+      </div>
+      <div class="designer-cap-wrap">
+        <div class="cap-label">Week capacity &middot; ${d.weekly_est}h / ${d.weekly_cap}h</div>
+        <div class="cap-bar-outer">
+          <div class="cap-bar-inner ${barCls}" style="width:${pct}%"></div>
+        </div>
+        <div style="font-size:11px;color:var(--text-muted);text-align:right">${pct}% booked</div>
+      </div>
+    </div>
+    ${todosHtml}
+  </div>`;
+}
+
+function renderTodoItem(t, color) {
+  const hddStr = t.hdd ? `<span class="meta-pill hdd">HDD ${fmtDate(t.hdd)}</span>` : "";
+  const pddStr = t.pdd ? `<span class="meta-pill pdd">PDD ${fmtDate(t.pdd)}</span>` : "";
+  const estStr = t.est != null ? `<span class="meta-pill est">EST ${t.est}h</span>` : "";
+  const revsStr = t.revs ? `<span class="meta-pill">REVS ${t.revs}h</span>` : "";
+
+  const total = t.total_hours || 0;
+  const logged = t.logged || 0;
+  const pct = t.progress || 0;
+  const progressHtml = total > 0
+    ? `<div class="progress-wrap">
+        <div class="progress-bar-outer"><div class="progress-bar-inner" style="width:${pct}%;background:${color}"></div></div>
+        <span class="progress-label">${logged}h / ${total}h</span>
+       </div>`
+    : "";
+
+  const sdLabel = t.start_date
+    ? `Start: ${fmtDate(t.start_date)}`
+    : `+ Set start date`;
+  const sdCls = t.start_date ? "set" : "";
+
+  return `
+  <li class="todo-item">
+    <div class="todo-item-left">
+      <div class="todo-item-title" title="${esc(t.title)}">${esc(truncate(t.title, 60))}</div>
+      <div class="todo-meta">${hddStr}${pddStr}${estStr}${revsStr}</div>
+      ${progressHtml}
+    </div>
+    <div class="todo-item-actions">
+      ${t.url ? `<a href="${t.url}" target="_blank" class="link-btn" title="Open in Basecamp">↗</a>` : ""}
+      <span class="start-date-badge ${sdCls}" onclick="openModal('${t.id}', '${esc(t.title.replace(/'/g, "\\'"))}', '${t.start_date || ""}')">${sdLabel}</span>
+    </div>
+  </li>`;
+}
+
+// ---------------------------------------------------------------------------
+// Calendar
+// ---------------------------------------------------------------------------
+
+function initCalendar() {
+  const el = document.getElementById("calendar");
+  calendar = new FullCalendar.Calendar(el, {
+    initialView: "dayGridMonth",
+    headerToolbar: {
+      left: "prev,next today",
+      center: "title",
+      right: "dayGridMonth,timeGridWeek",
+    },
+    height: "calc(100vh - 180px)",
+    eventClick: function(info) {
+      const props = info.event.extendedProps;
+      if (props.url) window.open(props.url, "_blank");
+    },
+    eventDidMount: function(info) {
+      const props = info.event.extendedProps;
+      const tip = [
+        `Designer: ${props.designer}`,
+        props.est ? `EST: ${props.est}h` : "",
+        props.revs ? `REVS: ${props.revs}h` : "",
+        props.logged ? `Logged: ${props.logged}h` : "",
+        props.progress ? `Progress: ${props.progress}%` : "",
+      ].filter(Boolean).join("\n");
+      info.el.title = tip;
+    },
+  });
+  calendar.render();
+}
+
+// ---------------------------------------------------------------------------
+// Start date modal
+// ---------------------------------------------------------------------------
+
+function openModal(todoId, title, existingDate) {
+  _modalTodoId = todoId;
+  _modalTodoTitle = title;
+  document.getElementById("modal-title").textContent = "Set Start Date";
+  document.getElementById("modal-task-name").textContent = title;
+  document.getElementById("modal-date-input").value = existingDate || "";
+  show("date-modal");
+}
+
+function closeModal() {
+  hide("date-modal");
+  _modalTodoId = null;
+}
+
+async function saveStartDate() {
+  if (!_modalTodoId) return;
+  const date = document.getElementById("modal-date-input").value;
+  if (!date) { closeModal(); return; }
+  await fetch(`/api/todos/${_modalTodoId}/start-date`, {
+    method: "PUT",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ start_date: date }),
+  });
+  closeModal();
+  await loadAll();
+}
+
+// ---------------------------------------------------------------------------
+// Tabs
+// ---------------------------------------------------------------------------
+
+function initTabs() {
+  document.querySelectorAll(".tab-btn").forEach(btn => {
+    btn.addEventListener("click", () => {
+      const tab = btn.dataset.tab;
+      document.querySelectorAll(".tab-btn").forEach(b => b.classList.remove("active"));
+      document.querySelectorAll(".tab-panel").forEach(p => p.classList.remove("active"));
+      btn.classList.add("active");
+      document.getElementById(`tab-${tab}`).classList.add("active");
+      if (tab === "calendar" && calendar) {
+        calendar.updateSize();
+      }
+    });
+  });
+}
+
+// ---------------------------------------------------------------------------
+// Refresh
+// ---------------------------------------------------------------------------
+
+function triggerRefresh() {
+  fetch("/api/refresh", { method: "POST" });
+}
+
+// ---------------------------------------------------------------------------
+// Helpers
+// ---------------------------------------------------------------------------
+
+function show(id) { document.getElementById(id)?.classList.remove("hidden"); }
+function hide(id) { document.getElementById(id)?.classList.add("hidden"); }
+
+function esc(str) {
+  return String(str || "")
+    .replace(/&/g, "&amp;")
+    .replace(/</g, "&lt;")
+    .replace(/>/g, "&gt;")
+    .replace(/"/g, "&quot;");
+}
+
+function truncate(str, n) {
+  return str && str.length > n ? str.slice(0, n) + "…" : str;
+}
+
+function fmtDate(iso) {
+  if (!iso) return "";
+  const [y, m, d] = iso.split("-");
+  return `${parseInt(m)}/${parseInt(d)}`;
+}
+
+function formatDue(iso) {
+  if (!iso) return "";
+  const d = new Date(iso + "T12:00:00");
+  return d.toLocaleDateString("en-US", { month: "short", day: "numeric" });
+}
+
+function dueCls(iso) {
+  if (!iso) return "";
+  const today = new Date(); today.setHours(0,0,0,0);
+  const due = new Date(iso + "T00:00:00");
+  const diff = (due - today) / 86400000;
+  if (diff < 0) return "overdue";
+  if (diff <= 2) return "due-soon";
+  return "";
+}
+
+function updateLastUpdated() {
+  const el = document.getElementById("last-updated");
+  el.textContent = "Updated " + new Date().toLocaleTimeString("en-US", { hour: "numeric", minute: "2-digit" });
+}
+
+// ---------------------------------------------------------------------------
+// Init
+// ---------------------------------------------------------------------------
+
+document.addEventListener("DOMContentLoaded", boot);

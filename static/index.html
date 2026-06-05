@@ -1,0 +1,109 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>DR Creative Dashboard</title>
+  <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/fullcalendar@6.1.11/index.global.min.css" />
+  <link rel="stylesheet" href="/static/style.css" />
+</head>
+<body>
+  <div id="app">
+
+    <!-- Header -->
+    <header class="app-header">
+      <div class="header-left">
+        <span class="logo">DR Creative</span>
+        <span class="header-subtitle">Team Dashboard</span>
+      </div>
+      <div class="header-right">
+        <span id="last-updated" class="last-updated"></span>
+        <button id="refresh-btn" class="btn btn-ghost" onclick="triggerRefresh()">↻ Refresh</button>
+        <div id="auth-status"></div>
+      </div>
+    </header>
+
+    <!-- Login screen -->
+    <div id="login-screen" class="login-screen hidden">
+      <div class="login-card">
+        <h1>DR Creative Dashboard</h1>
+        <p>Sign in with your Basecamp account to continue.</p>
+        <a href="/auth/login" class="btn btn-primary btn-lg">Login with Basecamp</a>
+      </div>
+    </div>
+
+    <!-- Main tabs -->
+    <div id="main-content" class="main-content hidden">
+      <nav class="tab-nav">
+        <button class="tab-btn active" data-tab="unassigned">To Delegate</button>
+        <button class="tab-btn" data-tab="designers">Designer Workload</button>
+        <button class="tab-btn" data-tab="calendar">Calendar</button>
+      </nav>
+
+      <!-- Tab 1: To Delegate -->
+      <div id="tab-unassigned" class="tab-panel active">
+        <div class="panel-header">
+          <h2>Tasks to Delegate</h2>
+          <span id="unassigned-count" class="badge"></span>
+        </div>
+        <div id="unassigned-list" class="table-wrap">
+          <table class="data-table">
+            <thead>
+              <tr>
+                <th>Task</th>
+                <th>Todolist</th>
+                <th>Due Date</th>
+                <th></th>
+              </tr>
+            </thead>
+            <tbody id="unassigned-tbody">
+              <tr><td colspan="4" class="loading-cell">Loading...</td></tr>
+            </tbody>
+          </table>
+        </div>
+      </div>
+
+      <!-- Tab 2: Designer Workload -->
+      <div id="tab-designers" class="tab-panel">
+        <div class="panel-header">
+          <h2>Designer Workload</h2>
+          <span class="panel-hint">6-week rolling view &middot; 35h/week capacity</span>
+        </div>
+        <div id="designer-grid" class="designer-grid">
+          <div class="loading-card">Loading team data...</div>
+        </div>
+      </div>
+
+      <!-- Tab 3: Calendar -->
+      <div id="tab-calendar" class="tab-panel">
+        <div class="panel-header">
+          <h2>Assignment Calendar</h2>
+          <span class="panel-hint">Set start dates in Designer Workload tab to populate events</span>
+        </div>
+        <div id="calendar"></div>
+      </div>
+    </div>
+
+  </div>
+
+  <!-- Start date modal -->
+  <div id="date-modal" class="modal hidden">
+    <div class="modal-backdrop" onclick="closeModal()"></div>
+    <div class="modal-box">
+      <h3 id="modal-title">Set Start Date</h3>
+      <p id="modal-task-name" class="modal-task-name"></p>
+      <div class="form-row">
+        <label>Start Date</label>
+        <input type="date" id="modal-date-input" />
+      </div>
+      <div class="modal-actions">
+        <button class="btn btn-ghost" onclick="closeModal()">Cancel</button>
+        <button class="btn btn-primary" onclick="saveStartDate()">Save</button>
+      </div>
+    </div>
+  </div>
+
+  <script src="https://cdn.jsdelivr.net/npm/fullcalendar@6.1.11/index.global.min.js"></script>
+  <script src="/static/app.js"></script>
+</body>
+</html>
