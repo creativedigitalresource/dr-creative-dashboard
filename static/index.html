@@ -76,10 +76,13 @@
 
       <!-- Tab 3: Calendar -->
       <div id="tab-calendar" class="tab-panel">
-        <div class="panel-header">
+        <div class="panel-header" style="flex-wrap:wrap;gap:12px">
           <h2>Assignment Calendar</h2>
-          <span class="panel-hint">Set start dates in Designer Workload tab to populate events</span>
+          <select id="cal-designer-filter" class="cal-filter-select" onchange="onCalFilterChange()">
+            <option value="all">All Designers</option>
+          </select>
         </div>
+        <div id="cal-capacity-bar" class="cal-capacity-wrap hidden"></div>
         <div id="calendar"></div>
       </div>
     </div>

@@ -339,6 +339,28 @@ body { min-height: 100vh; }
 .form-row input[type="date"]:focus { outline: none; border-color: var(--accent); }
 .modal-actions { display: flex; justify-content: flex-end; gap: 10px; }
 
+/* ---- Calendar filter ---- */
+.cal-filter-select {
+  padding: 6px 12px;
+  background: var(--surface2);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  color: var(--text);
+  font-size: 13px;
+  cursor: pointer;
+}
+.cal-capacity-wrap {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 10px 0 14px;
+}
+.cal-cap-label {
+  font-size: 12px;
+  color: var(--text-muted);
+  white-space: nowrap;
+}
+
 /* ---- PTO ---- */
 .pto-badge {
   font-size: 10px;

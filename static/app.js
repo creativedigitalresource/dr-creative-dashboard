@@ -107,9 +107,10 @@ async function loadDesigners() {
 function renderDesignerGrid(designers) {
   document.getElementById("designer-grid").innerHTML =
     designers.map(d => renderDesignerCard(d)).join("");
+  populateDesignerDropdown();
 }
 
-// loadCalendar is defined later (includes PTO background events)
+// loadCalendar — defined below in the calendar section
 
 // ---------------------------------------------------------------------------
 // Designer card rendering
@@ -229,36 +230,180 @@ function renderTodoItem(t, color) {
 }
 
 // ---------------------------------------------------------------------------
-// Calendar
+// Calendar scheduling
+// ---------------------------------------------------------------------------
+
+const WORK_START = 9;   // 9 AM
+const WORK_HOURS = 7;   // hours per day
+
+function isWorkDay(dateObj, ptoDates) {
+  if (dateObj.getDay() === 0 || dateObj.getDay() === 6) return false;
+  return !ptoDates.includes(dateObj.toISOString().split("T")[0]);
+}
+
+function nextWorkDay(dateObj, ptoDates) {
+  const d = new Date(dateObj);
+  d.setDate(d.getDate() + 1);
+  while (!isWorkDay(d, ptoDates)) d.setDate(d.getDate() + 1);
+  return d;
+}
+
+function toTimeStr(hours) {
+  const h = Math.floor(hours);
+  const m = Math.round((hours % 1) * 60);
+  return `${String(h).padStart(2,"0")}:${String(m).padStart(2,"0")}`;
+}
+
+function scheduleDesignerEvents(designer) {
+  const ptoDates = (designer.pto || []).map(p => p.date);
+  const dayUsed = {};
+
+  // Only tasks with a start anchor and hours
+  const tasks = designer.todos
+    .filter(t => (t.start_date || t.hdd) && (t.total_hours || 0) > 0)
+    .sort((a, b) => {
+      const ad = a.start_date || a.hdd;
+      const bd = b.start_date || b.hdd;
+      return ad < bd ? -1 : ad > bd ? 1 : 0;
+    });
+
+  const events = [];
+
+  for (const t of tasks) {
+    let remaining = t.total_hours;
+    let day = new Date((t.start_date || t.hdd) + "T12:00:00");
+    while (!isWorkDay(day, ptoDates)) day = nextWorkDay(day, ptoDates);
+
+    while (remaining > 0.01) {
+      const ds = day.toISOString().split("T")[0];
+      const used = dayUsed[ds] || 0;
+      const avail = WORK_HOURS - used;
+
+      if (avail <= 0.01) { day = nextWorkDay(day, ptoDates); continue; }
+
+      const chunk = Math.min(remaining, avail);
+      const startH = WORK_START + used;
+      events.push({
+        id: `t-${t.id}-${ds}`,
+        title: truncate(t.title, 40),
+        start: `${ds}T${toTimeStr(startH)}`,
+        end:   `${ds}T${toTimeStr(startH + chunk)}`,
+        backgroundColor: designer.color,
+        borderColor: designer.color,
+        extendedProps: { url: t.url, designer: designer.name, hdd: t.hdd,
+                         est: t.est, logged: t.logged, chunk, total: t.total_hours,
+                         fullTitle: t.title },
+      });
+
+      dayUsed[ds] = used + chunk;
+      remaining -= chunk;
+      if (remaining > 0.01) day = nextWorkDay(day, ptoDates);
+    }
+  }
+
+  // OOO background blocks
+  for (const p of designer.pto || []) {
+    events.push({
+      id: `pto-${designer.bc_id}-${p.date}`,
+      title: `OOO${p.note ? ": " + p.note : ""}`,
+      start: p.date, allDay: true, display: "background",
+      backgroundColor: "#ef444430", borderColor: "#ef4444",
+    });
+  }
+
+  return events;
+}
+
+// ---------------------------------------------------------------------------
+// Calendar init + render
 // ---------------------------------------------------------------------------
 
 function initCalendar() {
   const el = document.getElementById("calendar");
   calendar = new FullCalendar.Calendar(el, {
     initialView: "dayGridMonth",
-    headerToolbar: {
-      left: "prev,next today",
-      center: "title",
-      right: "dayGridMonth,timeGridWeek",
+    headerToolbar: { left: "prev,next today", center: "title", right: "dayGridMonth,timeGridWeek" },
+    height: "calc(100vh - 230px)",
+    slotMinTime: "08:00:00",
+    slotMaxTime: "18:00:00",
+    slotDuration: "00:30:00",
+    nowIndicator: true,
+    eventClick(info) {
+      const p = info.event.extendedProps;
+      if (p.url) window.open(p.url, "_blank");
     },
-    height: "calc(100vh - 180px)",
-    eventClick: function(info) {
-      const props = info.event.extendedProps;
-      if (props.url) window.open(props.url, "_blank");
-    },
-    eventDidMount: function(info) {
-      const props = info.event.extendedProps;
-      const tip = [
-        `Designer: ${props.designer}`,
-        props.est ? `EST: ${props.est}h` : "",
-        props.revs ? `REVS: ${props.revs}h` : "",
-        props.logged ? `Logged: ${props.logged}h` : "",
-        props.progress ? `Progress: ${props.progress}%` : "",
+    eventDidMount(info) {
+      const p = info.event.extendedProps;
+      if (!p.designer) return;
+      info.el.title = [
+        p.fullTitle || "",
+        p.designer ? `Designer: ${p.designer}` : "",
+        p.hdd ? `HDD: ${fmtDate(p.hdd)}` : "",
+        p.est != null ? `EST: ${p.est}h` : "",
+        p.logged ? `Logged: ${p.logged}h` : "",
+        p.chunk && p.total && p.chunk < p.total ? `(${p.chunk}h of ${p.total}h — continues)` : "",
       ].filter(Boolean).join("\n");
-      info.el.title = tip;
     },
+    datesSet() { updateCalCapacityBar(); },
   });
   calendar.render();
+}
+
+function populateDesignerDropdown() {
+  const sel = document.getElementById("cal-designer-filter");
+  // Keep "All Designers" option, remove old designer options
+  while (sel.options.length > 1) sel.remove(1);
+  for (const d of _designerData || []) {
+    const opt = document.createElement("option");
+    opt.value = d.bc_id;
+    opt.textContent = d.name;
+    sel.appendChild(opt);
+  }
+}
+
+function onCalFilterChange() {
+  loadCalendar();
+}
+
+function updateCalCapacityBar() {
+  const wrap = document.getElementById("cal-capacity-bar");
+  const sel = document.getElementById("cal-designer-filter");
+  if (!sel || sel.value === "all") { wrap.classList.add("hidden"); return; }
+
+  const d = (_designerData || []).find(x => String(x.bc_id) === sel.value);
+  if (!d) { wrap.classList.add("hidden"); return; }
+
+  // Get the currently visible week range from the calendar
+  const view = calendar?.view;
+  if (!view) return;
+  const viewStart = view.currentStart.toISOString().split("T")[0];
+  const viewEnd = new Date(view.currentEnd);
+  viewEnd.setDate(viewEnd.getDate() - 1);
+  const viewEndStr = viewEnd.toISOString().split("T")[0];
+
+  const ptoDates = (d.pto || []).map(p => p.date);
+  const ptoDaysInView = (d.pto || []).filter(p => p.date >= viewStart && p.date <= viewEndStr).length;
+  const workDaysInView = 5 - ptoDaysInView;
+  const cap = Math.max(0, workDaysInView * 7);
+
+  // Sum hours scheduled in this view
+  const scheduled = (d.todos || []).reduce((sum, t) => {
+    if (!t.hdd || !t.total_hours) return sum;
+    if ((t.start_date || t.hdd) <= viewEndStr && t.hdd >= viewStart) return sum + t.total_hours;
+    return sum;
+  }, 0);
+
+  const pct = cap > 0 ? Math.min(100, Math.round(scheduled / cap * 100)) : 100;
+  const barCls = pct < 60 ? "low" : pct < 85 ? "mid" : "high";
+
+  wrap.classList.remove("hidden");
+  wrap.innerHTML = `
+    <div class="cal-cap-label">${d.name} &middot; ${Math.round(scheduled * 10) / 10}h scheduled / ${cap}h available${ptoDaysInView ? ` (${ptoDaysInView} OOO day${ptoDaysInView > 1 ? "s" : ""})` : ""}</div>
+    <div class="cap-bar-outer" style="width:300px">
+      <div class="cap-bar-inner ${barCls}" style="width:${pct}%"></div>
+    </div>
+    <span style="font-size:12px;color:var(--text-muted)">${pct}% booked</span>
+  `;
 }
 
 // ---------------------------------------------------------------------------
@@ -504,37 +649,42 @@ function fmtDateISO(iso) {
   return new Date(iso + "T12:00:00").toLocaleDateString("en-US", { weekday: "short", month: "short", day: "numeric" });
 }
 
-// ---------------------------------------------------------------------------
-// Calendar — include PTO as blocked days
-// ---------------------------------------------------------------------------
-
 async function loadCalendar() {
-  const [events, designers] = await Promise.all([
-    fetch("/api/calendar").then(r => r.json()).catch(() => []),
-    Promise.resolve(_designerData || []),
-  ]);
+  if (!calendar) return;
+  const sel = document.getElementById("cal-designer-filter");
+  const filterVal = sel ? sel.value : "all";
 
-  // Add PTO blocks as background events
-  const ptoEvents = [];
-  for (const d of designers) {
-    for (const p of d.pto || []) {
-      ptoEvents.push({
-        id: `pto-${d.bc_id}-${p.date}`,
-        title: `${d.name} OOO${p.note ? ": " + p.note : ""}`,
-        start: p.date,
-        allDay: true,
-        display: "background",
-        backgroundColor: d.color + "44",
-        borderColor: d.color,
-        classNames: ["pto-event"],
-      });
+  calendar.removeAllEvents();
+
+  if (filterVal === "all") {
+    // Month view — simple start/end blocks per task
+    calendar.changeView("dayGridMonth");
+    const events = await fetch("/api/calendar").then(r => r.json()).catch(() => []);
+    // Also add all OOO as background
+    const ptoEvents = [];
+    for (const d of _designerData || []) {
+      for (const p of d.pto || []) {
+        ptoEvents.push({ id: `pto-${d.bc_id}-${p.date}`, title: `${d.name} OOO`,
+          start: p.date, allDay: true, display: "background",
+          backgroundColor: d.color + "33", borderColor: d.color });
+      }
     }
+    calendar.addEventSource([...events, ...ptoEvents]);
+    document.getElementById("cal-capacity-bar").classList.add("hidden");
+  } else {
+    // Week view — scheduled time blocks with rollover
+    calendar.changeView("timeGridWeek");
+    const d = (_designerData || []).find(x => String(x.bc_id) === filterVal);
+    if (d) {
+      const events = scheduleDesignerEvents(d);
+      calendar.addEventSource(events);
+    }
+    updateCalCapacityBar();
   }
 
-  if (calendar) {
-    calendar.removeAllEvents();
-    calendar.addEventSource([...events, ...ptoEvents]);
-  }
+  populateDesignerDropdown();
+  // Restore selection after repopulate
+  if (sel && filterVal !== "all") sel.value = filterVal;
 }
 
 // ---------------------------------------------------------------------------
