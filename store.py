@@ -38,6 +38,13 @@ def init_db():
                 value TEXT NOT NULL,
                 expires_at REAL NOT NULL
             );
+            CREATE TABLE IF NOT EXISTS overrides (
+                todo_id TEXT NOT NULL,
+                field TEXT NOT NULL,
+                value TEXT NOT NULL,
+                updated_at REAL DEFAULT (unixepoch()),
+                PRIMARY KEY (todo_id, field)
+            );
         """)
 
 
@@ -75,6 +82,29 @@ def get_all_start_dates() -> dict:
     with get_db() as c:
         rows = c.execute("SELECT todo_id, start_date FROM start_dates").fetchall()
         return {r["todo_id"]: r["start_date"] for r in rows}
+
+
+def set_override(todo_id: str, field: str, value: str):
+    with get_db() as c:
+        c.execute(
+            "INSERT OR REPLACE INTO overrides (todo_id, field, value, updated_at) VALUES (?, ?, ?, unixepoch())",
+            (str(todo_id), field, value),
+        )
+
+
+def delete_override(todo_id: str, field: str):
+    with get_db() as c:
+        c.execute("DELETE FROM overrides WHERE todo_id=? AND field=?", (str(todo_id), field))
+
+
+def get_all_overrides() -> dict:
+    """Returns {todo_id: {field: value, ...}, ...}"""
+    with get_db() as c:
+        rows = c.execute("SELECT todo_id, field, value FROM overrides").fetchall()
+    result = {}
+    for r in rows:
+        result.setdefault(r["todo_id"], {})[r["field"]] = r["value"]
+    return result
 
 
 def cache_set(key: str, value, ttl_seconds: int = 60):

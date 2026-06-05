@@ -48,6 +48,8 @@ async def _do_refresh():
     week_end = (today + timedelta(days=4 - today.weekday())).isoformat()
     start_dates = store.get_all_start_dates()
 
+    overrides = store.get_all_overrides()
+
     print("[refresh] fetching unassigned...")
     try:
         unassigned = await asyncio.wait_for(bc.get_unassigned_todos(), timeout=25.0)
@@ -72,10 +74,23 @@ async def _do_refresh():
                         logged = await asyncio.wait_for(eh.get_time_logged(t["id"]), timeout=5.0)
                     except Exception:
                         pass
-                total = t.get("total_hours") or 0
+                ov = overrides.get(str(t["id"]), {})
+                # Apply local overrides on top of Basecamp-parsed fields
+                hdd   = ov.get("hdd")   or t.get("hdd")
+                pdd   = ov.get("pdd")   or t.get("pdd")
+                est   = float(ov["est"])   if "est"  in ov else t.get("est")
+                revs  = float(ov["revs"])  if "revs" in ov else (t.get("revs") or 0)
+                sd    = ov.get("start_date") or start_dates.get(str(t["id"]))
+                total = (est or 0) + revs
                 progress = min(100, round((logged / total * 100) if total > 0 else 0))
-                enriched.append({**t, "logged": logged, "progress": progress,
-                                  "start_date": start_dates.get(str(t["id"]))})
+                enriched.append({
+                    **t,
+                    "hdd": hdd, "pdd": pdd, "est": est, "revs": revs,
+                    "total_hours": total,
+                    "logged": logged, "progress": progress,
+                    "start_date": sd,
+                    "overrides": list(ov.keys()),
+                })
             weekly_est = sum(t.get("total_hours", 0) for t in enriched
                              if t.get("hdd") and week_start <= t["hdd"] <= week_end)
             capacity_pct = min(100, round(weekly_est / WEEKLY_CAP * 100))
@@ -202,12 +217,42 @@ async def api_calendar():
     return events
 
 
+@app.put("/api/todos/{todo_id}/fields")
+async def set_todo_fields(todo_id: str, request: Request):
+    """Save local overrides for hdd, pdd, est, revs, start_date."""
+    body = await request.json()
+    allowed = {"hdd", "pdd", "est", "revs", "start_date"}
+    for field, value in body.items():
+        if field not in allowed:
+            continue
+        if value is None or value == "":
+            store.delete_override(todo_id, field)
+        else:
+            store.set_override(todo_id, field, str(value))
+            if field == "start_date":
+                store.set_start_date(todo_id, str(value))
+    # Patch live cache so UI updates without a full refresh
+    for d in _cached_data.get("designers", []):
+        for t in d.get("todos", []):
+            if str(t["id"]) == str(todo_id):
+                ov = store.get_all_overrides().get(str(todo_id), {})
+                if "hdd" in body:        t["hdd"]        = ov.get("hdd") or t.get("hdd")
+                if "pdd" in body:        t["pdd"]        = ov.get("pdd") or t.get("pdd")
+                if "est" in body:        t["est"]        = float(ov["est"]) if "est" in ov else t.get("est")
+                if "revs" in body:       t["revs"]       = float(ov["revs"]) if "revs" in ov else t.get("revs")
+                if "start_date" in body: t["start_date"] = ov.get("start_date") or t.get("start_date")
+                t["total_hours"] = (t.get("est") or 0) + (t.get("revs") or 0)
+                t["overrides"] = list(ov.keys())
+    return {"ok": True}
+
+
 @app.put("/api/todos/{todo_id}/start-date")
 async def set_start_date(todo_id: str, request: Request):
     body = await request.json()
     sd = body.get("start_date", "")
     if sd:
         store.set_start_date(todo_id, sd)
+        store.set_override(todo_id, "start_date", sd)
     return {"ok": True}
 
 

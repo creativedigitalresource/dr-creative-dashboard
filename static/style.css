@@ -253,6 +253,19 @@ body { min-height: 100vh; }
 .meta-pill.hdd { color: #fb923c; }
 .meta-pill.pdd { color: #60a5fa; }
 .meta-pill.est { color: #a78bfa; }
+.meta-pill.editable { cursor: pointer; }
+.meta-pill.editable:hover { opacity: 0.75; }
+.meta-pill.overridden { border: 1px solid currentColor; font-style: italic; }
+
+.inline-field-input {
+  padding: 2px 6px;
+  background: var(--surface2);
+  border: 1px solid var(--accent);
+  border-radius: var(--radius-sm);
+  color: var(--text);
+  font-size: 11px;
+  outline: none;
+}
 
 .progress-wrap { display: flex; align-items: center; gap: 8px; }
 .progress-bar-outer {

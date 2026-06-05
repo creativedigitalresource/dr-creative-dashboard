@@ -145,10 +145,16 @@ function renderDesignerCard(d) {
 }
 
 function renderTodoItem(t, color) {
-  const hddStr = t.hdd ? `<span class="meta-pill hdd">HDD ${fmtDate(t.hdd)}</span>` : "";
-  const pddStr = t.pdd ? `<span class="meta-pill pdd">PDD ${fmtDate(t.pdd)}</span>` : "";
-  const estStr = t.est != null ? `<span class="meta-pill est">EST ${t.est}h</span>` : "";
-  const revsStr = t.revs ? `<span class="meta-pill">REVS ${t.revs}h</span>` : "";
+  const ov = t.overrides || [];
+  const hddCls = ov.includes("hdd") ? "hdd overridden" : "hdd";
+  const pddCls = ov.includes("pdd") ? "pdd overridden" : "pdd";
+  const estCls = ov.includes("est") ? "est overridden" : "est";
+  const revsCls = ov.includes("revs") ? "overridden" : "";
+
+  const hddStr = `<span class="meta-pill ${hddCls} editable" onclick="editField(event,'${t.id}','hdd','date','${t.hdd||''}')" title="Click to edit HDD">${t.hdd ? "HDD " + fmtDate(t.hdd) : "+ HDD"}</span>`;
+  const pddStr = `<span class="meta-pill ${pddCls} editable" onclick="editField(event,'${t.id}','pdd','date','${t.pdd||''}')" title="Click to edit PDD">${t.pdd ? "PDD " + fmtDate(t.pdd) : "+ PDD"}</span>`;
+  const estStr = `<span class="meta-pill ${estCls} editable" onclick="editField(event,'${t.id}','est','number','${t.est??''}')" title="Click to edit EST">${t.est != null ? "EST " + t.est + "h" : "+ EST"}</span>`;
+  const revsStr = `<span class="meta-pill ${revsCls} editable" onclick="editField(event,'${t.id}','revs','number','${t.revs||0}')" title="Click to edit REVS">${t.revs ? "REVS " + t.revs + "h" : "+ REVS"}</span>`;
 
   const total = t.total_hours || 0;
   const logged = t.logged || 0;
@@ -160,13 +166,11 @@ function renderTodoItem(t, color) {
        </div>`
     : "";
 
-  const sdLabel = t.start_date
-    ? `Start: ${fmtDate(t.start_date)}`
-    : `+ Set start date`;
-  const sdCls = t.start_date ? "set" : "";
+  const sdLabel = t.start_date ? `Start: ${fmtDate(t.start_date)}` : `+ Set start date`;
+  const sdCls2 = t.start_date ? "set" : "";
 
   return `
-  <li class="todo-item">
+  <li class="todo-item" id="todo-${t.id}">
     <div class="todo-item-left">
       <div class="todo-item-title" title="${esc(t.title)}">${esc(truncate(t.title, 60))}</div>
       <div class="todo-meta">${hddStr}${pddStr}${estStr}${revsStr}</div>
@@ -174,7 +178,7 @@ function renderTodoItem(t, color) {
     </div>
     <div class="todo-item-actions">
       ${t.url ? `<a href="${t.url}" target="_blank" class="link-btn" title="Open in Basecamp">↗</a>` : ""}
-      <span class="start-date-badge ${sdCls}" onclick="openModal('${t.id}', '${esc(t.title.replace(/'/g, "\\'"))}', '${t.start_date || ""}')">${sdLabel}</span>
+      <span class="start-date-badge ${sdCls2}" onclick="openModal('${t.id}', '${esc(t.title.replace(/'/g, "\\'"))}', '${t.start_date || ""}')">${sdLabel}</span>
     </div>
   </li>`;
 }
@@ -210,6 +214,55 @@ function initCalendar() {
     },
   });
   calendar.render();
+}
+
+// ---------------------------------------------------------------------------
+// Inline field editing (HDD, PDD, EST, REVS)
+// ---------------------------------------------------------------------------
+
+function editField(evt, todoId, field, inputType, currentValue) {
+  evt.stopPropagation();
+  const pill = evt.currentTarget;
+  const orig = pill.outerHTML;
+
+  // Build inline input
+  const input = document.createElement("input");
+  input.type = inputType;
+  input.className = "inline-field-input";
+  if (inputType === "number") {
+    input.step = "0.5"; input.min = "0"; input.style.width = "70px";
+  } else {
+    input.style.width = "110px";
+  }
+  input.value = currentValue;
+
+  pill.replaceWith(input);
+  input.focus();
+  if (inputType === "date" && currentValue) input.value = currentValue;
+
+  const commit = async () => {
+    const val = input.value.trim();
+    if (val !== currentValue) {
+      await fetch(`/api/todos/${todoId}/fields`, {
+        method: "PUT",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ [field]: val || null }),
+      });
+      // Reload designers to reflect new capacity
+      await loadDesigners();
+      await loadCalendar();
+    } else {
+      // No change — restore pill from DOM
+      input.insertAdjacentHTML("afterend", orig);
+      input.remove();
+    }
+  };
+
+  input.addEventListener("blur", commit);
+  input.addEventListener("keydown", e => {
+    if (e.key === "Enter") { e.preventDefault(); input.blur(); }
+    if (e.key === "Escape") { input.insertAdjacentHTML("afterend", orig); input.remove(); }
+  });
 }
 
 // ---------------------------------------------------------------------------
