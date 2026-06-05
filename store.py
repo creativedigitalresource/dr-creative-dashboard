@@ -45,6 +45,14 @@ def init_db():
                 updated_at REAL DEFAULT (unixepoch()),
                 PRIMARY KEY (todo_id, field)
             );
+            CREATE TABLE IF NOT EXISTS pto (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                designer_bc_id TEXT NOT NULL,
+                date TEXT NOT NULL,
+                note TEXT DEFAULT '',
+                created_at REAL DEFAULT (unixepoch()),
+                UNIQUE(designer_bc_id, date)
+            );
         """)
 
 
@@ -104,6 +112,31 @@ def get_all_overrides() -> dict:
     result = {}
     for r in rows:
         result.setdefault(r["todo_id"], {})[r["field"]] = r["value"]
+    return result
+
+
+def add_pto(designer_bc_id: str, date: str, note: str = ""):
+    with get_db() as c:
+        c.execute(
+            "INSERT OR REPLACE INTO pto (designer_bc_id, date, note, created_at) VALUES (?, ?, ?, unixepoch())",
+            (str(designer_bc_id), date, note),
+        )
+
+
+def delete_pto(pto_id: int):
+    with get_db() as c:
+        c.execute("DELETE FROM pto WHERE id=?", (pto_id,))
+
+
+def get_all_pto() -> dict:
+    """Returns {designer_bc_id: [{id, date, note}, ...], ...}"""
+    with get_db() as c:
+        rows = c.execute("SELECT id, designer_bc_id, date, note FROM pto ORDER BY date").fetchall()
+    result = {}
+    for r in rows:
+        result.setdefault(str(r["designer_bc_id"]), []).append(
+            {"id": r["id"], "date": r["date"], "note": r["note"]}
+        )
     return result
 
 

@@ -190,7 +190,36 @@ async def api_unassigned():
 
 @app.get("/api/designers")
 async def api_designers():
-    return _cached_data.get("designers", [])
+    designers = _cached_data.get("designers", [])
+    pto_map = store.get_all_pto()
+    # Attach PTO to each designer so client can calculate real capacity
+    for d in designers:
+        d["pto"] = pto_map.get(str(d["bc_id"]), [])
+    return designers
+
+
+@app.get("/api/pto")
+async def get_pto():
+    return store.get_all_pto()
+
+
+@app.post("/api/pto")
+async def add_pto(request: Request):
+    body = await request.json()
+    designer_bc_id = str(body.get("designer_bc_id", ""))
+    dates = body.get("dates", [])  # list of ISO date strings
+    note = body.get("note", "")
+    if not designer_bc_id or not dates:
+        return {"ok": False, "error": "missing fields"}
+    for date in dates:
+        store.add_pto(designer_bc_id, date, note)
+    return {"ok": True, "added": len(dates)}
+
+
+@app.delete("/api/pto/{pto_id}")
+async def delete_pto(pto_id: int):
+    store.delete_pto(pto_id)
+    return {"ok": True}
 
 
 @app.get("/api/calendar")

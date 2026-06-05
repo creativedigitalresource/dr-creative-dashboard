@@ -339,6 +339,36 @@ body { min-height: 100vh; }
 .form-row input[type="date"]:focus { outline: none; border-color: var(--accent); }
 .modal-actions { display: flex; justify-content: flex-end; gap: 10px; }
 
+/* ---- PTO ---- */
+.pto-badge {
+  font-size: 10px;
+  padding: 2px 7px;
+  border-radius: 20px;
+  background: rgba(239,68,68,0.15);
+  color: #f87171;
+  font-weight: 600;
+  white-space: nowrap;
+}
+.pto-entry {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  font-size: 13px;
+  padding: 5px 8px;
+  background: var(--surface2);
+  border-radius: var(--radius-sm);
+}
+.pto-delete {
+  background: none;
+  border: none;
+  color: var(--text-muted);
+  cursor: pointer;
+  font-size: 12px;
+  padding: 2px 5px;
+}
+.pto-delete:hover { color: var(--danger); }
+.fc-event.pto-event { opacity: 0.4; }
+
 /* ---- SSE pulse dot ---- */
 .live-dot {
   width: 8px; height: 8px;

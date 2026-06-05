@@ -109,36 +109,48 @@ function renderDesignerGrid(designers) {
     designers.map(d => renderDesignerCard(d)).join("");
 }
 
-async function loadCalendar() {
-  const events = await fetch("/api/calendar").then(r => r.json()).catch(() => []);
-  if (calendar) {
-    calendar.removeAllEvents();
-    calendar.addEventSource(events);
-  }
-}
+// loadCalendar is defined later (includes PTO background events)
 
 // ---------------------------------------------------------------------------
 // Designer card rendering
 // ---------------------------------------------------------------------------
 
-function calcCapacity(todos) {
-  // Calculate live from todo data — includes overdue tasks (hdd <= this Friday)
+function getWeekBounds() {
   const today = new Date();
-  const friday = new Date(today);
-  friday.setDate(today.getDate() + (5 - today.getDay())); // this Friday
-  const weekEnd = friday.toISOString().split("T")[0];
+  const monday = new Date(today);
+  monday.setDate(today.getDate() - ((today.getDay() + 6) % 7));
+  const friday = new Date(monday);
+  friday.setDate(monday.getDate() + 4);
+  return {
+    start: monday.toISOString().split("T")[0],
+    end: friday.toISOString().split("T")[0],
+  };
+}
+
+function calcCapacity(todos, pto) {
+  const { start, end } = getWeekBounds();
+  // PTO days this week reduce available hours
+  const ptoDaysThisWeek = (pto || []).filter(p => p.date >= start && p.date <= end).length;
+  const cap = Math.max(0, (5 - ptoDaysThisWeek) * 7);
   const weekly_est = (todos || []).reduce((sum, t) => {
-    if (t.hdd && t.hdd <= weekEnd) return sum + (t.total_hours || 0);
+    if (t.hdd && t.hdd <= end) return sum + (t.total_hours || 0);
     return sum;
   }, 0);
-  const cap = 35;
-  return { weekly_est: Math.round(weekly_est * 10) / 10, cap, pct: Math.min(100, Math.round(weekly_est / cap * 100)) };
+  return {
+    weekly_est: Math.round(weekly_est * 10) / 10,
+    cap,
+    pct: cap > 0 ? Math.min(100, Math.round(weekly_est / cap * 100)) : 100,
+    pto_days: ptoDaysThisWeek,
+  };
 }
 
 function renderDesignerCard(d) {
-  const { weekly_est, cap, pct } = calcCapacity(d.todos);
+  const { weekly_est, cap, pct, pto_days } = calcCapacity(d.todos, d.pto);
   const barCls = pct < 60 ? "low" : pct < 85 ? "mid" : "high";
   const initials = d.name.split(" ").map(n => n[0]).join("").slice(0, 2).toUpperCase();
+  const ptoBadge = pto_days > 0
+    ? `<span class="pto-badge">${pto_days} OOO day${pto_days > 1 ? "s" : ""} this wk</span>`
+    : "";
 
   const todosHtml = d.todos && d.todos.length
     ? `<ul class="designer-todos">${d.todos.map(t => renderTodoItem(t, d.color)).join("")}</ul>`
@@ -150,12 +162,18 @@ function renderDesignerCard(d) {
       <div class="designer-name-wrap">
         <div class="designer-avatar" style="background:${d.color}">${initials}</div>
         <div>
-          <div class="designer-name">${esc(d.name)}</div>
+          <div class="designer-name" style="display:flex;align-items:center;gap:8px">
+            ${esc(d.name)}
+            ${ptoBadge}
+          </div>
           <div style="font-size:11px;color:var(--text-muted)">${d.todos ? d.todos.length : 0} task${d.todos?.length !== 1 ? "s" : ""}</div>
         </div>
       </div>
       <div class="designer-cap-wrap">
-        <div class="cap-label">Week capacity &middot; ${weekly_est}h / ${cap}h</div>
+        <div style="display:flex;align-items:center;gap:8px">
+          <div class="cap-label">Week capacity &middot; ${weekly_est}h / ${cap}h</div>
+          <button class="btn btn-ghost btn-sm" onclick="openPtoModal('${d.bc_id}','${esc(d.name)}')" title="Mark OOO days">OOO</button>
+        </div>
         <div class="cap-bar-outer">
           <div class="cap-bar-inner ${barCls}" style="width:${pct}%"></div>
         </div>
@@ -291,9 +309,10 @@ function editField(evt, todoId, field, inputType, currentValue) {
           }
         }
       }
-      // Re-render from updated in-memory data
+      // Re-render from updated in-memory data (preserve pto)
       renderDesignerGrid(_designerData);
       await loadCalendar();
+      updateLastUpdated();
     } else {
       input.insertAdjacentHTML("afterend", orig);
       input.remove();
@@ -409,6 +428,113 @@ function dueCls(iso) {
 function updateLastUpdated() {
   const el = document.getElementById("last-updated");
   el.textContent = "Updated " + new Date().toLocaleTimeString("en-US", { hour: "numeric", minute: "2-digit" });
+}
+
+// ---------------------------------------------------------------------------
+// PTO modal
+// ---------------------------------------------------------------------------
+
+let _ptoDesignerId = null;
+let _ptoDesignerName = "";
+
+function openPtoModal(bcId, name) {
+  _ptoDesignerId = bcId;
+  _ptoDesignerName = name;
+  const d = (_designerData || []).find(x => String(x.bc_id) === String(bcId));
+  const pto = d ? (d.pto || []) : [];
+
+  document.getElementById("pto-modal-title").textContent = `OOO Days — ${name}`;
+  renderPtoList(pto);
+  document.getElementById("pto-date-input").value = "";
+  document.getElementById("pto-note-input").value = "";
+  show("pto-modal");
+}
+
+function renderPtoList(pto) {
+  const el = document.getElementById("pto-existing");
+  if (!pto.length) { el.innerHTML = `<div style="color:var(--text-muted);font-size:12px">No OOO days set</div>`; return; }
+  el.innerHTML = pto.map(p => `
+    <div class="pto-entry">
+      <span>${fmtDateISO(p.date)}${p.note ? " — " + esc(p.note) : ""}</span>
+      <button class="pto-delete" onclick="deletePto(${p.id})">✕</button>
+    </div>`).join("");
+}
+
+async function savePto() {
+  const dateVal = document.getElementById("pto-date-input").value;
+  const endVal  = document.getElementById("pto-end-input").value;
+  const note    = document.getElementById("pto-note-input").value.trim();
+  if (!dateVal) return;
+
+  // Build array of dates (single or range)
+  const dates = [];
+  const start = new Date(dateVal + "T12:00:00");
+  const end   = endVal ? new Date(endVal + "T12:00:00") : start;
+  for (let d = new Date(start); d <= end; d.setDate(d.getDate() + 1)) {
+    if (d.getDay() !== 0 && d.getDay() !== 6) // skip weekends
+      dates.push(d.toISOString().split("T")[0]);
+  }
+
+  await fetch("/api/pto", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ designer_bc_id: _ptoDesignerId, dates, note }),
+  });
+  await refreshAfterPto();
+}
+
+async function deletePto(ptoId) {
+  await fetch(`/api/pto/${ptoId}`, { method: "DELETE" });
+  await refreshAfterPto();
+}
+
+async function refreshAfterPto() {
+  await loadDesigners();
+  await loadCalendar();
+  // Reopen modal with fresh data
+  const d = (_designerData || []).find(x => String(x.bc_id) === String(_ptoDesignerId));
+  if (d) renderPtoList(d.pto || []);
+}
+
+function closePtoModal() { hide("pto-modal"); }
+
+function fmtDateISO(iso) {
+  if (!iso) return "";
+  const [y, m, d] = iso.split("-");
+  return new Date(iso + "T12:00:00").toLocaleDateString("en-US", { weekday: "short", month: "short", day: "numeric" });
+}
+
+// ---------------------------------------------------------------------------
+// Calendar — include PTO as blocked days
+// ---------------------------------------------------------------------------
+
+async function loadCalendar() {
+  const [events, designers] = await Promise.all([
+    fetch("/api/calendar").then(r => r.json()).catch(() => []),
+    Promise.resolve(_designerData || []),
+  ]);
+
+  // Add PTO blocks as background events
+  const ptoEvents = [];
+  for (const d of designers) {
+    for (const p of d.pto || []) {
+      ptoEvents.push({
+        id: `pto-${d.bc_id}-${p.date}`,
+        title: `${d.name} OOO${p.note ? ": " + p.note : ""}`,
+        start: p.date,
+        allDay: true,
+        display: "background",
+        backgroundColor: d.color + "44",
+        borderColor: d.color,
+        classNames: ["pto-event"],
+      });
+    }
+  }
+
+  if (calendar) {
+    calendar.removeAllEvents();
+    calendar.addEventSource([...events, ...ptoEvents]);
+  }
 }
 
 // ---------------------------------------------------------------------------

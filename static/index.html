@@ -86,6 +86,37 @@
 
   </div>
 
+  <!-- PTO modal -->
+  <div id="pto-modal" class="modal hidden">
+    <div class="modal-backdrop" onclick="closePtoModal()"></div>
+    <div class="modal-box" style="width:440px">
+      <h3 id="pto-modal-title">OOO Days</h3>
+      <div id="pto-existing" style="margin:14px 0;display:flex;flex-direction:column;gap:6px"></div>
+      <div style="border-top:1px solid var(--border);padding-top:14px;margin-top:4px">
+        <div style="font-size:12px;font-weight:600;color:var(--text-muted);text-transform:uppercase;letter-spacing:.05em;margin-bottom:10px">Add OOO</div>
+        <div style="display:grid;grid-template-columns:1fr 1fr;gap:10px;margin-bottom:10px">
+          <div class="form-row">
+            <label>Start Date</label>
+            <input type="date" id="pto-date-input" />
+          </div>
+          <div class="form-row">
+            <label>End Date (optional)</label>
+            <input type="date" id="pto-end-input" />
+          </div>
+        </div>
+        <div class="form-row" style="margin-bottom:14px">
+          <label>Note (optional)</label>
+          <input type="text" id="pto-note-input" placeholder="e.g. Vacation, Conference…"
+            style="padding:9px 12px;background:var(--surface2);border:1px solid var(--border);border-radius:var(--radius-sm);color:var(--text);font-size:14px;width:100%" />
+        </div>
+      </div>
+      <div class="modal-actions">
+        <button class="btn btn-ghost" onclick="closePtoModal()">Close</button>
+        <button class="btn btn-primary" onclick="savePto()">Add OOO Days</button>
+      </div>
+    </div>
+  </div>
+
   <!-- Start date modal -->
   <div id="date-modal" class="modal hidden">
     <div class="modal-backdrop" onclick="closeModal()"></div>
