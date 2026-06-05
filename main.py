@@ -195,6 +195,26 @@ async def manual_refresh():
     return {"ok": True}
 
 
+@app.get("/api/test")
+async def api_test():
+    """Lightweight test — one API call, immediate result."""
+    import sys
+    token = store.get_token("access_token")
+    if not token:
+        return {"error": "no token — need to login first", "python": sys.version}
+    # One direct call, no parsing
+    status, body = await bc._get_raw_status("/reports/todos/assigned/44800252.json")
+    return {
+        "python": sys.version,
+        "token_present": True,
+        "dexter_status": status,
+        "dexter_body_snippet": body[:200],
+        "poll_ran": "designers" in _cached_data,
+        "designer_count": len(_cached_data.get("designers", [])),
+        "unassigned_count": len(_cached_data.get("unassigned", [])),
+    }
+
+
 @app.get("/api/debug")
 async def api_debug():
     """Diagnostic endpoint — returns raw Basecamp connectivity info."""
