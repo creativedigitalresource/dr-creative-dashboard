@@ -368,21 +368,19 @@ async def api_test():
     import json as _json
     try:
         parsed = _json.loads(body)
-        todos_raw = parsed.get("todos", parsed) if isinstance(parsed, dict) else parsed
-        todos_count = len(todos_raw) if isinstance(todos_raw, list) else "not a list"
         top_keys = list(parsed.keys()) if isinstance(parsed, dict) else "array"
+        todos_list = parsed.get("todos", []) if isinstance(parsed, dict) else parsed
+        todos_count = len(todos_list) if isinstance(todos_list, list) else "n/a"
     except Exception as e:
-        todos_count = f"parse error: {e}"
-        top_keys = []
-    raw_assigned = await bc._get_all_reports_assigned(44800252)
+        top_keys = [f"parse error: {e}"]
+        todos_count = 0
     return {
         "python": sys.version,
         "token_present": True,
         "dexter_status": status,
-        "dexter_body_snippet": body[:400],
         "response_top_keys": top_keys,
         "todos_in_response": todos_count,
-        "raw_assigned_count": len(raw_assigned),
+        "body_snippet": body[:300],
         "data_loaded": "designers" in _cached_data,
         "designer_count": len(_cached_data.get("designers", [])),
         "unassigned_count": len(_cached_data.get("unassigned", [])),
