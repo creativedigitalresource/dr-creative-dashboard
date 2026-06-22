@@ -255,7 +255,9 @@ function calcCapacity(todos, pto) {
   const ptoDaysThisWeek = (pto || []).filter(p => p.date >= start && p.date <= end).length;
   const cap = Math.max(0, (5 - ptoDaysThisWeek) * 7);
   const weekly_est = (todos || []).reduce((sum, t) => {
-    if (t.completed_on) return sum;            // completed — no longer blocks capacity
+    if (t.completed_on) return sum;
+    if (t.is_complete) return sum;
+    if (t.is_misc) return sum;
     if (t.hdd && t.hdd <= end) return sum + (t.total_hours || 0);
     return sum;
   }, 0);
@@ -327,14 +329,10 @@ function toggleCompleted(bcId) {
 function renderTodoItem(t, color, showCompleted = false) {
   const ov = t.overrides || [];
   const hddCls = ov.includes("hdd") ? "hdd overridden" : "hdd";
-  const pddCls = ov.includes("pdd") ? "pdd overridden" : "pdd";
   const estCls = ov.includes("est") ? "est overridden" : "est";
-  const revsCls = ov.includes("revs") ? "overridden" : "";
 
-  const hddStr = `<span class="meta-pill ${hddCls} editable" onclick="editField(event,'${t.id}','hdd','date','${t.hdd||''}')" title="Click to edit HDD">${t.hdd ? "HDD " + fmtDate(t.hdd) : "+ HDD"}</span>`;
-  const pddStr = `<span class="meta-pill ${pddCls} editable" onclick="editField(event,'${t.id}','pdd','date','${t.pdd||''}')" title="Click to edit PDD">${t.pdd ? "PDD " + fmtDate(t.pdd) : "+ PDD"}</span>`;
-  const estStr = `<span class="meta-pill ${estCls} editable" onclick="editField(event,'${t.id}','est','number','${t.est??''}')" title="Click to edit EST">${t.est != null ? "EST " + t.est + "h" : "+ EST"}</span>`;
-  const revsStr = `<span class="meta-pill ${revsCls} editable" onclick="editField(event,'${t.id}','revs','number','${t.revs||0}')" title="Click to edit REVS">${t.revs ? "REVS " + t.revs + "h" : "+ REVS"}</span>`;
+  const hddStr = `<span class="meta-pill ${hddCls} editable" onclick="editField(event,'${t.id}','hdd','date','${t.hdd||''}')" title="Click to edit — updates Basecamp step due date">${t.hdd ? "HDD " + fmtDate(t.hdd) : "+ HDD"}</span>`;
+  const estStr = `<span class="meta-pill ${estCls} editable" onclick="editField(event,'${t.id}','est','number','${t.est??''}')" title="Click to edit — updates Everhour estimate">${t.est != null ? "EST " + t.est + "h" : "+ EST"}</span>`;
 
   const total = t.total_hours || 0;
   const logged = t.logged || 0;
@@ -367,7 +365,7 @@ function renderTodoItem(t, color, showCompleted = false) {
   <li class="todo-item${isDone ? " todo-done" : ""}" id="todo-${t.id}">
     <div class="todo-item-left">
       <div class="todo-item-title" title="${esc(t.title)}">${isDone ? `<s>${esc(truncate(t.title, 55))}</s>` : esc(truncate(t.title, 60))}</div>
-      <div class="todo-meta">${hddStr}${pddStr}${estStr}${revsStr}</div>
+      <div class="todo-meta">${hddStr}${estStr}</div>
       ${isDone ? `<div style="font-size:11px;color:var(--success)">Completed ${fmtDate(t.completed_on)}</div>` : progressHtml}
     </div>
     <div class="todo-item-actions">
@@ -383,7 +381,7 @@ function renderTodoItem(t, color, showCompleted = false) {
 // ---------------------------------------------------------------------------
 
 const WORK_START = 9;   // 9 AM
-const WORK_HOURS = 7;   // hours per day
+const WORK_HOURS = 6.5; // hours per day (1.5h reserved for misc/admin)
 
 function isWorkDay(dateObj, ptoDates) {
   if (dateObj.getDay() === 0 || dateObj.getDay() === 6) return false;
@@ -616,13 +614,12 @@ function editField(evt, todoId, field, inputType, currentValue) {
         for (const t of d.todos || []) {
           if (String(t.id) === String(todoId)) {
             if (field === "est")    { t.est = val ? parseFloat(val) : null; }
-            if (field === "revs")   { t.revs = val ? parseFloat(val) : 0; }
             if (field === "logged") { t.logged = val ? parseFloat(val) : 0; }
             if (field === "hdd")    { t.hdd = val || null; }
-            if (field === "pdd")    { t.pdd = val || null; }
             if (field === "start_date") { t.start_date = val || null; }
-            t.total_hours = (t.est || 0) + (t.revs || 0);
-            t.progress = t.total_hours > 0 ? Math.min(100, Math.round(t.logged / t.total_hours * 100)) : 0;
+            t.total_hours = t.est || 0;
+            const stepComplete = t.designer_step && t.designer_step.completed;
+            t.progress = stepComplete ? 100 : (t.total_hours > 0 ? Math.min(100, Math.round(t.logged / t.total_hours * 100)) : 0);
             if (!t.overrides) t.overrides = [];
             if (!t.overrides.includes(field)) t.overrides.push(field);
           }

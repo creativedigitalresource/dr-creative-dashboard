@@ -164,6 +164,30 @@ async def get_comments(bucket_id: str, todo_id: str) -> list:
     return data.get("comments", [])
 
 
+async def get_todo_detail(bucket_id: str, todo_id: str) -> dict | None:
+    """Fetch full todo detail including steps (subtasks)."""
+    return await _get(f"/buckets/{bucket_id}/todos/{todo_id}.json")
+
+
+async def update_step_due(bucket_id: str, step_id: str, due_on: str) -> bool:
+    """Update a step's due date in Basecamp."""
+    token = get_token("access_token")
+    if not token:
+        return False
+    headers = {
+        "Authorization": f"Bearer {token}",
+        "User-Agent": USER_AGENT,
+        "Content-Type": "application/json",
+    }
+    import json as _json
+    r = await get_http().put(
+        f"{BC_BASE}/buckets/{bucket_id}/card_tables/steps/{step_id}.json",
+        headers=headers,
+        content=_json.dumps({"due_on": due_on}),
+    )
+    return r.status_code == 200
+
+
 async def get_unassigned_todos() -> list:
     """Todos assigned to the Creative Team group — these need delegation.
     Fetches page 1 only (50 most recent) to avoid timeouts on large groups."""
@@ -204,28 +228,71 @@ async def get_designer_todos(designer_bc_id: int) -> list:
 
     sem = asyncio.Semaphore(3)
 
-    async def fetch_comments_limited(t):
+    async def fetch_detail_and_comments(t):
         bucket_id = str((t.get("bucket") or {}).get("id", ""))
         if not bucket_id:
-            return []
+            return {}, []
         async with sem:
-            return await get_comments(bucket_id, str(t["id"]))
+            detail = await get_todo_detail(bucket_id, str(t["id"])) or {}
+        async with sem:
+            comments = await get_comments(bucket_id, str(t["id"]))
+        return detail, comments
 
-    all_comments = await asyncio.gather(*[fetch_comments_limited(t) for t in active])
+    detail_and_comments = await asyncio.gather(*[fetch_detail_and_comments(t) for t in active])
 
     results = []
-    for t, comments in zip(active, all_comments):
+    for t, (detail, comments) in zip(active, detail_and_comments):
         bucket = t.get("bucket", {})
         fields = parse_todo_fields(t["content"], comments)
+
+        # Steps (subtasks) from full todo detail
+        steps = detail.get("steps", [])
+
+        # Notes field for admin/misc detection
+        import re
+        raw_notes = detail.get("description", "") or ""
+        notes = re.sub(r"<[^>]+>", " ", raw_notes).strip()
+        is_misc = notes.strip().lower().startswith("misc")
+
+        # Assignee IDs on parent todo
+        assignee_ids = {str(a["id"]) for a in (t.get("assignees") or [])}
+
+        # Find designer's step
+        designer_step = None
+        for s in steps:
+            step_assignee_ids = {str(a["id"]) for a in (s.get("assignees") or [])}
+            if step_assignee_ids & assignee_ids:
+                designer_step = s
+                break
+
+        # HDD: use designer's step due_on if available, fall back to todo due_on
+        step_due = designer_step.get("due_on") if designer_step else None
+        hdd = fields.get("hdd") or step_due or t.get("due_on")
+
+        # Completion rules
+        designer_still_assigned = bool(assignee_ids)
+        if designer_step:
+            # Rule 2: step must be complete AND designer unassigned
+            is_complete = designer_step.get("completed", False) and not designer_still_assigned
+        else:
+            # Rule 1: designer unassigned = complete
+            is_complete = not designer_still_assigned
+
         results.append({
             "id": t["id"],
             "title": t["content"],
             "due_on": t.get("due_on"),
+            "hdd": hdd,
             "created_at": t.get("created_at", ""),
             "bucket_id": str(bucket.get("id", "")),
             "bucket_name": bucket.get("name", ""),
             "todolist_name": t.get("parent", {}).get("title", ""),
             "url": t.get("app_url", ""),
+            "steps": steps,
+            "designer_step": designer_step,
+            "notes": notes,
+            "is_misc": is_misc,
+            "is_complete": is_complete,
             **fields,
         })
     return results

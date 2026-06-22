@@ -22,7 +22,7 @@ DESIGNERS = [
     {"name": "Melany",   "bc_id": 46905124, "eh_id": None,     "color": "#ef4444"},
 ]
 
-WEEKLY_CAP = 35.0
+WEEKLY_CAP = 32.5  # 6.5h/day × 5 days (1.5h/day reserved for misc/admin)
 CACHE_TTL = 300  # 5 minutes
 
 
@@ -73,38 +73,55 @@ async def _do_refresh():
                     try:
                         return await asyncio.wait_for(eh.get_time_logged(tid), timeout=6.0)
                     except Exception:
-                        return 0.0
-            logged_list = await asyncio.gather(*[_eh(t["id"]) for t in todos]) if eh.EH_KEY else [0.0] * len(todos)
+                        return {"logged": 0.0, "estimate": None}
+            eh_data_list = await asyncio.gather(*[_eh(t["id"]) for t in todos]) if eh.EH_KEY else [{"logged": 0.0, "estimate": None}] * len(todos)
 
             enriched = []
-            for t, logged in zip(todos, logged_list):
+            for t, eh_data in zip(todos, eh_data_list):
                 ov = overrides.get(str(t["id"]), {})
                 # Apply local overrides on top of Basecamp-parsed fields
                 hdd    = ov.get("hdd")   or t.get("hdd")
                 pdd    = ov.get("pdd")   or t.get("pdd")
-                est    = float(ov["est"])   if "est"  in ov else t.get("est")
+                # EST priority: manual override > Everhour estimate > title-parsed
+                est    = float(ov["est"]) if "est" in ov else (eh_data.get("estimate") or t.get("est"))
                 revs   = float(ov["revs"])  if "revs" in ov else (t.get("revs") or 0)
                 sd     = ov.get("start_date") or start_dates.get(str(t["id"]))
                 # Manual logged override takes priority over Everhour
-                logged       = float(ov["logged"])      if "logged"       in ov else logged
+                logged       = float(ov["logged"])      if "logged"       in ov else eh_data.get("logged", 0.0)
                 completed_on = ov.get("completed_on")
                 total        = (est or 0) + revs
                 over_by      = round(max(0, logged - total), 2) if total > 0 else 0
-                progress     = min(100, round((logged / total * 100) if total > 0 else 0))
+
+                # Progress: 100% if designer's step is complete, else hours-based
+                designer_step = t.get("designer_step")
+                step_complete = designer_step.get("completed", False) if designer_step else False
+                if step_complete:
+                    progress = 100
+                else:
+                    progress = min(100, round((logged / total * 100) if total > 0 else 0))
+
+                # Use step due_on as HDD if available
+                step_due = designer_step.get("due_on") if designer_step else None
+                effective_hdd = hdd or step_due
+
                 enriched.append({
                     **t,
-                    "hdd": hdd, "pdd": pdd, "est": est, "revs": revs,
+                    "hdd": effective_hdd, "pdd": pdd, "est": est, "revs": revs,
                     "total_hours": total,
                     "logged": logged, "progress": progress,
                     "over_by": over_by,
                     "start_date": sd,
                     "completed_on": completed_on,
+                    "is_misc": t.get("is_misc", False),
+                    "is_complete": t.get("is_complete", False),
                     "overrides": list(ov.keys()),
                 })
             # Overdue tasks count; completed tasks do not
             weekly_est = sum(t.get("total_hours", 0) for t in enriched
                              if t.get("hdd") and t["hdd"] <= week_end
-                             and not t.get("completed_on"))
+                             and not t.get("completed_on")
+                             and not t.get("is_complete")
+                             and not t.get("is_misc"))
             capacity_pct = min(100, round(weekly_est / WEEKLY_CAP * 100))
             designers_out.append({**d, "todos": enriched,
                                    "weekly_est": round(weekly_est, 1),
@@ -265,34 +282,63 @@ async def api_calendar():
 
 @app.put("/api/todos/{todo_id}/fields")
 async def set_todo_fields(todo_id: str, request: Request):
-    """Save local overrides for hdd, pdd, est, revs, start_date."""
+    """Update todo fields — HDD writes to Basecamp step, EST writes to Everhour."""
     body = await request.json()
-    allowed = {"hdd", "pdd", "est", "revs", "start_date", "logged", "completed_on"}
+    allowed = {"hdd", "est", "start_date", "logged", "completed_on"}
+
+    # Find the todo and its designer in the cache
+    cached_todo = None
+    cached_designer = None
+    for d in _cached_data.get("designers", []):
+        for t in d.get("todos", []):
+            if str(t["id"]) == str(todo_id):
+                cached_todo = t
+                cached_designer = d
+                break
+
     for field, value in body.items():
         if field not in allowed:
             continue
-        if value is None or value == "":
+
+        if field == "hdd" and value:
+            # Write to Basecamp step due_on
+            designer_step = cached_todo.get("designer_step") if cached_todo else None
+            bucket_id = cached_todo.get("bucket_id") if cached_todo else None
+            if designer_step and bucket_id:
+                step_id = str(designer_step["id"])
+                await bc.update_step_due(bucket_id, step_id, str(value))
+            # Also save locally as fallback
+            store.set_override(todo_id, field, str(value))
+
+        elif field == "est" and value is not None and value != "":
+            # Write to Everhour estimate for this designer
+            eh_id = cached_designer.get("eh_id") if cached_designer else None
+            if eh_id:
+                await eh.set_user_estimate(todo_id, eh_id, float(value))
+            store.set_override(todo_id, field, str(value))
+
+        elif value is None or value == "":
             store.delete_override(todo_id, field)
         else:
             store.set_override(todo_id, field, str(value))
             if field == "start_date":
                 store.set_start_date(todo_id, str(value))
+
     # Patch live cache so UI updates without a full refresh
-    for d in _cached_data.get("designers", []):
-        for t in d.get("todos", []):
-            if str(t["id"]) == str(todo_id):
-                ov = store.get_all_overrides().get(str(todo_id), {})
-                if "hdd" in body:        t["hdd"]        = ov.get("hdd") or t.get("hdd")
-                if "pdd" in body:        t["pdd"]        = ov.get("pdd") or t.get("pdd")
-                if "est" in body:        t["est"]        = float(ov["est"]) if "est" in ov else t.get("est")
-                if "revs" in body:       t["revs"]       = float(ov["revs"]) if "revs" in ov else t.get("revs")
-                if "logged" in body:       t["logged"]       = float(ov["logged"]) if "logged" in ov else t.get("logged", 0)
-                if "completed_on" in body: t["completed_on"] = ov.get("completed_on")
-                if "start_date" in body: t["start_date"] = ov.get("start_date") or t.get("start_date")
-                t["total_hours"] = (t.get("est") or 0) + (t.get("revs") or 0)
-                total = t["total_hours"]
-                t["progress"] = min(100, round((t.get("logged",0) / total * 100) if total > 0 else 0))
-                t["overrides"] = list(ov.keys())
+    if cached_todo:
+        ov = store.get_all_overrides().get(str(todo_id), {})
+        if "hdd" in body:          cached_todo["hdd"]          = body["hdd"] or cached_todo.get("hdd")
+        if "est" in body:          cached_todo["est"]          = float(body["est"]) if body.get("est") else cached_todo.get("est")
+        if "logged" in body:       cached_todo["logged"]       = float(body["logged"]) if body.get("logged") else cached_todo.get("logged", 0)
+        if "completed_on" in body: cached_todo["completed_on"] = body.get("completed_on")
+        if "start_date" in body:   cached_todo["start_date"]   = body.get("start_date") or cached_todo.get("start_date")
+        total = cached_todo.get("est") or 0
+        designer_step = cached_todo.get("designer_step")
+        step_complete = designer_step.get("completed", False) if designer_step else False
+        cached_todo["total_hours"] = total
+        cached_todo["progress"] = 100 if step_complete else min(100, round((cached_todo.get("logged", 0) / total * 100) if total > 0 else 0))
+        cached_todo["overrides"] = list(ov.keys())
+
     return {"ok": True}
 
 
