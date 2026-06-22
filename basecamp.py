@@ -222,21 +222,28 @@ async def get_designer_todos(designer_bc_id: int) -> list:
 
     raw = await _get_all_reports_assigned(designer_bc_id)
     active = [t for t in raw
-              if not t.get("completed") and not _is_skip(t.get("content", ""))]
+              if not t.get("completed")
+              and not _is_skip(t.get("content", ""))
+              and t.get("type", "Todo") != "Kanban::Step"
+              and "#__recording" not in t.get("app_url", "")]
     if not active:
         return []
 
     sem = asyncio.Semaphore(3)
 
     async def fetch_detail_and_comments(t):
-        bucket_id = str((t.get("bucket") or {}).get("id", ""))
-        if not bucket_id:
+        try:
+            bucket_id = str((t.get("bucket") or {}).get("id", ""))
+            if not bucket_id:
+                return {}, []
+            async with sem:
+                detail = await get_todo_detail(bucket_id, str(t["id"])) or {}
+            async with sem:
+                comments = await get_comments(bucket_id, str(t["id"]))
+            return detail, comments
+        except Exception as e:
+            print(f"[bc] fetch_detail error for {t.get('id')}: {e}")
             return {}, []
-        async with sem:
-            detail = await get_todo_detail(bucket_id, str(t["id"])) or {}
-        async with sem:
-            comments = await get_comments(bucket_id, str(t["id"]))
-        return detail, comments
 
     detail_and_comments = await asyncio.gather(*[fetch_detail_and_comments(t) for t in active])
 
