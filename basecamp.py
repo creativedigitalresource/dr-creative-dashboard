@@ -252,8 +252,18 @@ async def get_designer_todos(designer_bc_id: int) -> list:
         bucket = t.get("bucket", {})
         is_subtask = t.get("parent", {}).get("type") == "Todo"
         fields = parse_todo_fields(t["content"], comments)
-        # For subtasks, due_on IS the HDD — no title-based date exists
-        hdd = fields.get("hdd") or t.get("due_on")
+
+        # Find the active step assigned to this designer — its due_on is the HDD
+        steps = t.get("steps", [])
+        designer_step = next(
+            (s for s in steps
+             if not s.get("completed")
+             and any(a.get("id") == designer_bc_id for a in s.get("assignees", []))),
+            None
+        )
+
+        # HDD: title-parsed date > active step due_on > todo due_on
+        hdd = fields.get("hdd") or (designer_step.get("due_on") if designer_step else None) or t.get("due_on")
 
         results.append({
             "id": t["id"],
@@ -265,7 +275,7 @@ async def get_designer_todos(designer_bc_id: int) -> list:
             "bucket_name": bucket.get("name", ""),
             "todolist_name": t.get("parent", {}).get("title", ""),
             "url": t.get("app_url", ""),
-            "designer_step": None,
+            "designer_step": designer_step,
             "is_subtask": is_subtask,
             "is_misc": False,
             "is_complete": False,
