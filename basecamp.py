@@ -229,8 +229,7 @@ async def get_designer_todos(designer_bc_id: int) -> list:
     active = [t for t in raw
               if not t.get("completed")
               and not _is_skip(t.get("content", ""))
-              and t.get("type", "Todo") != "Kanban::Step"
-              and "#__recording" not in t.get("app_url", "")]
+              and t.get("type") == "Todo"]
     if not active:
         return []
 
@@ -251,7 +250,9 @@ async def get_designer_todos(designer_bc_id: int) -> list:
     results = []
     for t, comments in zip(active, all_comments):
         bucket = t.get("bucket", {})
+        is_subtask = t.get("parent", {}).get("type") == "Todo"
         fields = parse_todo_fields(t["content"], comments)
+        # For subtasks, due_on IS the HDD — no title-based date exists
         hdd = fields.get("hdd") or t.get("due_on")
 
         results.append({
@@ -265,6 +266,7 @@ async def get_designer_todos(designer_bc_id: int) -> list:
             "todolist_name": t.get("parent", {}).get("title", ""),
             "url": t.get("app_url", ""),
             "designer_step": None,
+            "is_subtask": is_subtask,
             "is_misc": False,
             "is_complete": False,
             **fields,
