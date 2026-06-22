@@ -28,7 +28,8 @@ async def get_time_logged(todo_id: str | int) -> dict:
         return {"logged": 0.0, "estimate": None}
     data = r.json()
     logged = round(((data.get("time") or {}).get("total") or 0) / 3600, 2)
-    estimate_secs = data.get("estimate") or 0
+    estimate_obj = data.get("estimate") or {}
+    estimate_secs = estimate_obj.get("total", 0) if isinstance(estimate_obj, dict) else 0
     estimate = round(estimate_secs / 3600, 2) if estimate_secs else None
     return {"logged": logged, "estimate": estimate}
 
