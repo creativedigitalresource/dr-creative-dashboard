@@ -82,15 +82,20 @@ async def _do_refresh():
                 # Apply local overrides on top of Basecamp-parsed fields
                 hdd    = ov.get("hdd")   or t.get("hdd")
                 pdd    = ov.get("pdd")   or t.get("pdd")
-                # EST priority: manual override > Everhour estimate > title-parsed
-                est    = float(ov["est"]) if "est" in ov else (eh_data.get("estimate") or t.get("est"))
-                revs   = float(ov["revs"])  if "revs" in ov else (t.get("revs") or 0)
-                sd     = ov.get("start_date") or start_dates.get(str(t["id"]))
-                # Manual logged override takes priority over Everhour
-                logged       = float(ov["logged"])      if "logged"       in ov else eh_data.get("logged", 0.0)
-                completed_on = ov.get("completed_on")
-                total        = (est or 0) + revs
-                over_by      = round(max(0, logged - total), 2) if total > 0 else 0
+                revs   = float(ov["revs"]) if "revs" in ov else (t.get("revs") or 0)
+
+                # EST: manual override > per-user Everhour estimate > total estimate > title-parsed
+                eh_uid = str(d.get("eh_id") or "")
+                user_est = eh_data.get("user_estimates", {}).get(eh_uid) if eh_uid else None
+                eh_est = user_est if user_est is not None else eh_data.get("estimate")
+                est = float(ov["est"]) if "est" in ov else (eh_est or t.get("est"))
+
+                # Logged: manual override > per-user Everhour logged > total logged
+                user_log = eh_data.get("user_logged", {}).get(eh_uid) if eh_uid else None
+                logged = float(ov["logged"]) if "logged" in ov else (user_log if user_log is not None else eh_data.get("logged", 0.0))
+
+                total = (est or 0) + revs
+                over_by = round(max(0, logged - total), 2) if total > 0 else 0
 
                 # Progress: 100% if designer's step is complete, else hours-based
                 designer_step = t.get("designer_step")

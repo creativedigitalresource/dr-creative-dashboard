@@ -19,19 +19,47 @@ def get_eh_http() -> httpx.AsyncClient:
 
 async def get_time_logged(todo_id: str | int) -> dict:
     """Return logged hours and Everhour estimate for a Basecamp todo.
-    Returns {"logged": float, "estimate": float | None}
+    Returns {
+      "logged": float,          # total logged across all users
+      "estimate": float | None, # total estimate across all users
+      "user_estimates": dict,   # {str(eh_user_id): hours} when per-user estimates are set
+      "user_logged": dict,      # {str(eh_user_id): hours} per-user logged time
+    }
     """
     if not EH_KEY:
-        return {"logged": 0.0, "estimate": None}
+        return {"logged": 0.0, "estimate": None, "user_estimates": {}, "user_logged": {}}
     r = await get_eh_http().get(f"{EH_BASE}/tasks/b3:{todo_id}")
     if r.status_code != 200:
-        return {"logged": 0.0, "estimate": None}
+        return {"logged": 0.0, "estimate": None, "user_estimates": {}, "user_logged": {}}
     data = r.json()
-    logged = round(((data.get("time") or {}).get("total") or 0) / 3600, 2)
+
+    time_obj = data.get("time") or {}
+    logged = round((time_obj.get("total") or 0) / 3600, 2)
+    # Per-user logged: time.users = {str(eh_user_id): seconds}
+    user_logged = {
+        uid: round(secs / 3600, 2)
+        for uid, secs in (time_obj.get("users") or {}).items()
+        if secs
+    }
+
     estimate_obj = data.get("estimate") or {}
     estimate_secs = estimate_obj.get("total", 0) if isinstance(estimate_obj, dict) else 0
     estimate = round(estimate_secs / 3600, 2) if estimate_secs else None
-    return {"logged": logged, "estimate": estimate}
+    # Per-user estimates when type == "users"
+    user_estimates = {}
+    if isinstance(estimate_obj, dict) and estimate_obj.get("type") == "users":
+        user_estimates = {
+            uid: round(secs / 3600, 2)
+            for uid, secs in (estimate_obj.get("users") or {}).items()
+            if secs
+        }
+
+    return {
+        "logged": logged,
+        "estimate": estimate,
+        "user_estimates": user_estimates,
+        "user_logged": user_logged,
+    }
 
 
 async def set_user_estimate(todo_id: str | int, eh_user_id: int, hours: float) -> bool:
