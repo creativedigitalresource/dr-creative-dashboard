@@ -680,8 +680,6 @@ function updateLastUpdated() {
   el.textContent = "Updated " + new Date().toLocaleTimeString("en-US", { hour: "numeric", minute: "2-digit" });
 }
 
-}
-
 // ---------------------------------------------------------------------------
 // PTO modal
 // ---------------------------------------------------------------------------
