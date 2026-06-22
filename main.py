@@ -115,16 +115,13 @@ async def _do_refresh():
                     "total_hours": total,
                     "logged": logged, "progress": progress,
                     "over_by": over_by,
-                    "start_date": sd,
-                    "completed_on": completed_on,
                     "is_misc": t.get("is_misc", False),
                     "is_complete": t.get("is_complete", False),
                     "overrides": list(ov.keys()),
                 })
-            # Overdue tasks count; completed tasks do not
+            # Weekly est: sum tasks due within this week
             weekly_est = sum(t.get("total_hours", 0) for t in enriched
                              if t.get("hdd") and t["hdd"] <= week_end
-                             and not t.get("completed_on")
                              and not t.get("is_complete")
                              and not t.get("is_misc"))
             capacity_pct = min(100, round(weekly_est / WEEKLY_CAP * 100))
