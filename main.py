@@ -18,7 +18,7 @@ DESIGNERS = [
     {"name": "Gaby",     "bc_id": 46567979, "eh_id": 1422085,  "color": "#f97316"},
     {"name": "Odette",   "bc_id": 48051100, "eh_id": 1403017,  "color": "#eab308"},
     {"name": "Debi",     "bc_id": 52244353, "eh_id": 1445224,  "color": "#22c55e"},
-    {"name": "Maria C",  "bc_id": 52471282, "eh_id": None,     "color": "#14b8a6"},
+    {"name": "Maria C",  "bc_id": 52471282, "eh_id": 1451054,  "color": "#14b8a6"},
     {"name": "Melany",   "bc_id": 46905124, "eh_id": None,     "color": "#ef4444"},
 ]
 
