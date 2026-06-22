@@ -137,10 +137,10 @@ async def _do_refresh():
             designers_out.append({**d, "todos": [], "weekly_est": 0,
                                    "weekly_cap": WEEKLY_CAP, "capacity_pct": 0})
 
-    # Sort both lists oldest-assigned-first so longest-waiting appears at top
-    unassigned.sort(key=lambda t: t.get("created_at") or "")
+    # Sort by due_on asc — oldest date first, undated items last
     for d in designers_out:
-        d["todos"].sort(key=lambda t: t.get("created_at") or "")
+        d["todos"].sort(key=lambda t: t.get("due_on") or "9999-99-99")
+    unassigned.sort(key=lambda t: t.get("created_at") or "")
 
     _cached_data["unassigned"] = unassigned
     _cached_data["designers"] = designers_out

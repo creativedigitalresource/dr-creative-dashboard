@@ -4,7 +4,6 @@
 
 let calendar = null;
 let _modalTodoId = null;
-let _modalTodoTitle = "";
 
 // ---------------------------------------------------------------------------
 // Boot
@@ -217,7 +216,7 @@ function updateSplitCapBar(d) {
 
   const scheduled = (d.todos || []).filter(t => !t.completed_on).reduce((sum, t) => {
     if (!t.hdd || !t.total_hours) return sum;
-    const anchor = t.start_date || t.hdd;
+    const anchor = t.due_on || t.hdd;
     if (anchor >= viewStart && anchor <= viewEnd) return sum + t.total_hours;
     return sum;
   }, 0);
@@ -331,6 +330,7 @@ function renderTodoItem(t, color, showCompleted = false) {
   const hddCls = ov.includes("hdd") ? "hdd overridden" : "hdd";
   const estCls = ov.includes("est") ? "est overridden" : "est";
 
+  const dateStr = t.due_on ? `<span class="meta-pill date-pill">${fmtDate(t.due_on)}</span>` : "";
   const hddStr = `<span class="meta-pill ${hddCls} editable" onclick="editField(event,'${t.id}','hdd','date','${t.hdd||''}')" title="Click to edit — updates Basecamp step due date">${t.hdd ? "HDD " + fmtDate(t.hdd) : "+ HDD"}</span>`;
   const estStr = `<span class="meta-pill ${estCls} editable" onclick="editField(event,'${t.id}','est','number','${t.est??''}')" title="Click to edit — updates Everhour estimate">${t.est != null ? "EST " + t.est + "h" : "+ EST"}</span>`;
 
@@ -355,8 +355,6 @@ function renderTodoItem(t, color, showCompleted = false) {
     progressHtml = `<div class="progress-wrap">${loggedEl}</div>`;
   }
 
-  const sdLabel = t.start_date ? `Start: ${fmtDate(t.start_date)}` : `+ Start date`;
-  const sdCls2  = t.start_date ? "set" : "";
   const doneCls = isDone ? "done-btn active" : "done-btn";
   const doneTitle = isDone ? `Done ${fmtDate(t.completed_on)}` : "Mark done";
   const doneIcon  = isDone ? "✓" : "○";
@@ -365,13 +363,12 @@ function renderTodoItem(t, color, showCompleted = false) {
   <li class="todo-item${isDone ? " todo-done" : ""}" id="todo-${t.id}">
     <div class="todo-item-left">
       <div class="todo-item-title" title="${esc(t.title)}">${isDone ? `<s>${esc(truncate(t.title, 55))}</s>` : esc(truncate(t.title, 60))}</div>
-      <div class="todo-meta">${hddStr}${estStr}</div>
+      <div class="todo-meta">${dateStr}${hddStr}${estStr}</div>
       ${isDone ? `<div style="font-size:11px;color:var(--success)">Completed ${fmtDate(t.completed_on)}</div>` : progressHtml}
     </div>
     <div class="todo-item-actions">
       ${t.url ? `<a href="${t.url}" target="_blank" class="link-btn" title="Open in Basecamp">↗</a>` : ""}
       <button class="${doneCls}" onclick="markDone('${t.id}', ${isDone})" title="${doneTitle}">${doneIcon}</button>
-      ${!isDone ? `<span class="start-date-badge ${sdCls2}" onclick="openModal('${t.id}', '${esc(t.title.replace(/'/g, "\\'"))}', '${t.start_date || ""}')">${sdLabel}</span>` : ""}
     </div>
   </li>`;
 }
@@ -407,10 +404,10 @@ function scheduleDesignerEvents(designer) {
 
   // Active tasks first (scheduled normally), then completed tasks (shown faded)
   const tasks = designer.todos
-    .filter(t => (t.start_date || t.hdd) && (t.total_hours || 0) > 0)
+    .filter(t => (t.due_on || t.hdd) && (t.total_hours || 0) > 0)
     .sort((a, b) => {
-      const ad = a.start_date || a.hdd;
-      const bd = b.start_date || b.hdd;
+      const ad = a.due_on || a.hdd;
+      const bd = b.due_on || b.hdd;
       return ad < bd ? -1 : ad > bd ? 1 : 0;
     });
 
@@ -441,7 +438,7 @@ function scheduleDesignerEvents(designer) {
 
     // Active tasks: schedule with rollover
     let remaining = t.total_hours;
-    let day = new Date((t.start_date || t.hdd) + "T12:00:00");
+    let day = new Date((t.due_on || t.hdd) + "T12:00:00");
     while (!isWorkDay(day, ptoDates)) day = nextWorkDay(day, ptoDates);
 
     while (remaining > 0.01) {
@@ -559,7 +556,7 @@ function updateCalCapacityBar() {
   // Sum hours scheduled in this view
   const scheduled = (d.todos || []).reduce((sum, t) => {
     if (!t.hdd || !t.total_hours) return sum;
-    if ((t.start_date || t.hdd) <= viewEndStr && t.hdd >= viewStart) return sum + t.total_hours;
+    if ((t.due_on || t.hdd) <= viewEndStr && t.hdd >= viewStart) return sum + t.total_hours;
     return sum;
   }, 0);
 
@@ -616,7 +613,6 @@ function editField(evt, todoId, field, inputType, currentValue) {
             if (field === "est")    { t.est = val ? parseFloat(val) : null; }
             if (field === "logged") { t.logged = val ? parseFloat(val) : 0; }
             if (field === "hdd")    { t.hdd = val || null; }
-            if (field === "start_date") { t.start_date = val || null; }
             t.total_hours = t.est || 0;
             const stepComplete = t.designer_step && t.designer_step.completed;
             t.progress = stepComplete ? 100 : (t.total_hours > 0 ? Math.min(100, Math.round(t.logged / t.total_hours * 100)) : 0);
@@ -642,36 +638,6 @@ function editField(evt, todoId, field, inputType, currentValue) {
   });
 }
 
-// ---------------------------------------------------------------------------
-// Start date modal
-// ---------------------------------------------------------------------------
-
-function openModal(todoId, title, existingDate) {
-  _modalTodoId = todoId;
-  _modalTodoTitle = title;
-  document.getElementById("modal-title").textContent = "Set Start Date";
-  document.getElementById("modal-task-name").textContent = title;
-  document.getElementById("modal-date-input").value = existingDate || "";
-  show("date-modal");
-}
-
-function closeModal() {
-  hide("date-modal");
-  _modalTodoId = null;
-}
-
-async function saveStartDate() {
-  if (!_modalTodoId) return;
-  const date = document.getElementById("modal-date-input").value;
-  if (!date) { closeModal(); return; }
-  await fetch(`/api/todos/${_modalTodoId}/start-date`, {
-    method: "PUT",
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ start_date: date }),
-  });
-  closeModal();
-  await loadAll();
-}
 
 // ---------------------------------------------------------------------------
 // Tabs
