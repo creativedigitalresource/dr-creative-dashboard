@@ -18,7 +18,7 @@ DESIGNERS = [
     {"name": "Gaby",     "bc_id": 46567979, "eh_id": 1422085,  "color": "#f97316"},
     {"name": "Odette",   "bc_id": 48051100, "eh_id": 1403017,  "color": "#eab308"},
     {"name": "Debi",     "bc_id": 52244353, "eh_id": 1445224,  "color": "#22c55e"},
-    {"name": "Maria C",  "bc_id": 52471282, "eh_id": None,     "color": "#94a3b8"},
+    {"name": "Maria C",  "bc_id": 52471282, "eh_id": None,     "color": "#14b8a6"},
     {"name": "Melany",   "bc_id": 46905124, "eh_id": None,     "color": "#ef4444"},
 ]
 
@@ -284,7 +284,7 @@ async def api_calendar():
 async def set_todo_fields(todo_id: str, request: Request):
     """Update todo fields — HDD writes to Basecamp step, EST writes to Everhour."""
     body = await request.json()
-    allowed = {"hdd", "est", "due_on", "logged", "completed_on"}
+    allowed = {"hdd", "est", "due_on", "logged"}
 
     # Find the todo and its designer in the cache
     cached_todo = None
@@ -341,7 +341,6 @@ async def set_todo_fields(todo_id: str, request: Request):
         if "hdd" in body:          cached_todo["hdd"]          = body["hdd"] or cached_todo.get("hdd")
         if "est" in body:          cached_todo["est"]          = float(body["est"]) if body.get("est") else cached_todo.get("est")
         if "logged" in body:       cached_todo["logged"]       = float(body["logged"]) if body.get("logged") else cached_todo.get("logged", 0)
-        if "completed_on" in body: cached_todo["completed_on"] = body.get("completed_on")
         total = cached_todo.get("est") or 0
         designer_step = cached_todo.get("designer_step")
         step_complete = designer_step.get("completed", False) if designer_step else False

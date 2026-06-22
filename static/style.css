@@ -228,8 +228,6 @@ body { min-height: 100vh; }
 }
 .todo-item:last-child { border-bottom: none; }
 .todo-item:hover { background: var(--surface2); }
-.todo-done { opacity: 0.5; }
-.todo-done:hover { opacity: 0.7; }
 .todo-item-left { min-width: 0; }
 .todo-item-title {
   font-size: 13px; font-weight: 600; color: var(--text);
@@ -311,7 +309,6 @@ body { min-height: 100vh; }
 .fc-daygrid-day-number { color: var(--text-muted) !important; text-decoration: none !important; font-size: 13px !important; }
 .fc-day-today { background: var(--accent-light) !important; }
 .fc-timegrid-slot-label { font-size: 11px !important; color: var(--text-muted) !important; }
-.fc-event.completed-cal-event { opacity: 0.45; text-decoration: line-through; }
 .fc-event.pto-event { opacity: 0.5; }
 
 /* ---- Modal ---- */
@@ -392,22 +389,6 @@ body { min-height: 100vh; }
 }
 .pto-delete:hover { color: var(--danger); background: var(--danger-light); }
 
-/* ---- Mark done ---- */
-.done-btn {
-  background: none;
-  border: 2px solid var(--border);
-  border-radius: 50%;
-  width: 24px; height: 24px;
-  color: var(--text-muted);
-  cursor: pointer;
-  font-size: 11px;
-  display: flex; align-items: center; justify-content: center;
-  flex-shrink: 0;
-  transition: all 0.15s;
-  font-weight: 700;
-}
-.done-btn:hover { border-color: var(--success); color: var(--success); background: var(--success-light); }
-.done-btn.active { background: var(--success); border-color: var(--success); color: #fff; }
 
 .over-budget-badge {
   font-size: 10px; padding: 2px 7px;
@@ -415,16 +396,6 @@ body { min-height: 100vh; }
   background: var(--danger-light);
   color: var(--danger); font-weight: 700;
 }
-.completed-toggle {
-  padding: 11px 20px;
-  font-size: 12px; font-weight: 600;
-  color: var(--text-muted);
-  cursor: pointer;
-  border-top: 1px solid var(--border);
-  background: var(--surface2);
-  transition: color 0.15s;
-}
-.completed-toggle:hover { color: var(--accent); background: var(--accent-light); }
 
 /* ---- Scrollbar ---- */
 ::-webkit-scrollbar { width: 6px; height: 6px; }

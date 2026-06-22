@@ -214,7 +214,7 @@ function updateSplitCapBar(d) {
   const ptoDatesInView = (d.pto || []).filter(p => p.date >= viewStart && p.date <= viewEnd).length;
   const cap = Math.max(0, (5 - ptoDatesInView) * 7);
 
-  const scheduled = (d.todos || []).filter(t => !t.completed_on).reduce((sum, t) => {
+  const scheduled = (d.todos || []).reduce((sum, t) => {
     if (!t.hdd || !t.total_hours) return sum;
     const anchor = t.due_on || t.hdd;
     if (anchor >= viewStart && anchor <= viewEnd) return sum + t.total_hours;
@@ -254,7 +254,6 @@ function calcCapacity(todos, pto) {
   const ptoDaysThisWeek = (pto || []).filter(p => p.date >= start && p.date <= end).length;
   const cap = Math.max(0, (5 - ptoDaysThisWeek) * 7);
   const weekly_est = (todos || []).reduce((sum, t) => {
-    if (t.completed_on) return sum;
     if (t.is_complete) return sum;
     if (t.is_misc) return sum;
     if (t.hdd && t.hdd <= end) return sum + (t.total_hours || 0);
@@ -276,19 +275,10 @@ function renderDesignerCard(d, showCompleted = false) {
     ? `<span class="pto-badge">${pto_days} OOO day${pto_days > 1 ? "s" : ""} this wk</span>`
     : "";
 
-  const active    = (d.todos || []).filter(t => !t.completed_on);
-  const completed = (d.todos || []).filter(t =>  t.completed_on);
-  const visibleTodos = showCompleted ? d.todos : active;
-
-  const completedFooter = completed.length
-    ? `<div class="completed-toggle" onclick="toggleCompleted('${d.bc_id}')">
-        ${showCompleted ? "▲ Hide" : "▼ Show"} ${completed.length} completed task${completed.length !== 1 ? "s" : ""}
-       </div>`
-    : "";
-
-  const todosHtml = visibleTodos.length
-    ? `<ul class="designer-todos">${visibleTodos.map(t => renderTodoItem(t, d.color, showCompleted)).join("")}</ul>${completedFooter}`
-    : `<div class="no-todos">No active tasks</div>${completedFooter}`;
+  const todos = d.todos || [];
+  const todosHtml = todos.length
+    ? `<ul class="designer-todos">${todos.map(t => renderTodoItem(t, d.color)).join("")}</ul>`
+    : `<div class="no-todos">No active tasks</div>`;
 
   return `
   <div class="designer-card">
@@ -325,7 +315,7 @@ function toggleCompleted(bcId) {
   renderDesignerGrid(_designerData);
 }
 
-function renderTodoItem(t, color, showCompleted = false) {
+function renderTodoItem(t, color) {
   const ov = t.overrides || [];
   const hddCls = ov.includes("hdd") ? "hdd overridden" : "hdd";
   const estCls = ov.includes("est") ? "est overridden" : "est";
@@ -337,8 +327,7 @@ function renderTodoItem(t, color, showCompleted = false) {
   const total = t.total_hours || 0;
   const logged = t.logged || 0;
   const pct = t.progress || 0;
-  const isDone   = !!t.completed_on;
-  const overBy   = t.over_by || 0;
+  const overBy = t.over_by || 0;
   const loggedCls = (t.overrides||[]).includes("logged") ? "overridden" : "";
   const loggedEl  = `<span class="meta-pill ${loggedCls} editable" onclick="editField(event,'${t.id}','logged','number','${logged}')" title="Click to log hours">${logged > 0 ? logged + "h" : "+ Log"}</span>`;
 
@@ -355,20 +344,15 @@ function renderTodoItem(t, color, showCompleted = false) {
     progressHtml = `<div class="progress-wrap">${loggedEl}</div>`;
   }
 
-  const doneCls = isDone ? "done-btn active" : "done-btn";
-  const doneTitle = isDone ? `Done ${fmtDate(t.completed_on)}` : "Mark done";
-  const doneIcon  = isDone ? "✓" : "○";
-
   return `
-  <li class="todo-item${isDone ? " todo-done" : ""}" id="todo-${t.id}">
+  <li class="todo-item" id="todo-${t.id}">
     <div class="todo-item-left">
-      <div class="todo-item-title" title="${esc(t.title)}">${isDone ? `<s>${esc(truncate(t.title, 55))}</s>` : esc(truncate(t.title, 60))}</div>
+      <div class="todo-item-title" title="${esc(t.title)}">${esc(truncate(t.title, 60))}</div>
       <div class="todo-meta">${dateStr}${hddStr}${estStr}</div>
-      ${isDone ? `<div style="font-size:11px;color:var(--success)">Completed ${fmtDate(t.completed_on)}</div>` : progressHtml}
+      ${progressHtml}
     </div>
     <div class="todo-item-actions">
       ${t.url ? `<a href="${t.url}" target="_blank" class="link-btn" title="Open in Basecamp">↗</a>` : ""}
-      <button class="${doneCls}" onclick="markDone('${t.id}', ${isDone})" title="${doneTitle}">${doneIcon}</button>
     </div>
   </li>`;
 }
@@ -414,27 +398,6 @@ function scheduleDesignerEvents(designer) {
   const events = [];
 
   for (const t of tasks) {
-    const isDone = !!t.completed_on;
-
-    // Completed tasks: show as a single faded block on their completed_on date
-    if (isDone) {
-      const anchor = t.completed_on;
-      events.push({
-        id: `t-${t.id}-done`,
-        title: `✓ ${truncate(t.title, 38)}`,
-        start: anchor,
-        end: anchor,
-        allDay: true,
-        backgroundColor: designer.color + "30",
-        borderColor: designer.color + "60",
-        textColor: designer.color + "aa",
-        classNames: ["completed-cal-event"],
-        extendedProps: { url: t.url, designer: designer.name, hdd: t.hdd,
-                         est: t.est, logged: t.logged, fullTitle: t.title,
-                         completedOn: t.completed_on },
-      });
-      continue;
-    }
 
     // Active tasks: schedule with rollover
     let remaining = t.total_hours;
@@ -717,31 +680,6 @@ function updateLastUpdated() {
   el.textContent = "Updated " + new Date().toLocaleTimeString("en-US", { hour: "numeric", minute: "2-digit" });
 }
 
-// ---------------------------------------------------------------------------
-// Mark done / re-open
-// ---------------------------------------------------------------------------
-
-async function markDone(todoId, currentlyDone) {
-  const today = new Date().toISOString().split("T")[0];
-  const val = currentlyDone ? null : today;
-  await fetch(`/api/todos/${todoId}/fields`, {
-    method: "PUT",
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ completed_on: val }),
-  });
-  // Update in-memory
-  for (const d of _designerData || []) {
-    for (const t of d.todos || []) {
-      if (String(t.id) === String(todoId)) {
-        t.completed_on = val;
-        if (!t.overrides) t.overrides = [];
-        if (val && !t.overrides.includes("completed_on")) t.overrides.push("completed_on");
-        if (!val) t.overrides = t.overrides.filter(f => f !== "completed_on");
-      }
-    }
-  }
-  renderDesignerGrid(_designerData);
-  await loadCalendar();
 }
 
 // ---------------------------------------------------------------------------
