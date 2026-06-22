@@ -231,59 +231,23 @@ async def get_designer_todos(designer_bc_id: int) -> list:
 
     sem = asyncio.Semaphore(3)
 
-    async def fetch_detail_and_comments(t):
+    async def fetch_comments_limited(t):
+        bucket_id = str((t.get("bucket") or {}).get("id", ""))
+        if not bucket_id:
+            return []
         try:
-            bucket_id = str((t.get("bucket") or {}).get("id", ""))
-            if not bucket_id:
-                return {}, []
             async with sem:
-                detail = await get_todo_detail(bucket_id, str(t["id"])) or {}
-            async with sem:
-                comments = await get_comments(bucket_id, str(t["id"]))
-            return detail, comments
-        except Exception as e:
-            print(f"[bc] fetch_detail error for {t.get('id')}: {e}")
-            return {}, []
+                return await get_comments(bucket_id, str(t["id"]))
+        except Exception:
+            return []
 
-    detail_and_comments = await asyncio.gather(*[fetch_detail_and_comments(t) for t in active])
+    all_comments = await asyncio.gather(*[fetch_comments_limited(t) for t in active])
 
     results = []
-    for t, (detail, comments) in zip(active, detail_and_comments):
+    for t, comments in zip(active, all_comments):
         bucket = t.get("bucket", {})
         fields = parse_todo_fields(t["content"], comments)
-
-        # Steps (subtasks) from full todo detail
-        steps = detail.get("steps", [])
-
-        # Notes field for admin/misc detection
-        import re
-        raw_notes = detail.get("description", "") or ""
-        notes = re.sub(r"<[^>]+>", " ", raw_notes).strip()
-        is_misc = notes.strip().lower().startswith("misc")
-
-        # Assignee IDs on parent todo
-        assignee_ids = {str(a["id"]) for a in (t.get("assignees") or [])}
-
-        # Find designer's step
-        designer_step = None
-        for s in steps:
-            step_assignee_ids = {str(a["id"]) for a in (s.get("assignees") or [])}
-            if step_assignee_ids & assignee_ids:
-                designer_step = s
-                break
-
-        # HDD: use designer's step due_on if available, fall back to todo due_on
-        step_due = designer_step.get("due_on") if designer_step else None
-        hdd = fields.get("hdd") or step_due or t.get("due_on")
-
-        # Completion rules
-        designer_still_assigned = bool(assignee_ids)
-        if designer_step:
-            # Rule 2: step must be complete AND designer unassigned
-            is_complete = designer_step.get("completed", False) and not designer_still_assigned
-        else:
-            # Rule 1: designer unassigned = complete
-            is_complete = not designer_still_assigned
+        hdd = fields.get("hdd") or t.get("due_on")
 
         results.append({
             "id": t["id"],
@@ -295,11 +259,9 @@ async def get_designer_todos(designer_bc_id: int) -> list:
             "bucket_name": bucket.get("name", ""),
             "todolist_name": t.get("parent", {}).get("title", ""),
             "url": t.get("app_url", ""),
-            "steps": steps,
-            "designer_step": designer_step,
-            "notes": notes,
-            "is_misc": is_misc,
-            "is_complete": is_complete,
+            "designer_step": None,
+            "is_misc": False,
+            "is_complete": False,
             **fields,
         })
     return results
