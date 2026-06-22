@@ -193,6 +193,25 @@ async def update_step_due(bucket_id: str, step_id: str, due_on: str) -> bool:
     return r.status_code == 200
 
 
+async def update_todo_due(bucket_id: str, todo_id: str, due_on: str) -> bool:
+    """Update a todo's due_on date in Basecamp."""
+    token = get_token("access_token")
+    if not token:
+        return False
+    headers = {
+        "Authorization": f"Bearer {token}",
+        "User-Agent": USER_AGENT,
+        "Content-Type": "application/json",
+    }
+    import json as _json
+    r = await get_http().put(
+        f"{BC_BASE}/buckets/{bucket_id}/todos/{todo_id}.json",
+        headers=headers,
+        content=_json.dumps({"due_on": due_on}),
+    )
+    return r.status_code == 200
+
+
 async def get_unassigned_todos() -> list:
     """Todos assigned to the Creative Team group — these need delegation.
     Fetches page 1 only (50 most recent) to avoid timeouts on large groups."""

@@ -284,7 +284,7 @@ async def api_calendar():
 async def set_todo_fields(todo_id: str, request: Request):
     """Update todo fields — HDD writes to Basecamp step, EST writes to Everhour."""
     body = await request.json()
-    allowed = {"hdd", "est", "start_date", "logged", "completed_on"}
+    allowed = {"hdd", "est", "due_on", "logged", "completed_on"}
 
     # Find the todo and its designer in the cache
     cached_todo = None
@@ -310,6 +310,17 @@ async def set_todo_fields(todo_id: str, request: Request):
             # Also save locally as fallback
             store.set_override(todo_id, field, str(value))
 
+        elif field == "due_on" and value:
+            # Write due_on directly to Basecamp todo
+            bucket_id = cached_todo.get("bucket_id") if cached_todo else None
+            if bucket_id:
+                await bc.update_todo_due(bucket_id, todo_id, str(value))
+            # Update cache and re-sort this designer's list
+            if cached_todo:
+                cached_todo["due_on"] = str(value)
+            if cached_designer:
+                cached_designer["todos"].sort(key=lambda t: t.get("due_on") or "9999-99-99")
+
         elif field == "est" and value is not None and value != "":
             # Write to Everhour estimate for this designer
             eh_id = cached_designer.get("eh_id") if cached_designer else None
@@ -331,7 +342,6 @@ async def set_todo_fields(todo_id: str, request: Request):
         if "est" in body:          cached_todo["est"]          = float(body["est"]) if body.get("est") else cached_todo.get("est")
         if "logged" in body:       cached_todo["logged"]       = float(body["logged"]) if body.get("logged") else cached_todo.get("logged", 0)
         if "completed_on" in body: cached_todo["completed_on"] = body.get("completed_on")
-        if "start_date" in body:   cached_todo["start_date"]   = body.get("start_date") or cached_todo.get("start_date")
         total = cached_todo.get("est") or 0
         designer_step = cached_todo.get("designer_step")
         step_complete = designer_step.get("completed", False) if designer_step else False

@@ -330,7 +330,7 @@ function renderTodoItem(t, color, showCompleted = false) {
   const hddCls = ov.includes("hdd") ? "hdd overridden" : "hdd";
   const estCls = ov.includes("est") ? "est overridden" : "est";
 
-  const dateStr = t.due_on ? `<span class="meta-pill date-pill">${fmtDate(t.due_on)}</span>` : "";
+  const dateStr = `<span class="meta-pill date-pill editable" onclick="editField(event,'${t.id}','due_on','date','${t.due_on||''}')" title="Click to change date — re-sorts the list">${t.due_on ? fmtDate(t.due_on) : "+ Date"}</span>`;
   const hddStr = `<span class="meta-pill ${hddCls} editable" onclick="editField(event,'${t.id}','hdd','date','${t.hdd||''}')" title="Click to edit — updates Basecamp step due date">${t.hdd ? "HDD " + fmtDate(t.hdd) : "+ HDD"}</span>`;
   const estStr = `<span class="meta-pill ${estCls} editable" onclick="editField(event,'${t.id}','est','number','${t.est??''}')" title="Click to edit — updates Everhour estimate">${t.est != null ? "EST " + t.est + "h" : "+ EST"}</span>`;
 
@@ -613,6 +613,11 @@ function editField(evt, todoId, field, inputType, currentValue) {
             if (field === "est")    { t.est = val ? parseFloat(val) : null; }
             if (field === "logged") { t.logged = val ? parseFloat(val) : 0; }
             if (field === "hdd")    { t.hdd = val || null; }
+            if (field === "due_on") {
+              t.due_on = val || null;
+              // Re-sort this designer's list by due_on so it auto-moves
+              d.todos.sort((a, b) => (a.due_on || "9999-99-99").localeCompare(b.due_on || "9999-99-99"));
+            }
             t.total_hours = t.est || 0;
             const stepComplete = t.designer_step && t.designer_step.completed;
             t.progress = stepComplete ? 100 : (t.total_hours > 0 ? Math.min(100, Math.round(t.logged / t.total_hours * 100)) : 0);
