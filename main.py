@@ -364,23 +364,18 @@ async def api_test():
     token = store.get_token("access_token")
     if not token:
         return {"error": "no token", "python": sys.version}
-    status, body = await bc._get_raw_status("/reports/todos/assigned/44800252.json")
-    import json as _json
-    try:
-        parsed = _json.loads(body)
-        top_keys = list(parsed.keys()) if isinstance(parsed, dict) else "array"
-        todos_list = parsed.get("todos", []) if isinstance(parsed, dict) else parsed
-        todos_count = len(todos_list) if isinstance(todos_list, list) else "n/a"
-    except Exception as e:
-        top_keys = [f"parse error: {e}"]
-        todos_count = 0
+    parsed = await bc._get("/reports/todos/assigned/44800252.json")
+    top_keys = list(parsed.keys()) if isinstance(parsed, dict) else "array"
+    todos_list = parsed.get("todos", parsed) if isinstance(parsed, dict) else parsed
+    todos_count = len(todos_list) if isinstance(todos_list, list) else "n/a"
+    first_todo = todos_list[0] if isinstance(todos_list, list) and todos_list else {}
     return {
         "python": sys.version,
         "token_present": True,
-        "dexter_status": status,
         "response_top_keys": top_keys,
         "todos_in_response": todos_count,
-        "body_snippet": body[:300],
+        "first_todo_keys": list(first_todo.keys()) if first_todo else [],
+        "first_todo_title": first_todo.get("content", first_todo.get("title", "n/a")),
         "data_loaded": "designers" in _cached_data,
         "designer_count": len(_cached_data.get("designers", [])),
         "unassigned_count": len(_cached_data.get("unassigned", [])),
