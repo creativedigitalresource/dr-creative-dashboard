@@ -311,10 +311,11 @@ async def set_todo_fields(todo_id: str, request: Request):
             store.set_override(todo_id, field, str(value))
 
         elif field == "due_on" and value:
-            # Write due_on directly to Basecamp todo
+            # Write due_on directly to Basecamp todo (content required by BC API)
             bucket_id = cached_todo.get("bucket_id") if cached_todo else None
+            title = cached_todo.get("title", "") if cached_todo else ""
             if bucket_id:
-                await bc.update_todo_due(bucket_id, todo_id, str(value))
+                await bc.update_todo_due(bucket_id, todo_id, str(value), title)
             # Update cache and re-sort this designer's list
             if cached_todo:
                 cached_todo["due_on"] = str(value)

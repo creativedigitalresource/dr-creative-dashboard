@@ -193,8 +193,8 @@ async def update_step_due(bucket_id: str, step_id: str, due_on: str) -> bool:
     return r.status_code == 200
 
 
-async def update_todo_due(bucket_id: str, todo_id: str, due_on: str) -> bool:
-    """Update a todo's due_on date in Basecamp."""
+async def update_todo_due(bucket_id: str, todo_id: str, due_on: str, title: str = "") -> bool:
+    """Update a todo's due_on date in Basecamp. content is required by the API."""
     token = get_token("access_token")
     if not token:
         return False
@@ -207,9 +207,11 @@ async def update_todo_due(bucket_id: str, todo_id: str, due_on: str) -> bool:
     r = await get_http().put(
         f"{BC_BASE}/buckets/{bucket_id}/todos/{todo_id}.json",
         headers=headers,
-        content=_json.dumps({"due_on": due_on}),
+        content=_json.dumps({"content": title, "due_on": due_on}),
     )
-    return r.status_code == 200
+    if r.status_code not in (200, 201):
+        print(f"[bc] update_todo_due failed {r.status_code}: {r.text[:200]}")
+    return r.status_code in (200, 201)
 
 
 async def get_unassigned_todos() -> list:
