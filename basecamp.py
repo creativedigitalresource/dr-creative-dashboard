@@ -79,10 +79,15 @@ async def _refresh() -> bool:
             },
         )
         if r.status_code != 200:
+            print(f"[bc] refresh failed {r.status_code}: {r.text[:200]}")
             return False
         data = r.json()
+        if "access_token" not in data:
+            print(f"[bc] refresh response missing access_token: {data}")
+            return False
         set_token("access_token", data["access_token"])
-        set_token("refresh_token", data["refresh_token"])
+        if "refresh_token" in data:
+            set_token("refresh_token", data["refresh_token"])
         set_token("expires_at", str(time.time() + int(data.get("expires_in", 1209600))))
         return True
 
