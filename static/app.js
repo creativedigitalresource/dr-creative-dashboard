@@ -191,7 +191,21 @@ function renderSplitView(d) {
         info.el.title = [p.fullTitle, p.hdd ? `HDD: ${fmtDate(p.hdd)}` : "",
           p.est ? `EST: ${p.est}h` : "", p.logged ? `Logged: ${p.logged}h` : ""].filter(Boolean).join("\n");
       },
-      datesSet() { updateSplitCapBar(d); },
+      datesSet(info) {
+        // Sync week offset from calendar navigation (use mid-week day to avoid Sun/Mon edge case)
+        const mid = new Date(info.start);
+        mid.setDate(mid.getDate() + 3);
+        const newOffset = getOffsetFromDate(mid.toISOString().split("T")[0]);
+        if (newOffset !== _weekOffset) {
+          _weekOffset = newOffset;
+          updateWeekNavUI();
+          // Refresh the left-panel card with the new week's filtered todos
+          const cardWrap = document.getElementById("split-card-wrap");
+          if (cardWrap) cardWrap.innerHTML = renderDesignerCard(d);
+          renderDesignerGrid(_designerData);
+        }
+        updateSplitCapBar(d);
+      },
     });
     _splitCalendar.render();
   }
@@ -268,9 +282,7 @@ function calcCapacity(todos, pto, offset = 0) {
   };
 }
 
-function setWeekOffset(newOffset) {
-  if (newOffset < 0) return;
-  _weekOffset = newOffset;
+function updateWeekNavUI() {
   const prevBtn = document.getElementById("week-prev-btn");
   const label   = document.getElementById("week-label");
   if (prevBtn) prevBtn.disabled = (_weekOffset === 0);
@@ -283,7 +295,29 @@ function setWeekOffset(newOffset) {
       label.textContent = `${fmt(start)} – ${fmt(end)}`;
     }
   }
+}
+
+// Compute week offset from any date string — finds the Monday of that week
+function getOffsetFromDate(dateStr) {
+  const d = new Date(dateStr + "T12:00:00");
+  const dow = d.getDay(); // 0=Sun … 6=Sat
+  d.setDate(d.getDate() + (dow === 0 ? 1 : 1 - dow)); // shift to Monday
+  const monStr = d.toISOString().split("T")[0];
+  const currentMon = getWeekBounds(0).start;
+  const diff = Math.round((new Date(monStr) - new Date(currentMon)) / (7 * 24 * 60 * 60 * 1000));
+  return Math.max(0, diff);
+}
+
+function setWeekOffset(newOffset) {
+  if (newOffset < 0) return;
+  _weekOffset = newOffset;
+  updateWeekNavUI();
   renderDesignerGrid(_designerData);
+  // Sync split calendar if it's open
+  const splitView = document.getElementById("split-view");
+  if (_splitCalendar && splitView && !splitView.classList.contains("hidden")) {
+    _splitCalendar.gotoDate(getWeekBounds(_weekOffset).start + "T12:00:00");
+  }
 }
 
 function renderDesignerCard(d, showCompleted = false) {
@@ -294,12 +328,15 @@ function renderDesignerCard(d, showCompleted = false) {
     ? `<span class="pto-badge">${pto_days} OOO day${pto_days > 1 ? "s" : ""} this wk</span>`
     : "";
 
-  // Future weeks: show only todos due within that week's window
+  // Filter todo list by due_on (not hdd)
+  // Current week: show all todos with due_on <= this Friday (overdue rolls forward)
+  // Future weeks: only todos with due_on falling in that Mon–Fri window
   const allTodos = d.todos || [];
-  const todos = _weekOffset === 0 ? allTodos : (() => {
-    const { start, end } = getWeekBounds(_weekOffset);
-    return allTodos.filter(t => t.hdd && t.hdd >= start && t.hdd <= end);
-  })();
+  const { start: wStart, end: wEnd } = getWeekBounds(_weekOffset);
+  const todos = allTodos.filter(t => {
+    if (!t.due_on) return _weekOffset === 0;
+    return _weekOffset === 0 ? t.due_on <= wEnd : (t.due_on >= wStart && t.due_on <= wEnd);
+  });
   const todosHtml = todos.length
     ? `<ul class="designer-todos">${todos.map(t => renderTodoItem(t, d.color)).join("")}</ul>`
     : `<div class="no-todos">No active tasks</div>`;
