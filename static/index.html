@@ -68,6 +68,11 @@
       <div id="tab-designers" class="tab-panel">
         <div class="panel-header" style="flex-wrap:wrap;gap:10px">
           <h2>Designer Workload</h2>
+          <div class="week-nav">
+            <button id="week-prev-btn" class="week-nav-btn" onclick="setWeekOffset(_weekOffset - 1)" disabled>&#9664;</button>
+            <span id="week-label" class="week-label">Current Week</span>
+            <button id="week-next-btn" class="week-nav-btn" onclick="setWeekOffset(_weekOffset + 1)">&#9654;</button>
+          </div>
           <select id="workload-filter" class="cal-filter-select" onchange="onWorkloadFilterChange()">
             <option value="all">All Designers</option>
           </select>

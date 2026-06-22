@@ -4,6 +4,7 @@
 
 let calendar = null;
 let _modalTodoId = null;
+let _weekOffset = 0;
 
 // ---------------------------------------------------------------------------
 // Boot
@@ -236,10 +237,10 @@ function updateSplitCapBar(d) {
 // Designer card rendering
 // ---------------------------------------------------------------------------
 
-function getWeekBounds() {
+function getWeekBounds(offset = 0) {
   const today = new Date();
   const monday = new Date(today);
-  monday.setDate(today.getDate() - ((today.getDay() + 6) % 7));
+  monday.setDate(today.getDate() - ((today.getDay() + 6) % 7) + offset * 7);
   const friday = new Date(monday);
   friday.setDate(monday.getDate() + 4);
   return {
@@ -248,34 +249,57 @@ function getWeekBounds() {
   };
 }
 
-function calcCapacity(todos, pto) {
-  const { start, end } = getWeekBounds();
-  // PTO days this week reduce available hours
-  const ptoDaysThisWeek = (pto || []).filter(p => p.date >= start && p.date <= end).length;
-  const cap = Math.max(0, (5 - ptoDaysThisWeek) * 7);
+function calcCapacity(todos, pto, offset = 0) {
+  const { start, end } = getWeekBounds(offset);
+  const ptoDays = (pto || []).filter(p => p.date >= start && p.date <= end).length;
+  const cap = Math.max(0, (5 - ptoDays) * 7);
   const weekly_est = (todos || []).reduce((sum, t) => {
-    if (t.is_complete) return sum;
-    if (t.is_misc) return sum;
-    if (t.hdd && t.hdd <= end) return sum + (t.total_hours || 0);
-    return sum;
+    if (t.is_complete || t.is_misc || !t.hdd) return sum;
+    // Current week: cumulative — overdue rolls forward (hdd <= this Friday)
+    // Future weeks: only todos whose HDD falls within that specific week
+    const inWindow = offset === 0 ? t.hdd <= end : (t.hdd >= start && t.hdd <= end);
+    return inWindow ? sum + (t.total_hours || 0) : sum;
   }, 0);
   return {
     weekly_est: Math.round(weekly_est * 10) / 10,
     cap,
     pct: cap > 0 ? Math.min(100, Math.round(weekly_est / cap * 100)) : 100,
-    pto_days: ptoDaysThisWeek,
+    pto_days: ptoDays,
   };
 }
 
+function setWeekOffset(newOffset) {
+  if (newOffset < 0) return;
+  _weekOffset = newOffset;
+  const prevBtn = document.getElementById("week-prev-btn");
+  const label   = document.getElementById("week-label");
+  if (prevBtn) prevBtn.disabled = (_weekOffset === 0);
+  if (label) {
+    if (_weekOffset === 0) {
+      label.textContent = "Current Week";
+    } else {
+      const { start, end } = getWeekBounds(_weekOffset);
+      const fmt = s => new Date(s + "T12:00:00").toLocaleDateString("en-US", { month: "short", day: "numeric" });
+      label.textContent = `${fmt(start)} – ${fmt(end)}`;
+    }
+  }
+  renderDesignerGrid(_designerData);
+}
+
 function renderDesignerCard(d, showCompleted = false) {
-  const { weekly_est, cap, pct, pto_days } = calcCapacity(d.todos, d.pto);
+  const { weekly_est, cap, pct, pto_days } = calcCapacity(d.todos, d.pto, _weekOffset);
   const barCls = pct < 60 ? "low" : pct < 85 ? "mid" : "high";
   const initials = d.name.split(" ").map(n => n[0]).join("").slice(0, 2).toUpperCase();
   const ptoBadge = pto_days > 0
     ? `<span class="pto-badge">${pto_days} OOO day${pto_days > 1 ? "s" : ""} this wk</span>`
     : "";
 
-  const todos = d.todos || [];
+  // Future weeks: show only todos due within that week's window
+  const allTodos = d.todos || [];
+  const todos = _weekOffset === 0 ? allTodos : (() => {
+    const { start, end } = getWeekBounds(_weekOffset);
+    return allTodos.filter(t => t.hdd && t.hdd >= start && t.hdd <= end);
+  })();
   const todosHtml = todos.length
     ? `<ul class="designer-todos">${todos.map(t => renderTodoItem(t, d.color)).join("")}</ul>`
     : `<div class="no-todos">No active tasks</div>`;
