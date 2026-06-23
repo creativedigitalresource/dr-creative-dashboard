@@ -336,10 +336,11 @@ function calcCapacity(todos, pto, offset = 0) {
     const ptoDays = (pto || []).filter(p => p.date >= start && p.date <= end).length;
     cap = Math.max(0, (5 - ptoDays) * 7);
   }
+  const ptoDayCount = offset === 0
+    ? (pto || []).filter(p => { const t = new Date().toISOString().split("T")[0]; return p.date >= t && p.date <= end; }).length
+    : (pto || []).filter(p => p.date >= start && p.date <= end).length;
   const weekly_est = (todos || []).reduce((sum, t) => {
     if (t.is_complete || t.is_misc || !t.hdd) return sum;
-    // Current week: cumulative — overdue rolls forward (hdd <= this Friday)
-    // Future weeks: only todos whose HDD falls within that specific week
     const inWindow = offset === 0 ? t.hdd <= end : (t.hdd >= start && t.hdd <= end);
     const remaining = Math.max(0, (t.total_hours || 0) - (t.logged || 0));
     return inWindow ? sum + remaining : sum;
@@ -348,7 +349,7 @@ function calcCapacity(todos, pto, offset = 0) {
     weekly_est: Math.round(weekly_est * 10) / 10,
     cap,
     pct: cap > 0 ? Math.min(100, Math.round(weekly_est / cap * 100)) : 100,
-    pto_days: ptoDays,
+    pto_days: ptoDayCount,
   };
 }
 
