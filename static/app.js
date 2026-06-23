@@ -41,23 +41,30 @@ function startClock() {
 let _pollTimer = null;
 
 async function boot() {
-  const status = await fetch("/api/status").then(r => r.json()).catch(() => null);
-  if (!status || !status.authenticated) {
-    show("login-screen");
-    hide("main-content");
-    return;
-  }
-  hide("login-screen");
-  show("main-content");
-  startClock();
-  initTabs();
-  initCalendar();
-  connectSSE();
-  // If data is stale or missing, hitting /api/unassigned will auto-trigger a refresh
-  await loadAll();
-  // If still loading, start polling until data arrives
-  if (!status.last_updated || status.stale) {
-    startPolling();
+  try {
+    const status = await fetch("/api/status").then(r => r.json()).catch(() => null);
+    if (!status || !status.authenticated) {
+      show("login-screen");
+      hide("main-content");
+      return;
+    }
+    hide("login-screen");
+    show("main-content");
+    startClock();
+    initTabs();
+    initCalendar();
+    connectSSE();
+    await loadAll();
+    if (!status.last_updated || status.stale) {
+      startPolling();
+    }
+  } catch (e) {
+    const grid = document.getElementById("designer-grid");
+    if (grid) grid.innerHTML = `<div class="loading-card" style="color:red;font-size:13px">
+      <strong>Boot error:</strong> ${e.message || e}<br>
+      <pre style="white-space:pre-wrap;font-size:11px">${e.stack || ""}</pre>
+    </div>`;
+    console.error("[boot]", e);
   }
 }
 
