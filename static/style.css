@@ -408,3 +408,28 @@ body { min-height: 100vh; }
 ::-webkit-scrollbar-track { background: var(--surface2); border-radius: 10px; }
 ::-webkit-scrollbar-thumb { background: var(--border); border-radius: 10px; }
 ::-webkit-scrollbar-thumb:hover { background: var(--text-muted); }
+
+/* ---- PIN Gate ---- */
+.pin-gate {
+  position: fixed; inset: 0; z-index: 9999;
+  background: var(--bg);
+  display: flex; align-items: center; justify-content: center;
+}
+.pin-card {
+  display: flex; flex-direction: column; align-items: center; gap: 16px;
+  padding: 48px 40px; border-radius: 16px;
+  background: var(--surface); border: 1px solid var(--border);
+  box-shadow: 0 8px 32px rgba(0,0,0,.08);
+}
+.pin-logo { font-size: 22px; font-weight: 700; color: var(--accent); letter-spacing: -.5px; }
+.pin-subtitle { font-size: 13px; color: var(--text-muted); margin-top: -8px; }
+.pin-label { font-size: 13px; font-weight: 600; color: var(--text-muted); text-transform: uppercase; letter-spacing: .06em; margin-top: 8px; }
+.pin-inputs { display: flex; gap: 12px; }
+.pin-digit {
+  width: 52px; height: 60px; text-align: center; font-size: 24px; font-weight: 700;
+  border: 2px solid var(--border); border-radius: 10px;
+  background: var(--surface2); color: var(--text);
+  outline: none; transition: border-color .15s;
+}
+.pin-digit:focus { border-color: var(--accent); }
+.pin-error { font-size: 13px; color: var(--danger); font-weight: 500; }

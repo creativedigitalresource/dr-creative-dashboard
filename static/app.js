@@ -2,6 +2,43 @@
    DR Creative Dashboard — Frontend
    ============================================================ */
 
+// PIN gate
+(function() {
+  const CORRECT = "1868";
+  const KEY = "dr_dash_auth";
+  function setupPin() {
+    if (sessionStorage.getItem(KEY) === "1") return;
+    const gate = document.getElementById("pin-gate");
+    gate.classList.remove("hidden");
+    const digits = gate.querySelectorAll(".pin-digit");
+    digits.forEach((d, i) => {
+      d.addEventListener("input", () => {
+        d.value = d.value.replace(/\D/g, "").slice(-1);
+        if (d.value && i < digits.length - 1) digits[i + 1].focus();
+        const pin = Array.from(digits).map(x => x.value).join("");
+        if (pin.length === 4) {
+          if (pin === CORRECT) {
+            sessionStorage.setItem(KEY, "1");
+            gate.classList.add("hidden");
+          } else {
+            document.getElementById("pin-error").classList.remove("hidden");
+            setTimeout(() => {
+              digits.forEach(x => x.value = "");
+              document.getElementById("pin-error").classList.add("hidden");
+              digits[0].focus();
+            }, 1200);
+          }
+        }
+      });
+      d.addEventListener("keydown", e => {
+        if (e.key === "Backspace" && !d.value && i > 0) digits[i - 1].focus();
+      });
+    });
+    digits[0].focus();
+  }
+  document.addEventListener("DOMContentLoaded", setupPin);
+})();
+
 let calendar = null;
 let _modalTodoId = null;
 let _weekOffset = 0;

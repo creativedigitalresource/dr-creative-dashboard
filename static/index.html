@@ -110,6 +110,22 @@
 
   </div>
 
+  <!-- PIN gate -->
+  <div id="pin-gate" class="pin-gate hidden">
+    <div class="pin-card">
+      <div class="pin-logo">DR Creative</div>
+      <div class="pin-subtitle">Team Dashboard</div>
+      <div class="pin-label">Enter PIN to access</div>
+      <div class="pin-inputs" id="pin-inputs">
+        <input class="pin-digit" type="password" maxlength="1" inputmode="numeric" pattern="[0-9]" />
+        <input class="pin-digit" type="password" maxlength="1" inputmode="numeric" pattern="[0-9]" />
+        <input class="pin-digit" type="password" maxlength="1" inputmode="numeric" pattern="[0-9]" />
+        <input class="pin-digit" type="password" maxlength="1" inputmode="numeric" pattern="[0-9]" />
+      </div>
+      <div id="pin-error" class="pin-error hidden">Incorrect PIN. Try again.</div>
+    </div>
+  </div>
+
   <!-- PTO modal -->
   <div id="pto-modal" class="modal hidden">
     <div class="modal-backdrop" onclick="closePtoModal()"></div>
