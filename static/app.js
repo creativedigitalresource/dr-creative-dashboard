@@ -5,6 +5,34 @@
 let calendar = null;
 let _modalTodoId = null;
 let _weekOffset = 0;
+let _lastClockHour = null;
+
+function getESTHour() {
+  return parseInt(new Intl.DateTimeFormat("en-US", {
+    timeZone: "America/New_York", hour: "2-digit", hour12: false
+  }).format(new Date()));
+}
+
+function startClock() {
+  const tick = () => {
+    const now = new Date();
+    const timeStr = now.toLocaleTimeString("en-US", {
+      timeZone: "America/New_York",
+      hour: "numeric", minute: "2-digit", second: "2-digit", hour12: true
+    });
+    const el = document.getElementById("est-clock");
+    if (el) el.textContent = timeStr + " EST";
+
+    const h = getESTHour();
+    if (_lastClockHour !== null && _lastClockHour !== h) {
+      // Hour flipped — re-render so 5 PM cutoff takes effect immediately
+      renderDesignerGrid(_designerData);
+    }
+    _lastClockHour = h;
+  };
+  tick();
+  setInterval(tick, 1000);
+}
 
 // ---------------------------------------------------------------------------
 // Boot
@@ -21,6 +49,7 @@ async function boot() {
   }
   hide("login-screen");
   show("main-content");
+  startClock();
   initTabs();
   initCalendar();
   connectSSE();
@@ -272,7 +301,10 @@ function calcCapacity(todos, pto, offset = 0) {
     // Mon=5, Tue=4, Wed=3, Thu=2, Fri=1, Sat/Sun=0
     const today = new Date();
     const dow = today.getDay();
-    const remainingDays = (dow === 0 || dow === 6) ? 0 : 6 - dow;
+    const rawRemaining = (dow === 0 || dow === 6) ? 0 : 6 - dow;
+    // After 5 PM EST, today's work day is done — shift to next day's remaining count
+    const past5pm = getESTHour() >= 17;
+    const remainingDays = past5pm ? Math.max(0, rawRemaining - 1) : rawRemaining;
     const todayStr = today.toISOString().split("T")[0];
     const ptoDaysLeft = (pto || []).filter(p => p.date >= todayStr && p.date <= end).length;
     cap = Math.max(0, (remainingDays - ptoDaysLeft) * 7);
