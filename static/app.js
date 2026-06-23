@@ -265,8 +265,22 @@ function getWeekBounds(offset = 0) {
 
 function calcCapacity(todos, pto, offset = 0) {
   const { start, end } = getWeekBounds(offset);
-  const ptoDays = (pto || []).filter(p => p.date >= start && p.date <= end).length;
-  const cap = Math.max(0, (5 - ptoDays) * 7);
+
+  let cap;
+  if (offset === 0) {
+    // Current week: remaining workdays from today (inclusive)
+    // Mon=5, Tue=4, Wed=3, Thu=2, Fri=1, Sat/Sun=0
+    const today = new Date();
+    const dow = today.getDay();
+    const remainingDays = (dow === 0 || dow === 6) ? 0 : 6 - dow;
+    const todayStr = today.toISOString().split("T")[0];
+    const ptoDaysLeft = (pto || []).filter(p => p.date >= todayStr && p.date <= end).length;
+    cap = Math.max(0, (remainingDays - ptoDaysLeft) * 7);
+  } else {
+    // Future weeks: full 5-day week
+    const ptoDays = (pto || []).filter(p => p.date >= start && p.date <= end).length;
+    cap = Math.max(0, (5 - ptoDays) * 7);
+  }
   const weekly_est = (todos || []).reduce((sum, t) => {
     if (t.is_complete || t.is_misc || !t.hdd) return sum;
     // Current week: cumulative — overdue rolls forward (hdd <= this Friday)
@@ -357,7 +371,7 @@ function renderDesignerCard(d, showCompleted = false) {
       </div>
       <div class="designer-cap-wrap">
         <div style="display:flex;align-items:center;gap:8px">
-          <div class="cap-label">Week capacity &middot; ${weekly_est}h / ${cap}h</div>
+          <div class="cap-label">${_weekOffset === 0 ? "Remaining" : "Week capacity"} &middot; ${weekly_est}h / ${cap}h</div>
           <button class="btn btn-ghost btn-sm" onclick="openPtoModal('${d.bc_id}','${esc(d.name)}')" title="Mark OOO days">OOO</button>
         </div>
         <div class="cap-bar-outer">
