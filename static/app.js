@@ -272,7 +272,8 @@ function calcCapacity(todos, pto, offset = 0) {
     // Current week: cumulative — overdue rolls forward (hdd <= this Friday)
     // Future weeks: only todos whose HDD falls within that specific week
     const inWindow = offset === 0 ? t.hdd <= end : (t.hdd >= start && t.hdd <= end);
-    return inWindow ? sum + (t.total_hours || 0) : sum;
+    const remaining = Math.max(0, (t.total_hours || 0) - (t.logged || 0));
+    return inWindow ? sum + remaining : sum;
   }, 0);
   return {
     weekly_est: Math.round(weekly_est * 10) / 10,

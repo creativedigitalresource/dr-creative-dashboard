@@ -120,10 +120,12 @@ async def _do_refresh():
                     "overrides": list(ov.keys()),
                 })
             # Weekly est: sum tasks due within this week
-            weekly_est = sum(t.get("total_hours", 0) for t in enriched
-                             if t.get("hdd") and t["hdd"] <= week_end
-                             and not t.get("is_complete")
-                             and not t.get("is_misc"))
+            weekly_est = sum(
+                max(0, t.get("total_hours", 0) - t.get("logged", 0))
+                for t in enriched
+                if t.get("hdd") and t["hdd"] <= week_end
+                and not t.get("is_complete")
+                and not t.get("is_misc"))
             capacity_pct = min(100, round(weekly_est / WEEKLY_CAP * 100))
             designers_out.append({**d, "todos": enriched,
                                    "weekly_est": round(weekly_est, 1),
