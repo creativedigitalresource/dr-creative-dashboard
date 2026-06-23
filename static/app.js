@@ -91,6 +91,19 @@ function connectSSE() {
 // Data loading
 // ---------------------------------------------------------------------------
 
+async function fetchWithTimeout(url, opts = {}, ms = 15000) {
+  const ctrl = new AbortController();
+  const timer = setTimeout(() => ctrl.abort(), ms);
+  try {
+    const r = await fetch(url, { ...opts, signal: ctrl.signal });
+    clearTimeout(timer);
+    return r;
+  } catch (e) {
+    clearTimeout(timer);
+    throw e;
+  }
+}
+
 async function loadAll() {
   await Promise.all([loadUnassigned(), loadDesigners()]);
   await loadCalendar();
@@ -98,7 +111,7 @@ async function loadAll() {
 }
 
 async function loadUnassigned() {
-  const todos = await fetch("/api/unassigned").then(r => r.json()).catch(() => []);
+  const todos = await fetchWithTimeout("/api/unassigned").then(r => r.json()).catch(() => []);
   document.getElementById("unassigned-count").textContent = todos.length || "";
   const tbody = document.getElementById("unassigned-tbody");
   if (!todos.length) {
@@ -126,7 +139,7 @@ let _splitViewActive = false;
 let _splitCalendar = null;
 
 async function loadDesigners() {
-  const designers = await fetch("/api/designers").then(r => r.json()).catch(() => []);
+  const designers = await fetchWithTimeout("/api/designers").then(r => r.json()).catch(() => []);
   if (!designers.length) {
     document.getElementById("designer-grid").innerHTML =
       `<div class="loading-card">Fetching from Basecamp — may take up to 60s on first load…</div>`;
@@ -740,6 +753,7 @@ function initTabs() {
 
 function triggerRefresh() {
   fetch("/api/refresh", { method: "POST" });
+  startPolling(); // poll until refresh completes, then reload UI
 }
 
 // ---------------------------------------------------------------------------
