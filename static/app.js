@@ -63,10 +63,13 @@ async function boot() {
 
 function startPolling() {
   if (_pollTimer) return;
+  const pollStart = Date.now();
   _pollTimer = setInterval(async () => {
-    const s = await fetch("/api/status").then(r => r.json()).catch(() => null);
+    const s = await fetchWithTimeout("/api/status").then(r => r.json()).catch(() => null);
     if (!s) return;
-    if (!s.refreshing && s.last_updated) {
+    const done = !s.refreshing && s.last_updated;
+    const timedOut = Date.now() - pollStart > 90000; // force reload after 90s
+    if (done || timedOut) {
       clearInterval(_pollTimer);
       _pollTimer = null;
       await loadAll();

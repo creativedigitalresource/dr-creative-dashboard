@@ -262,7 +262,9 @@ async def get_designer_todos(designer_bc_id: int) -> list:
             return []
         try:
             async with sem:
-                return await get_comments(bucket_id, str(t["id"]))
+                return await asyncio.wait_for(
+                    get_comments(bucket_id, str(t["id"])), timeout=8.0
+                )
         except Exception:
             return []
 
