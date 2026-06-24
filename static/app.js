@@ -564,9 +564,19 @@ function renderTodoItem(t, color, isCompleted = false) {
   const catCls = catOverridden ? "category-select overridden" : "category-select";
   const catStr = `<select class="${catCls}" onchange="saveCategory('${t.id}', this.value)" title="Task category">${catOptions}</select>`;
 
+  // Clean client name — strip tier/AM suffixes like "(2)(BW)" or "(1+)(TS)"
+  const clientName = (t.bucket_name || "")
+    .replace(/\s*\(\d+\+?\)\([A-Z]+\)\s*$/, "")
+    .replace(/\s*\(\d+\+?\)\s*$/, "")
+    .trim();
+  const clientLabel = clientName
+    ? `<div class="todo-client">${esc(clientName)}</div>`
+    : "";
+
   return `
   <li class="todo-item${isCompleted ? " todo-done" : ""}" id="todo-${t.id}">
     <div class="todo-item-left">
+      ${clientLabel}
       <div class="todo-item-title" title="${esc(t.title)}">${isCompleted ? `<s>${esc(truncate(t.title, 60))}</s>` : esc(truncate(t.title, 60))}</div>
       <div class="todo-meta">${dateStr}${hddStr}${estStr}</div>
       <div class="todo-category">${catStr}</div>

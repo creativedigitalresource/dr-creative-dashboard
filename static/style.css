@@ -419,6 +419,13 @@ body { min-height: 100vh; }
 .completed-section { opacity: 0.55; }
 .todo-done .todo-item-title { color: var(--text-muted); }
 
+/* ---- Client name ---- */
+.todo-client {
+  font-size: 10px; font-weight: 600; text-transform: uppercase;
+  letter-spacing: .06em; color: var(--text-muted);
+  margin-bottom: 2px;
+}
+
 /* ---- Category ---- */
 .todo-category { margin-top: 4px; }
 .category-select {
