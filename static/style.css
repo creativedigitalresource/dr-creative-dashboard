@@ -409,6 +409,16 @@ body { min-height: 100vh; }
 ::-webkit-scrollbar-thumb { background: var(--border); border-radius: 10px; }
 ::-webkit-scrollbar-thumb:hover { background: var(--text-muted); }
 
+/* ---- Completed toggle ---- */
+.completed-toggle {
+  font-size: 12px; color: var(--text-muted); cursor: pointer;
+  padding: 8px 0 4px; text-align: center; user-select: none;
+  border-top: 1px dashed var(--border); margin-top: 6px;
+}
+.completed-toggle:hover { color: var(--accent); }
+.completed-section { opacity: 0.55; }
+.todo-done .todo-item-title { color: var(--text-muted); }
+
 /* ---- Category ---- */
 .todo-category { margin-top: 4px; }
 .category-select {

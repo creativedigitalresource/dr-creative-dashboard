@@ -441,13 +441,23 @@ function renderDesignerCard(d, showCompleted = false) {
   // Future weeks: only todos with due_on falling in that Mon–Fri window
   const allTodos = d.todos || [];
   const { start: wStart, end: wEnd } = getWeekBounds(_weekOffset);
-  const todos = allTodos.filter(t => {
+  const weekTodos = allTodos.filter(t => {
     if (!t.due_on) return _weekOffset === 0;
     return _weekOffset === 0 ? t.due_on <= wEnd : (t.due_on >= wStart && t.due_on <= wEnd);
   });
-  const todosHtml = todos.length
-    ? `<ul class="designer-todos">${todos.map(t => renderTodoItem(t, d.color)).join("")}</ul>`
-    : `<div class="no-todos">No active tasks</div>`;
+  const activeTodos    = weekTodos.filter(t => !t.is_complete);
+  const completedTodos = weekTodos.filter(t =>  t.is_complete);
+
+  const completedFooter = completedTodos.length ? `
+    <div class="completed-toggle" onclick="toggleCompleted('${d.bc_id}')">
+      ${showCompleted ? "▲ Hide" : "▼ Show"} ${completedTodos.length} completed task${completedTodos.length !== 1 ? "s" : ""}
+    </div>
+    ${showCompleted ? `<ul class="designer-todos completed-section">${completedTodos.map(t => renderTodoItem(t, d.color, true)).join("")}</ul>` : ""}
+  ` : "";
+
+  const todosHtml = activeTodos.length
+    ? `<ul class="designer-todos">${activeTodos.map(t => renderTodoItem(t, d.color)).join("")}</ul>${completedFooter}`
+    : `<div class="no-todos">No active tasks</div>${completedFooter}`;
 
   return `
   <div class="designer-card">
@@ -518,7 +528,7 @@ async function saveCategory(todoId, value) {
   });
 }
 
-function renderTodoItem(t, color) {
+function renderTodoItem(t, color, isCompleted = false) {
   const ov = t.overrides || [];
   const hddCls = ov.includes("hdd") ? "hdd overridden" : "hdd";
   const estCls = ov.includes("est") ? "est overridden" : "est";
@@ -555,9 +565,9 @@ function renderTodoItem(t, color) {
   const catStr = `<select class="${catCls}" onchange="saveCategory('${t.id}', this.value)" title="Task category">${catOptions}</select>`;
 
   return `
-  <li class="todo-item" id="todo-${t.id}">
+  <li class="todo-item${isCompleted ? " todo-done" : ""}" id="todo-${t.id}">
     <div class="todo-item-left">
-      <div class="todo-item-title" title="${esc(t.title)}">${esc(truncate(t.title, 60))}</div>
+      <div class="todo-item-title" title="${esc(t.title)}">${isCompleted ? `<s>${esc(truncate(t.title, 60))}</s>` : esc(truncate(t.title, 60))}</div>
       <div class="todo-meta">${dateStr}${hddStr}${estStr}</div>
       <div class="todo-category">${catStr}</div>
       ${progressHtml}
