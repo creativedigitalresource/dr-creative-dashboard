@@ -112,6 +112,8 @@ async def _do_refresh():
 
                 # True if HDD came from a real source (override or comment), not just due_on fallback
                 has_hdd = bool(ov.get("hdd") or t.get("hdd"))
+                # Category: manual override > auto-detected
+                category = ov.get("category") or t.get("category", "Misc.")
 
                 enriched.append({
                     **t,
@@ -120,6 +122,7 @@ async def _do_refresh():
                     "logged": logged, "progress": progress,
                     "over_by": over_by,
                     "has_hdd": has_hdd,
+                    "category": category,
                     "is_misc": t.get("is_misc", False),
                     "is_complete": t.get("is_complete", False),
                     "overrides": list(ov.keys()),
@@ -297,7 +300,7 @@ async def api_calendar():
 async def set_todo_fields(todo_id: str, request: Request):
     """Update todo fields — HDD writes to Basecamp step, EST writes to Everhour."""
     body = await request.json()
-    allowed = {"hdd", "est", "due_on", "logged"}
+    allowed = {"hdd", "est", "due_on", "logged", "category"}
 
     # Find the todo and its designer in the cache
     cached_todo = None

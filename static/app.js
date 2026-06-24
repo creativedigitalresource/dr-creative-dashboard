@@ -484,10 +484,45 @@ function toggleCompleted(bcId) {
   renderDesignerGrid(_designerData);
 }
 
+const CATEGORIES = [
+  "Branding/Logo - Creation/Edits",
+  "Print - Collateral/Packaging",
+  "Web - Sites/Applications/UI",
+  "Web - Maintenance",
+  "Email - Campaigns/Signatures",
+  "LP - New",
+  "LP - Maintenance",
+  "Digital - Banner/Display Ads",
+  "Multi - Photo/Video/Edits",
+  "IPM - Campaigns/Reports",
+  "SM - templates/graphics/reels",
+  "Misc.",
+  "Admin",
+];
+
+async function saveCategory(todoId, value) {
+  // Update in-memory data immediately
+  for (const d of _designerData || []) {
+    for (const t of d.todos || []) {
+      if (String(t.id) === String(todoId)) {
+        t.category = value;
+        if (!t.overrides) t.overrides = [];
+        if (!t.overrides.includes("category")) t.overrides.push("category");
+      }
+    }
+  }
+  await fetch(`/api/todos/${todoId}/fields`, {
+    method: "PUT",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ category: value }),
+  });
+}
+
 function renderTodoItem(t, color) {
   const ov = t.overrides || [];
   const hddCls = ov.includes("hdd") ? "hdd overridden" : "hdd";
   const estCls = ov.includes("est") ? "est overridden" : "est";
+  const catOverridden = ov.includes("category");
 
   const dateStr = `<span class="meta-pill date-pill editable" onclick="editField(event,'${t.id}','due_on','date','${t.due_on||''}')" title="Click to change date — re-sorts the list">${t.due_on ? fmtDate(t.due_on) : "+ Date"}</span>`;
   const hddStr = `<span class="meta-pill ${hddCls} editable" onclick="editField(event,'${t.id}','hdd','date','${t.hdd||''}')" title="Click to edit — updates Basecamp step due date">${t.hdd ? "HDD " + fmtDate(t.hdd) : "+ HDD"}</span>`;
@@ -513,11 +548,18 @@ function renderTodoItem(t, color) {
     progressHtml = `<div class="progress-wrap">${loggedEl}</div>`;
   }
 
+  const catOptions = CATEGORIES.map(c =>
+    `<option value="${c}"${c === (t.category || "") ? " selected" : ""}>${c}</option>`
+  ).join("");
+  const catCls = catOverridden ? "category-select overridden" : "category-select";
+  const catStr = `<select class="${catCls}" onchange="saveCategory('${t.id}', this.value)" title="Task category">${catOptions}</select>`;
+
   return `
   <li class="todo-item" id="todo-${t.id}">
     <div class="todo-item-left">
       <div class="todo-item-title" title="${esc(t.title)}">${esc(truncate(t.title, 60))}</div>
       <div class="todo-meta">${dateStr}${hddStr}${estStr}</div>
+      <div class="todo-category">${catStr}</div>
       ${progressHtml}
     </div>
     <div class="todo-item-actions">

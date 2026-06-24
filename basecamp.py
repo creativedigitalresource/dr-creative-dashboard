@@ -244,7 +244,7 @@ async def get_designer_todos(designer_bc_id: int) -> list:
     without flooding the Basecamp API.
     """
     import asyncio
-    from parsers import parse_todo_fields
+    from parsers import parse_todo_fields, categorize_todo
 
     raw = await _get_all_reports_assigned(designer_bc_id)
     active = [t for t in raw
@@ -302,6 +302,7 @@ async def get_designer_todos(designer_bc_id: int) -> list:
             "is_subtask": is_subtask,
             "is_misc": False,
             "is_complete": False,
+            "category": categorize_todo(t["content"]),
             **fields,
         })
     return results
