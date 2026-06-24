@@ -79,10 +79,11 @@ async def _do_refresh():
             enriched = []
             for t, eh_data in zip(todos, eh_data_list):
                 ov = overrides.get(str(t["id"]), {})
-                # Apply local overrides on top of Basecamp-parsed fields
-                # Priority: manual override → step due_on / comment-parsed hdd → todo due_on
-                # t.get("hdd") already encodes: step due_on > comment HDD > todo due_on (from basecamp.py)
-                hdd    = ov.get("hdd") or t.get("hdd")
+                # Step due_on is authoritative — always wins over SQLite overrides and comment-parsed HDD
+                designer_step = t.get("designer_step")
+                step_due = designer_step.get("due_on") if designer_step else None
+                # Priority: step due_on → manual override → comment/title HDD → todo due_on
+                hdd    = step_due or ov.get("hdd") or t.get("hdd")
                 pdd    = ov.get("pdd")   or t.get("pdd")
                 revs   = float(ov["revs"]) if "revs" in ov else (t.get("revs") or 0)
 
@@ -101,25 +102,20 @@ async def _do_refresh():
                 over_by = round(max(0, logged - total), 2) if total > 0 else 0
 
                 # Progress: 100% if designer's step is complete, else hours-based
-                designer_step = t.get("designer_step")
                 step_complete = designer_step.get("completed", False) if designer_step else False
                 if step_complete:
                     progress = 100
                 else:
                     progress = min(100, round((logged / total * 100) if total > 0 else 0))
 
-                # Use step due_on as HDD if available
-                step_due = designer_step.get("due_on") if designer_step else None
-                effective_hdd = hdd or step_due
-
-                # True if HDD came from a real source (override or comment), not just due_on fallback
-                has_hdd = bool(ov.get("hdd") or t.get("hdd"))
+                # has_hdd: True only when HDD comes from a real source (step, override, comment)
+                has_hdd = bool(step_due or ov.get("hdd"))
                 # Category: manual override > auto-detected
                 category = ov.get("category") or t.get("category", "Misc.")
 
                 enriched.append({
                     **t,
-                    "hdd": effective_hdd, "pdd": pdd, "est": est, "revs": revs,
+                    "hdd": hdd, "pdd": pdd, "est": est, "revs": revs,
                     "total_hours": total,
                     "logged": logged, "progress": progress,
                     "over_by": over_by,
