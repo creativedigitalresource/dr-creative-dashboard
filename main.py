@@ -85,11 +85,12 @@ async def _do_refresh():
                 pdd    = ov.get("pdd")   or t.get("pdd")
                 revs   = float(ov["revs"]) if "revs" in ov else (t.get("revs") or 0)
 
-                # EST: manual override > per-user Everhour estimate > total estimate > title-parsed
+                # EST priority: manual override > Everhour estimate > comment/title-parsed
+                # Uses explicit None check so a 0.0 Everhour estimate doesn't fall through
                 eh_uid = str(d.get("eh_id") or "")
                 user_est = eh_data.get("user_estimates", {}).get(eh_uid) if eh_uid else None
                 eh_est = user_est if user_est is not None else eh_data.get("estimate")
-                est = float(ov["est"]) if "est" in ov else (eh_est or t.get("est"))
+                est = float(ov["est"]) if "est" in ov else (eh_est if eh_est is not None else t.get("est"))
 
                 # Logged: manual override > per-user Everhour logged > total logged
                 user_log = eh_data.get("user_logged", {}).get(eh_uid) if eh_uid else None
