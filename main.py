@@ -323,7 +323,7 @@ async def set_todo_fields(todo_id: str, request: Request):
             bucket_id = cached_todo.get("bucket_id") if cached_todo else None
             if designer_step and bucket_id:
                 step_id = str(designer_step["id"])
-                await bc.update_step_due(bucket_id, step_id, str(value))
+                await bc.update_step_due(bucket_id, step_id, str(value), step=designer_step)
             # Also save locally as fallback
             store.set_override(todo_id, field, str(value))
 

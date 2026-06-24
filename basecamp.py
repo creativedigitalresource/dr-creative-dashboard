@@ -174,8 +174,8 @@ async def get_todo_detail(bucket_id: str, todo_id: str) -> dict | None:
     return await _get(f"/buckets/{bucket_id}/todos/{todo_id}.json")
 
 
-async def update_step_due(bucket_id: str, step_id: str, due_on: str) -> bool:
-    """Update a step's due date in Basecamp."""
+async def update_step_due(bucket_id: str, step_id: str, due_on: str, step: dict | None = None) -> bool:
+    """Update a step's due date in Basecamp, preserving existing title and assignees."""
     token = get_token("access_token")
     if not token:
         return False
@@ -184,11 +184,19 @@ async def update_step_due(bucket_id: str, step_id: str, due_on: str) -> bool:
         "User-Agent": USER_AGENT,
         "Content-Type": "application/json",
     }
+    # Basecamp PUT replaces all fields — include existing title/assignees to preserve them
+    title = (step or {}).get("title", "") or ""
+    assignee_ids = [a["id"] for a in (step or {}).get("assignees", []) if a.get("id")]
     import json as _json
+    payload = {"due_on": due_on}
+    if title:
+        payload["title"] = title
+    if assignee_ids:
+        payload["assignee_ids"] = assignee_ids
     r = await get_http().put(
         f"{BC_BASE}/buckets/{bucket_id}/card_tables/steps/{step_id}.json",
         headers=headers,
-        content=_json.dumps({"due_on": due_on}),
+        content=_json.dumps(payload),
     )
     return r.status_code == 200
 
