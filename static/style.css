@@ -258,7 +258,7 @@ body { min-height: 100vh; }
 .meta-pill.est { color: #7c3aed; background: #f5f3ff; border-color: #ddd6fe; }
 .meta-pill.editable { cursor: pointer; }
 .meta-pill.editable:hover { opacity: 0.75; transform: scale(1.03); }
-.meta-pill.overridden { border-style: dashed; font-style: italic; }
+
 
 .inline-field-input {
   padding: 3px 8px;
@@ -429,7 +429,7 @@ body { min-height: 100vh; }
   transition: border-color .15s;
 }
 .category-select:hover, .category-select:focus { border-color: var(--accent); color: var(--text); }
-.category-select.overridden { border-color: var(--accent); color: var(--accent); }
+.category-select.overridden { }
 
 /* ---- PIN Gate ---- */
 .pin-gate {
