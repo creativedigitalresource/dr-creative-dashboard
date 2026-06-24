@@ -80,7 +80,8 @@ async def _do_refresh():
             for t, eh_data in zip(todos, eh_data_list):
                 ov = overrides.get(str(t["id"]), {})
                 # Apply local overrides on top of Basecamp-parsed fields
-                hdd    = ov.get("hdd")   or t.get("hdd")
+                # Priority: manual override → Basecamp due_on → comment-parsed hdd
+                hdd    = ov.get("hdd") or t.get("due_on") or t.get("hdd")
                 pdd    = ov.get("pdd")   or t.get("pdd")
                 revs   = float(ov["revs"]) if "revs" in ov else (t.get("revs") or 0)
 
