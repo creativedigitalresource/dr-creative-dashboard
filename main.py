@@ -110,12 +110,16 @@ async def _do_refresh():
                 step_due = designer_step.get("due_on") if designer_step else None
                 effective_hdd = hdd or step_due
 
+                # True if HDD came from a real source (override or comment), not just due_on fallback
+                has_hdd = bool(ov.get("hdd") or t.get("hdd"))
+
                 enriched.append({
                     **t,
                     "hdd": effective_hdd, "pdd": pdd, "est": est, "revs": revs,
                     "total_hours": total,
                     "logged": logged, "progress": progress,
                     "over_by": over_by,
+                    "has_hdd": has_hdd,
                     "is_misc": t.get("is_misc", False),
                     "is_complete": t.get("is_complete", False),
                     "overrides": list(ov.keys()),
@@ -142,10 +146,11 @@ async def _do_refresh():
             designers_out.append({**d, "todos": [], "weekly_est": 0,
                                    "weekly_cap": WEEKLY_CAP, "capacity_pct": 0})
 
-    # Sort by due_on asc, then hdd as tiebreaker — undated items last
+    # Sort: due_on → has_hdd (real HDD first) → hdd value — undated items last
     for d in designers_out:
         d["todos"].sort(key=lambda t: (
             t.get("due_on") or "9999-99-99",
+            0 if t.get("has_hdd") else 1,
             t.get("hdd") or "9999-99-99"
         ))
     unassigned.sort(key=lambda t: t.get("created_at") or "")
@@ -330,6 +335,7 @@ async def set_todo_fields(todo_id: str, request: Request):
             if cached_designer:
                 cached_designer["todos"].sort(key=lambda t: (
                 t.get("due_on") or "9999-99-99",
+                0 if t.get("has_hdd") else 1,
                 t.get("hdd") or "9999-99-99"
             ))
 
