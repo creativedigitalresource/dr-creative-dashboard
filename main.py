@@ -141,9 +141,12 @@ async def _do_refresh():
             designers_out.append({**d, "todos": [], "weekly_est": 0,
                                    "weekly_cap": WEEKLY_CAP, "capacity_pct": 0})
 
-    # Sort by due_on asc — oldest date first, undated items last
+    # Sort by due_on asc, then hdd as tiebreaker — undated items last
     for d in designers_out:
-        d["todos"].sort(key=lambda t: t.get("due_on") or "9999-99-99")
+        d["todos"].sort(key=lambda t: (
+            t.get("due_on") or "9999-99-99",
+            t.get("hdd") or "9999-99-99"
+        ))
     unassigned.sort(key=lambda t: t.get("created_at") or "")
 
     _cached_data["unassigned"] = unassigned
@@ -324,7 +327,10 @@ async def set_todo_fields(todo_id: str, request: Request):
             if cached_todo:
                 cached_todo["due_on"] = str(value)
             if cached_designer:
-                cached_designer["todos"].sort(key=lambda t: t.get("due_on") or "9999-99-99")
+                cached_designer["todos"].sort(key=lambda t: (
+                t.get("due_on") or "9999-99-99",
+                t.get("hdd") or "9999-99-99"
+            ))
 
         elif field == "est" and value is not None and value != "":
             # Write to Everhour estimate for this designer
