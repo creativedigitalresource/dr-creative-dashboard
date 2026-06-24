@@ -53,6 +53,88 @@ def init_db():
                 created_at REAL DEFAULT (unixepoch()),
                 UNIQUE(designer_bc_id, date)
             );
+
+            -- Operational: active todo state, persists across server restarts
+            CREATE TABLE IF NOT EXISTS todo_tracking (
+                todo_id TEXT NOT NULL,
+                designer_bc_id TEXT NOT NULL,
+                designer_name TEXT NOT NULL,
+                title TEXT NOT NULL,
+                category TEXT NOT NULL DEFAULT 'Misc.',
+                client_name TEXT NOT NULL DEFAULT '',
+                est_hours REAL,
+                logged_hours REAL NOT NULL DEFAULT 0,
+                hdd TEXT,
+                due_on TEXT,
+                had_revision INTEGER NOT NULL DEFAULT 0,
+                first_seen_at REAL NOT NULL,
+                last_seen_at REAL NOT NULL,
+                PRIMARY KEY (todo_id, designer_bc_id)
+            );
+
+            -- Operational: tracks when each unassigned todo entered the queue
+            CREATE TABLE IF NOT EXISTS queue_tracking (
+                todo_id TEXT PRIMARY KEY,
+                title TEXT NOT NULL,
+                client_name TEXT NOT NULL DEFAULT '',
+                first_seen_at REAL NOT NULL,
+                last_seen_at REAL NOT NULL
+            );
+
+            -- Analytics: permanent record of each completed task
+            CREATE TABLE IF NOT EXISTS analytics_completions (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                todo_id TEXT NOT NULL,
+                designer_bc_id TEXT NOT NULL,
+                designer_name TEXT NOT NULL,
+                title TEXT NOT NULL,
+                category TEXT NOT NULL DEFAULT 'Misc.',
+                client_name TEXT NOT NULL DEFAULT '',
+                est_hours REAL,
+                logged_hours REAL NOT NULL DEFAULT 0,
+                hdd TEXT,
+                due_on TEXT,
+                week_start TEXT NOT NULL,
+                was_hdd_miss INTEGER NOT NULL DEFAULT 0,
+                had_revision INTEGER NOT NULL DEFAULT 0,
+                recorded_at REAL DEFAULT (unixepoch()),
+                UNIQUE(todo_id, designer_bc_id)
+            );
+
+            -- Analytics: weekly capacity snapshot per designer
+            CREATE TABLE IF NOT EXISTS analytics_weekly_snapshots (
+                designer_bc_id TEXT NOT NULL,
+                designer_name TEXT NOT NULL,
+                week_start TEXT NOT NULL,
+                weekly_est REAL NOT NULL DEFAULT 0,
+                weekly_cap REAL NOT NULL DEFAULT 32.5,
+                capacity_pct INTEGER NOT NULL DEFAULT 0,
+                active_todo_count INTEGER NOT NULL DEFAULT 0,
+                recorded_at REAL DEFAULT (unixepoch()),
+                PRIMARY KEY (designer_bc_id, week_start)
+            );
+
+            -- Analytics: how long each task sat in the unassigned queue
+            CREATE TABLE IF NOT EXISTS analytics_queue_time (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                todo_id TEXT NOT NULL,
+                title TEXT NOT NULL,
+                client_name TEXT NOT NULL DEFAULT '',
+                hours_in_queue REAL NOT NULL,
+                recorded_at REAL DEFAULT (unixepoch()),
+                UNIQUE(todo_id)
+            );
+
+            -- Analytics: weekly task count by category per designer
+            CREATE TABLE IF NOT EXISTS analytics_category_volume (
+                designer_bc_id TEXT NOT NULL,
+                designer_name TEXT NOT NULL,
+                week_start TEXT NOT NULL,
+                category TEXT NOT NULL,
+                task_count INTEGER NOT NULL DEFAULT 0,
+                recorded_at REAL DEFAULT (unixepoch()),
+                PRIMARY KEY (designer_bc_id, week_start, category)
+            );
         """)
 
 
@@ -138,6 +220,153 @@ def get_all_pto() -> dict:
             {"id": r["id"], "date": r["date"], "note": r["note"]}
         )
     return result
+
+
+# ---------------------------------------------------------------------------
+# Todo tracking (operational — persists active task state across restarts)
+# ---------------------------------------------------------------------------
+
+def upsert_todo_tracking(todo_id, designer_bc_id, designer_name, title, category,
+                          client_name, est_hours, logged_hours, hdd, due_on,
+                          had_revision, ts):
+    with get_db() as c:
+        existing = c.execute(
+            "SELECT first_seen_at FROM todo_tracking WHERE todo_id=? AND designer_bc_id=?",
+            (str(todo_id), str(designer_bc_id)),
+        ).fetchone()
+        first = existing["first_seen_at"] if existing else ts
+        c.execute("""
+            INSERT OR REPLACE INTO todo_tracking
+              (todo_id, designer_bc_id, designer_name, title, category, client_name,
+               est_hours, logged_hours, hdd, due_on, had_revision, first_seen_at, last_seen_at)
+            VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?)
+        """, (str(todo_id), str(designer_bc_id), designer_name, title, category,
+              client_name, est_hours, logged_hours, hdd, due_on, had_revision, first, ts))
+
+
+def get_all_todo_tracking() -> dict:
+    """Returns {(todo_id, designer_bc_id): row_dict}"""
+    with get_db() as c:
+        rows = c.execute("SELECT * FROM todo_tracking").fetchall()
+    return {(r["todo_id"], r["designer_bc_id"]): dict(r) for r in rows}
+
+
+def delete_todo_tracking(todo_id, designer_bc_id):
+    with get_db() as c:
+        c.execute("DELETE FROM todo_tracking WHERE todo_id=? AND designer_bc_id=?",
+                  (str(todo_id), str(designer_bc_id)))
+
+
+# ---------------------------------------------------------------------------
+# Queue tracking (operational)
+# ---------------------------------------------------------------------------
+
+def upsert_queue_tracking(todo_id, title, client_name, ts):
+    with get_db() as c:
+        existing = c.execute(
+            "SELECT first_seen_at FROM queue_tracking WHERE todo_id=?", (str(todo_id),)
+        ).fetchone()
+        first = existing["first_seen_at"] if existing else ts
+        c.execute("""
+            INSERT OR REPLACE INTO queue_tracking (todo_id, title, client_name, first_seen_at, last_seen_at)
+            VALUES (?,?,?,?,?)
+        """, (str(todo_id), title, client_name, first, ts))
+
+
+def get_all_queue_tracking() -> dict:
+    """Returns {todo_id: row_dict}"""
+    with get_db() as c:
+        rows = c.execute("SELECT * FROM queue_tracking").fetchall()
+    return {r["todo_id"]: dict(r) for r in rows}
+
+
+def delete_queue_tracking(todo_id):
+    with get_db() as c:
+        c.execute("DELETE FROM queue_tracking WHERE todo_id=?", (str(todo_id),))
+
+
+# ---------------------------------------------------------------------------
+# Analytics writers (append-only)
+# ---------------------------------------------------------------------------
+
+def record_completion(todo_id, designer_bc_id, designer_name, title, category,
+                      client_name, est_hours, logged_hours, hdd, due_on,
+                      week_start, was_hdd_miss, had_revision):
+    with get_db() as c:
+        c.execute("""
+            INSERT OR IGNORE INTO analytics_completions
+              (todo_id, designer_bc_id, designer_name, title, category, client_name,
+               est_hours, logged_hours, hdd, due_on, week_start, was_hdd_miss, had_revision)
+            VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?)
+        """, (str(todo_id), str(designer_bc_id), designer_name, title, category,
+              client_name, est_hours, logged_hours, hdd, due_on,
+              week_start, was_hdd_miss, had_revision))
+
+
+def record_weekly_snapshot(designer_bc_id, designer_name, week_start,
+                            weekly_est, weekly_cap, capacity_pct, active_todo_count):
+    with get_db() as c:
+        c.execute("""
+            INSERT OR REPLACE INTO analytics_weekly_snapshots
+              (designer_bc_id, designer_name, week_start, weekly_est, weekly_cap,
+               capacity_pct, active_todo_count, recorded_at)
+            VALUES (?,?,?,?,?,?,?,unixepoch())
+        """, (str(designer_bc_id), designer_name, week_start, weekly_est,
+              weekly_cap, capacity_pct, active_todo_count))
+
+
+def record_queue_exit(todo_id, title, client_name, first_seen_at, last_seen_at):
+    hours = round((last_seen_at - first_seen_at) / 3600, 2)
+    with get_db() as c:
+        c.execute("""
+            INSERT OR IGNORE INTO analytics_queue_time (todo_id, title, client_name, hours_in_queue)
+            VALUES (?,?,?,?)
+        """, (str(todo_id), title, client_name, hours))
+
+
+def record_category_volume(designer_bc_id, designer_name, week_start, category, task_count):
+    with get_db() as c:
+        c.execute("""
+            INSERT OR REPLACE INTO analytics_category_volume
+              (designer_bc_id, designer_name, week_start, category, task_count, recorded_at)
+            VALUES (?,?,?,?,?,unixepoch())
+        """, (str(designer_bc_id), designer_name, week_start, category, task_count))
+
+
+# ---------------------------------------------------------------------------
+# Analytics readers
+# ---------------------------------------------------------------------------
+
+def get_analytics_completions() -> list:
+    with get_db() as c:
+        rows = c.execute(
+            "SELECT * FROM analytics_completions ORDER BY recorded_at DESC"
+        ).fetchall()
+    return [dict(r) for r in rows]
+
+
+def get_analytics_weekly_snapshots() -> list:
+    with get_db() as c:
+        rows = c.execute(
+            "SELECT * FROM analytics_weekly_snapshots ORDER BY week_start DESC, designer_name"
+        ).fetchall()
+    return [dict(r) for r in rows]
+
+
+def get_analytics_queue_time() -> list:
+    with get_db() as c:
+        rows = c.execute(
+            "SELECT * FROM analytics_queue_time ORDER BY recorded_at DESC"
+        ).fetchall()
+    return [dict(r) for r in rows]
+
+
+def get_analytics_category_volume() -> list:
+    with get_db() as c:
+        rows = c.execute(
+            "SELECT * FROM analytics_category_volume ORDER BY week_start DESC, designer_name, category"
+        ).fetchall()
+    return [dict(r) for r in rows]
 
 
 def cache_set(key: str, value, ttl_seconds: int = 60):

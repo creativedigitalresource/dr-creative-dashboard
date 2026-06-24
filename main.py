@@ -1,4 +1,5 @@
 import asyncio, json, os, time
+from collections import Counter
 from datetime import date, timedelta
 from contextlib import asynccontextmanager
 
@@ -24,6 +25,106 @@ DESIGNERS = [
 
 WEEKLY_CAP = 32.5  # 6.5h/day × 5 days (1.5h/day reserved for misc/admin)
 CACHE_TTL = 300  # 5 minutes
+
+
+_REVISION_KEYWORDS = ["round 2", "round2", " r2 ", "revision", "revisions", "re-do", "redo"]
+
+
+def _week_start(d: date = None) -> str:
+    d = d or date.today()
+    return (d - timedelta(days=d.weekday())).isoformat()
+
+
+def _is_revision(title: str, step_title: str = "") -> bool:
+    t = (title + " " + step_title).lower()
+    return any(k in t for k in _REVISION_KEYWORDS)
+
+
+def _record_analytics(designers_out: list, unassigned: list, refresh_ts: float):
+    today = date.today()
+    week = _week_start(today)
+    today_str = today.isoformat()
+
+    # Upsert active todo state and build current ID set
+    current_ids: set = set()
+    for d in designers_out:
+        bc_id = str(d["bc_id"])
+        for t in d.get("todos", []):
+            tid = str(t["id"])
+            current_ids.add((tid, bc_id))
+            step = t.get("designer_step") or {}
+            store.upsert_todo_tracking(
+                todo_id=tid,
+                designer_bc_id=bc_id,
+                designer_name=d["name"],
+                title=t.get("title", ""),
+                category=t.get("category", "Misc."),
+                client_name=t.get("bucket_name", ""),
+                est_hours=t.get("est"),
+                logged_hours=t.get("logged", 0),
+                hdd=t.get("hdd"),
+                due_on=t.get("due_on"),
+                had_revision=1 if _is_revision(t.get("title", ""), step.get("title", "")) else 0,
+                ts=refresh_ts,
+            )
+
+    # Detect completions — tracked todos that didn't appear in this refresh
+    for key, row in store.get_all_todo_tracking().items():
+        if key not in current_ids:
+            hdd = row.get("hdd")
+            store.record_completion(
+                todo_id=row["todo_id"],
+                designer_bc_id=row["designer_bc_id"],
+                designer_name=row["designer_name"],
+                title=row["title"],
+                category=row["category"],
+                client_name=row["client_name"],
+                est_hours=row.get("est_hours"),
+                logged_hours=row.get("logged_hours", 0),
+                hdd=hdd,
+                due_on=row.get("due_on"),
+                week_start=week,
+                was_hdd_miss=1 if (hdd and hdd < today_str) else 0,
+                had_revision=row.get("had_revision", 0),
+            )
+            store.delete_todo_tracking(row["todo_id"], row["designer_bc_id"])
+            print(f"[analytics] completion recorded: {row['designer_name']} — {row['title'][:50]}")
+
+    # Weekly snapshots and category volumes
+    for d in designers_out:
+        store.record_weekly_snapshot(
+            designer_bc_id=str(d["bc_id"]),
+            designer_name=d["name"],
+            week_start=week,
+            weekly_est=d.get("weekly_est", 0),
+            weekly_cap=d.get("weekly_cap", WEEKLY_CAP),
+            capacity_pct=d.get("capacity_pct", 0),
+            active_todo_count=len(d.get("todos", [])),
+        )
+        counts = Counter(t.get("category", "Misc.") for t in d.get("todos", []))
+        for cat, cnt in counts.items():
+            store.record_category_volume(
+                designer_bc_id=str(d["bc_id"]),
+                designer_name=d["name"],
+                week_start=week,
+                category=cat,
+                task_count=cnt,
+            )
+
+    # Unassigned queue tracking
+    current_queue_ids = {str(t["id"]) for t in unassigned}
+    for todo_id, row in store.get_all_queue_tracking().items():
+        if todo_id not in current_queue_ids:
+            store.record_queue_exit(todo_id, row["title"], row["client_name"],
+                                    row["first_seen_at"], row["last_seen_at"])
+            store.delete_queue_tracking(todo_id)
+    for t in unassigned:
+        store.upsert_queue_tracking(
+            todo_id=str(t["id"]),
+            title=t.get("title", ""),
+            client_name=t.get("bucket_name", ""),
+            ts=refresh_ts,
+        )
 
 
 # ---------------------------------------------------------------------------
@@ -155,9 +256,15 @@ async def _do_refresh():
         ))
     unassigned.sort(key=lambda t: t.get("created_at") or "")
 
+    refresh_ts = time.time()
+    try:
+        _record_analytics(designers_out, unassigned, refresh_ts)
+    except Exception as e:
+        print(f"[analytics] error: {type(e).__name__}: {e}")
+
     _cached_data["unassigned"] = unassigned
     _cached_data["designers"] = designers_out
-    _cached_data["last_updated"] = time.time()
+    _cached_data["last_updated"] = refresh_ts
     print(f"[refresh] done — {len(unassigned)} unassigned, {len(designers_out)} designers")
 
     msg = f"event: update\ndata: {json.dumps({'ts': _cached_data['last_updated']})}\n\n"
@@ -383,6 +490,16 @@ async def set_start_date(todo_id: str, request: Request):
 async def manual_refresh():
     asyncio.create_task(_refresh_all())
     return {"ok": True, "refreshing": True}
+
+
+@app.get("/api/analytics")
+async def api_analytics():
+    return {
+        "completions":       store.get_analytics_completions(),
+        "weekly_snapshots":  store.get_analytics_weekly_snapshots(),
+        "queue_time":        store.get_analytics_queue_time(),
+        "category_volume":   store.get_analytics_category_volume(),
+    }
 
 
 @app.get("/api/test")
