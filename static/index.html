@@ -39,6 +39,7 @@
         <button class="tab-btn active" data-tab="unassigned">To Delegate</button>
         <button class="tab-btn" data-tab="designers">Designer Workload</button>
         <button class="tab-btn" data-tab="calendar">Calendar</button>
+        <button class="tab-btn" data-tab="analytics">Analytics</button>
       </nav>
 
       <!-- Tab 1: To Delegate -->
@@ -93,6 +94,21 @@
             <div id="split-calendar"></div>
           </div>
         </div>
+      </div>
+
+      <!-- Tab 4: Analytics -->
+      <div id="tab-analytics" class="tab-panel">
+        <div class="panel-header" style="flex-wrap:wrap;gap:10px">
+          <h2>Analytics</h2>
+          <div class="analytics-sections" id="analytics-section-btns">
+            <button class="section-btn active" data-section="completions">Completions</button>
+            <button class="section-btn" data-section="snapshots">Weekly Capacity</button>
+            <button class="section-btn" data-section="queue">Queue Time</button>
+            <button class="section-btn" data-section="categories">Categories</button>
+          </div>
+        </div>
+        <div id="analytics-stats" class="analytics-stats"></div>
+        <div id="analytics-content" class="analytics-content"></div>
       </div>
 
       <!-- Tab 3: Calendar -->

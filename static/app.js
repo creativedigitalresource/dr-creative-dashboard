@@ -853,6 +853,9 @@ function initTabs() {
       if (tab === "calendar" && calendar) {
         calendar.updateSize();
       }
+      if (tab === "analytics") {
+        loadAnalytics();
+      }
     });
   });
 }
@@ -1022,6 +1025,155 @@ async function loadCalendar() {
   populateDesignerDropdown();
   // Restore selection after repopulate
   if (sel && filterVal !== "all") sel.value = filterVal;
+}
+
+// ---------------------------------------------------------------------------
+// Analytics
+// ---------------------------------------------------------------------------
+
+let _analyticsData = null;
+let _analyticsSection = "completions";
+
+async function loadAnalytics() {
+  const content = document.getElementById("analytics-content");
+  const stats   = document.getElementById("analytics-stats");
+  content.innerHTML = `<div class="loading-cell" style="padding:40px;text-align:center">Loading analytics…</div>`;
+  try {
+    const r = await fetch("/api/analytics");
+    _analyticsData = await r.json();
+    renderAnalyticsStats(_analyticsData);
+    renderAnalyticsSection(_analyticsSection);
+    initAnalyticsSectionBtns();
+  } catch (e) {
+    content.innerHTML = `<div class="loading-cell" style="padding:40px;text-align:center;color:var(--text-muted)">Failed to load analytics.</div>`;
+  }
+}
+
+function initAnalyticsSectionBtns() {
+  document.querySelectorAll(".section-btn").forEach(btn => {
+    btn.onclick = () => {
+      document.querySelectorAll(".section-btn").forEach(b => b.classList.remove("active"));
+      btn.classList.add("active");
+      _analyticsSection = btn.dataset.section;
+      renderAnalyticsSection(_analyticsSection);
+    };
+  });
+}
+
+function renderAnalyticsStats(data) {
+  const completions = data.completions || [];
+  const snapshots   = data.weekly_snapshots || [];
+  const queue       = data.queue_time || [];
+
+  const total = completions.length;
+  const withBoth = completions.filter(c => c.est_hours > 0 && c.logged_hours > 0);
+  const avgAccuracy = withBoth.length
+    ? Math.round(withBoth.reduce((s, c) => s + (c.logged_hours / c.est_hours), 0) / withBoth.length * 100)
+    : null;
+  const misses = completions.filter(c => c.was_hdd_miss).length;
+  const missRate = total ? Math.round(misses / total * 100) : null;
+  const avgQueue = queue.length
+    ? (queue.reduce((s, q) => s + q.hours_in_queue, 0) / queue.length).toFixed(1)
+    : null;
+
+  const stat = (label, value, sub = "") => `
+    <div class="analytics-stat-card">
+      <div class="stat-value">${value}</div>
+      <div class="stat-label">${label}</div>
+      ${sub ? `<div class="stat-sub">${sub}</div>` : ""}
+    </div>`;
+
+  document.getElementById("analytics-stats").innerHTML = `
+    ${stat("Tasks Completed", total, "all time")}
+    ${stat("EST Accuracy", avgAccuracy !== null ? avgAccuracy + "%" : "—", "avg logged vs est")}
+    ${stat("HDD Miss Rate", missRate !== null ? missRate + "%" : "—", "completed after deadline")}
+    ${stat("Avg Queue Time", avgQueue !== null ? avgQueue + "h" : "—", "unassigned → claimed")}
+  `;
+}
+
+function renderAnalyticsSection(section) {
+  const el = document.getElementById("analytics-content");
+  if (!_analyticsData) return;
+  const { completions, weekly_snapshots, queue_time, category_volume } = _analyticsData;
+
+  if (section === "completions") {
+    if (!completions.length) { el.innerHTML = _noData("No completions recorded yet."); return; }
+    const rows = completions.map(c => {
+      const variance = (c.est_hours > 0 && c.logged_hours > 0)
+        ? (c.logged_hours - c.est_hours).toFixed(1)
+        : "—";
+      const varCls = variance !== "—" ? (parseFloat(variance) > 0 ? "style='color:var(--danger)'" : "style='color:var(--success)'") : "";
+      return `<tr>
+        <td>${fmtDate(c.week_start)}</td>
+        <td>${esc(c.designer_name)}</td>
+        <td class="text-muted">${esc(truncate(c.client_name, 28))}</td>
+        <td>${esc(truncate(c.title, 48))}</td>
+        <td><span class="category-badge">${esc(c.category)}</span></td>
+        <td>${c.est_hours != null ? c.est_hours + "h" : "—"}</td>
+        <td>${c.logged_hours > 0 ? c.logged_hours + "h" : "—"}</td>
+        <td ${varCls}>${variance !== "—" ? (parseFloat(variance) > 0 ? "+" : "") + variance + "h" : "—"}</td>
+        <td>${c.was_hdd_miss ? '<span class="badge-miss">Late</span>' : '<span class="badge-ok">On time</span>'}</td>
+      </tr>`;
+    }).join("");
+    el.innerHTML = `<div class="table-wrap"><table class="data-table">
+      <thead><tr><th>Week</th><th>Designer</th><th>Client</th><th>Task</th><th>Category</th><th>EST</th><th>Logged</th><th>Variance</th><th>HDD</th></tr></thead>
+      <tbody>${rows}</tbody>
+    </table></div>`;
+
+  } else if (section === "snapshots") {
+    if (!weekly_snapshots.length) { el.innerHTML = _noData("No weekly snapshots yet."); return; }
+    const rows = weekly_snapshots.map(s => {
+      const pct = s.capacity_pct;
+      const barCls = pct >= 90 ? "bar-danger" : pct >= 70 ? "bar-warn" : "bar-ok";
+      return `<tr>
+        <td>${fmtDate(s.week_start)}</td>
+        <td>${esc(s.designer_name)}</td>
+        <td>${s.weekly_est}h</td>
+        <td>${s.weekly_cap}h</td>
+        <td>
+          <div class="mini-bar-wrap">
+            <div class="mini-bar ${barCls}" style="width:${Math.min(100, pct)}%"></div>
+          </div>
+          <span class="pct-label">${pct}%</span>
+        </td>
+        <td>${s.active_todo_count}</td>
+      </tr>`;
+    }).join("");
+    el.innerHTML = `<div class="table-wrap"><table class="data-table">
+      <thead><tr><th>Week</th><th>Designer</th><th>Est Hrs</th><th>Cap</th><th>Utilization</th><th>Tasks</th></tr></thead>
+      <tbody>${rows}</tbody>
+    </table></div>`;
+
+  } else if (section === "queue") {
+    if (!queue_time.length) { el.innerHTML = _noData("No queue time recorded yet."); return; }
+    const sorted = [...queue_time].sort((a, b) => b.hours_in_queue - a.hours_in_queue);
+    const rows = sorted.map(q => `<tr>
+      <td>${esc(truncate(q.title, 56))}</td>
+      <td class="text-muted">${esc(truncate(q.client_name, 30))}</td>
+      <td>${q.hours_in_queue}h</td>
+    </tr>`).join("");
+    el.innerHTML = `<div class="table-wrap"><table class="data-table">
+      <thead><tr><th>Task</th><th>Client</th><th>Hours in Queue</th></tr></thead>
+      <tbody>${rows}</tbody>
+    </table></div>`;
+
+  } else if (section === "categories") {
+    if (!category_volume.length) { el.innerHTML = _noData("No category data yet."); return; }
+    const rows = category_volume.map(v => `<tr>
+      <td>${fmtDate(v.week_start)}</td>
+      <td>${esc(v.designer_name)}</td>
+      <td><span class="category-badge">${esc(v.category)}</span></td>
+      <td>${v.task_count}</td>
+    </tr>`).join("");
+    el.innerHTML = `<div class="table-wrap"><table class="data-table">
+      <thead><tr><th>Week</th><th>Designer</th><th>Category</th><th>Tasks</th></tr></thead>
+      <tbody>${rows}</tbody>
+    </table></div>`;
+  }
+}
+
+function _noData(msg) {
+  return `<div style="padding:48px;text-align:center;color:var(--text-muted);font-size:14px">${msg}<br><span style="font-size:12px;opacity:.6">Data will appear automatically after the next dashboard refresh.</span></div>`;
 }
 
 // ---------------------------------------------------------------------------
