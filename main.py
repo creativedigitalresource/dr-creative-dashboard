@@ -391,36 +391,8 @@ async def manual_refresh():
 
 @app.get("/api/test")
 async def api_test():
-    import sys
-    token = store.get_token("access_token")
-    if not token:
-        return {"error": "no token", "python": sys.version}
-    try:
-        parsed = await bc._get("/reports/todos/assigned/44800252.json")
-        if parsed is None:
-            top_keys = ["_get returned None"]
-            todos_count = 0
-            first_todo_title = "n/a"
-            first_todo_keys = []
-        else:
-            top_keys = list(parsed.keys()) if isinstance(parsed, dict) else ["array"]
-            todos_list = parsed.get("todos", parsed) if isinstance(parsed, dict) else parsed
-            todos_count = len(todos_list) if isinstance(todos_list, list) else str(type(todos_list))
-            first_todo = todos_list[0] if isinstance(todos_list, list) and todos_list else {}
-            first_todo_title = first_todo.get("content", first_todo.get("title", "n/a"))
-            first_todo_keys = list(first_todo.keys()) if first_todo else []
-    except Exception as e:
-        top_keys = [f"error: {e}"]
-        todos_count = 0
-        first_todo_title = "n/a"
-        first_todo_keys = []
     return {
-        "python": sys.version,
-        "token_present": True,
-        "response_top_keys": top_keys,
-        "todos_in_response": todos_count,
-        "first_todo_keys": first_todo_keys,
-        "first_todo_title": first_todo_title,
+        "authenticated": bool(store.get_token("access_token")),
         "data_loaded": "designers" in _cached_data,
         "designer_count": len(_cached_data.get("designers", [])),
         "unassigned_count": len(_cached_data.get("unassigned", [])),
