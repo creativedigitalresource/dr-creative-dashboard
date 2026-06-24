@@ -293,8 +293,9 @@ async def get_designer_todos(designer_bc_id: int) -> list:
             None
         )
 
-        # HDD: title-parsed date > active step due_on > todo due_on
-        hdd = fields.get("hdd") or (designer_step.get("due_on") if designer_step else None) or t.get("due_on")
+        # HDD priority: step due_on (authoritative) > comment/title HDD > parent todo due_on
+        step_due = designer_step.get("due_on") if designer_step else None
+        hdd = step_due or fields.get("hdd") or t.get("due_on")
 
         results.append({
             "id": t["id"],
