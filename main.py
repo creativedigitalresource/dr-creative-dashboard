@@ -85,8 +85,6 @@ async def _do_refresh():
                 # Priority: step due_on → manual override → comment/title HDD → todo due_on
                 hdd    = step_due or ov.get("hdd") or t.get("hdd")
                 pdd    = ov.get("pdd")   or t.get("pdd")
-                revs   = float(ov["revs"]) if "revs" in ov else (t.get("revs") or 0)
-
                 # EST priority: manual override > Everhour estimate > comment/title-parsed
                 # Uses explicit None check so a 0.0 Everhour estimate doesn't fall through
                 eh_uid = str(d.get("eh_id") or "")
@@ -98,7 +96,8 @@ async def _do_refresh():
                 user_log = eh_data.get("user_logged", {}).get(eh_uid) if eh_uid else None
                 logged = float(ov["logged"]) if "logged" in ov else (user_log if user_log is not None else eh_data.get("logged", 0.0))
 
-                total = (est or 0) + revs
+                revs = 0
+                total = est or 0
                 over_by = round(max(0, logged - total), 2) if total > 0 else 0
 
                 # Progress: 100% if designer's step is complete, else hours-based

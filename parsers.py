@@ -134,7 +134,7 @@ def categorize_todo(title: str) -> str:
 
 def parse_todo_fields(title: str, comments: list[dict]) -> dict:
     """
-    Extract PDD, HDD, EST, REVS from a todo's title and comment thread.
+    Extract PDD, HDD, EST from a todo's title and comment thread.
     Comments should be dicts with 'content' and 'creator.name' keys.
     Manager names are checked first (most authoritative source).
     """
@@ -145,18 +145,15 @@ def parse_todo_fields(title: str, comments: list[dict]) -> dict:
     pdd = parse_pdd(combined_title)
     hdd = parse_hdd(combined_title)
     est = parse_est(combined_title)
-    revs = parse_revs(combined_title)
 
     for comment in comments:
         creator = (comment.get("creator") or {}).get("name", "").lower()
         text = strip_html(comment.get("content", ""))
 
-        # Manager comments are authoritative for EST/REVS
+        # Manager comments are authoritative for EST
         if any(n in creator for n in MANAGER_NAMES):
             if est is None:
                 est = parse_est(text)
-            if revs == 0:
-                revs = parse_revs(text)
 
         # HDD/PDD can come from any comment but prefer title
         if hdd is None:
@@ -168,6 +165,6 @@ def parse_todo_fields(title: str, comments: list[dict]) -> dict:
         "pdd": pdd,
         "hdd": hdd,
         "est": est,
-        "revs": revs,
-        "total_hours": (est or 0) + revs,
+        "revs": 0,
+        "total_hours": est or 0,
     }

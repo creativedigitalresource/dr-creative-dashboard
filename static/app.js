@@ -768,7 +768,7 @@ function updateCalCapacityBar() {
 }
 
 // ---------------------------------------------------------------------------
-// Inline field editing (HDD, PDD, EST, REVS)
+// Inline field editing (HDD, PDD, EST)
 // ---------------------------------------------------------------------------
 
 function editField(evt, todoId, field, inputType, currentValue) {
