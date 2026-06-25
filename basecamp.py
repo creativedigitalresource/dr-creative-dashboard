@@ -202,7 +202,7 @@ async def update_step_due(bucket_id: str, step_id: str, due_on: str, step: dict 
 
 
 async def update_todo_due(bucket_id: str, todo_id: str, due_on: str, title: str = "") -> bool:
-    """Update a todo's due_on date in Basecamp. content is required by the API."""
+    """Update a todo's due_on date in Basecamp, preserving existing assignees."""
     token = get_token("access_token")
     if not token:
         return False
@@ -211,11 +211,18 @@ async def update_todo_due(bucket_id: str, todo_id: str, due_on: str, title: str 
         "User-Agent": USER_AGENT,
         "Content-Type": "application/json",
     }
+    # Fetch current todo to preserve assignees — PUT clears unspecified fields
+    detail = await get_todo_detail(bucket_id, todo_id)
+    assignee_ids = [a["id"] for a in (detail or {}).get("assignees", []) if a.get("id")]
+    content = title or (detail or {}).get("content", "")
     import json as _json
+    payload = {"content": content, "due_on": due_on}
+    if assignee_ids:
+        payload["assignee_ids"] = assignee_ids
     r = await get_http().put(
         f"{BC_BASE}/buckets/{bucket_id}/todos/{todo_id}.json",
         headers=headers,
-        content=_json.dumps({"content": title, "due_on": due_on}),
+        content=_json.dumps(payload),
     )
     if r.status_code not in (200, 201):
         print(f"[bc] update_todo_due failed {r.status_code}: {r.text[:200]}")
