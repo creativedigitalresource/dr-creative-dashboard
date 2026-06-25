@@ -347,8 +347,8 @@ function getWeekBounds(offset = 0) {
   const friday = new Date(monday);
   friday.setDate(monday.getDate() + 4);
   return {
-    start: monday.toISOString().split("T")[0],
-    end: friday.toISOString().split("T")[0],
+    start: localISO(monday),
+    end: localISO(friday),
   };
 }
 
@@ -365,7 +365,7 @@ function calcCapacity(todos, pto, offset = 0) {
     // After 5 PM EST, today's work day is done — shift to next day's remaining count
     const past5pm = getESTHour() >= 17;
     const remainingDays = past5pm ? Math.max(0, rawRemaining - 1) : rawRemaining;
-    const todayStr = today.toISOString().split("T")[0];
+    const todayStr = localISO(today);
     const ptoDaysLeft = (pto || []).filter(p => p.date >= todayStr && p.date <= end).length;
     cap = Math.max(0, (remainingDays - ptoDaysLeft) * 7);
   } else {
@@ -374,7 +374,7 @@ function calcCapacity(todos, pto, offset = 0) {
     cap = Math.max(0, (5 - ptoDays) * 7);
   }
   const ptoDayCount = offset === 0
-    ? (pto || []).filter(p => { const t = new Date().toISOString().split("T")[0]; return p.date >= t && p.date <= end; }).length
+    ? (pto || []).filter(p => { const t = localISO(new Date()); return p.date >= t && p.date <= end; }).length
     : (pto || []).filter(p => p.date >= start && p.date <= end).length;
   const weekly_est = (todos || []).reduce((sum, t) => {
     if (t.is_complete || t.is_misc || !t.hdd) return sum;
@@ -886,6 +886,13 @@ function esc(str) {
 
 function truncate(str, n) {
   return str && str.length > n ? str.slice(0, n) + "…" : str;
+}
+
+function localISO(d) {
+  const y = d.getFullYear();
+  const m = String(d.getMonth() + 1).padStart(2, "0");
+  const day = String(d.getDate()).padStart(2, "0");
+  return `${y}-${m}-${day}`;
 }
 
 function fmtDate(iso) {
