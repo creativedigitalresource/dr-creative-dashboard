@@ -460,7 +460,7 @@ function setWeekOffset(newOffset) {
 }
 
 function renderDesignerCard(d, showCompleted = false) {
-  const { weekly_est, cap, pct, pto_days } = calcCapacity(d.todos, d.pto, _weekOffset);
+  const { weekly_est, cap, pct, pto_days, scheduledIds } = calcCapacity(d.todos, d.pto, _weekOffset);
   const barCls = pct < 60 ? "low" : pct < 85 ? "mid" : "high";
   const initials = d.name.split(" ").map(n => n[0]).join("").slice(0, 2).toUpperCase();
   const ptoBadge = pto_days > 0
