@@ -477,11 +477,13 @@ function renderDesignerCard(d, showCompleted = false) {
     return inWindow || scheduledIds.has(t.id);
   });
 
-  // Pulled-forward tasks: have capacity this week but due_on is in the future
+  // Pulled-forward tasks: scheduled this week by the fill algorithm but HDD is outside this week.
+  // Use HDD (not due_on) — same anchor the fill algorithm uses — so the badge matches the logic.
   const pulledForward = new Set(weekTodos.filter(t => {
-    if (!t.due_on) return false;
-    const inWindow = _weekOffset === 0 ? t.due_on <= wEnd : (t.due_on >= wStart && t.due_on <= wEnd);
-    return !inWindow && scheduledIds.has(t.id);
+    const hddInWindow = _weekOffset === 0
+      ? (t.hdd && t.hdd <= wEnd)
+      : (t.hdd && t.hdd >= wStart && t.hdd <= wEnd);
+    return !hddInWindow && scheduledIds.has(t.id);
   }).map(t => t.id));
 
   const activeTodos    = weekTodos.filter(t => !t.is_complete);
