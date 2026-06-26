@@ -378,7 +378,10 @@ function calcCapacity(todos, pto, offset = 0) {
   // Tasks due this week always count. Tasks due later fill any remaining capacity,
   // so a designer's free hours are never shown as empty when real work is queued.
   const activeTodos = (todos || []).filter(t => !t.is_complete && !t.is_misc);
+  const _isDRInternal = bn => { const s = (bn || "").toLowerCase(); return s.includes("digital resource") || s.includes("dr team"); };
   const sorted = [...activeTodos].sort((a, b) => {
+    const ia = _isDRInternal(a.bucket_name) ? 1 : 0, ib = _isDRInternal(b.bucket_name) ? 1 : 0;
+    if (ia !== ib) return ia - ib;
     const da = (a.due_on || "9999-99-99").localeCompare(b.due_on || "9999-99-99");
     if (da !== 0) return da;
     const ha = a.has_hdd ? 0 : 1, hb = b.has_hdd ? 0 : 1;

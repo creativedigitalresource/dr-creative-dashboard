@@ -247,9 +247,14 @@ async def _do_refresh():
             designers_out.append({**d, "todos": [], "weekly_est": 0,
                                    "weekly_cap": WEEKLY_CAP, "capacity_pct": 0})
 
-    # Sort: due_on → has_hdd (real HDD first) → hdd value — undated items last
+    def _is_dr_internal(bucket_name: str) -> bool:
+        bn = (bucket_name or "").lower()
+        return "digital resource" in bn or "dr team" in bn
+
+    # Sort: client work first → due_on → has_hdd → hdd value
     for d in designers_out:
         d["todos"].sort(key=lambda t: (
+            1 if _is_dr_internal(t.get("bucket_name", "")) else 0,
             t.get("due_on") or "9999-99-99",
             0 if t.get("has_hdd") else 1,
             t.get("hdd") or "9999-99-99"
