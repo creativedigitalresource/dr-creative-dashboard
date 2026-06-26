@@ -357,36 +357,67 @@ function calcCapacity(todos, pto, offset = 0) {
 
   let cap;
   if (offset === 0) {
-    // Current week: remaining workdays from today (inclusive)
-    // Mon=5, Tue=4, Wed=3, Thu=2, Fri=1, Sat/Sun=0
     const today = new Date();
     const dow = today.getDay();
     const rawRemaining = (dow === 0 || dow === 6) ? 0 : 6 - dow;
-    // After 5 PM EST, today's work day is done — shift to next day's remaining count
     const past5pm = getESTHour() >= 17;
     const remainingDays = past5pm ? Math.max(0, rawRemaining - 1) : rawRemaining;
     const todayStr = localISO(today);
     const ptoDaysLeft = (pto || []).filter(p => p.date >= todayStr && p.date <= end).length;
-    cap = Math.max(0, (remainingDays - ptoDaysLeft) * 7);
+    cap = Math.max(0, (remainingDays - ptoDaysLeft) * WORK_HOURS);
   } else {
-    // Future weeks: full 5-day week
     const ptoDays = (pto || []).filter(p => p.date >= start && p.date <= end).length;
-    cap = Math.max(0, (5 - ptoDays) * 7);
+    cap = Math.max(0, (5 - ptoDays) * WORK_HOURS);
   }
+
   const ptoDayCount = offset === 0
     ? (pto || []).filter(p => { const t = localISO(new Date()); return p.date >= t && p.date <= end; }).length
     : (pto || []).filter(p => p.date >= start && p.date <= end).length;
-  const weekly_est = (todos || []).reduce((sum, t) => {
-    if (t.is_complete || t.is_misc || !t.hdd) return sum;
-    const inWindow = offset === 0 ? t.hdd <= end : (t.hdd >= start && t.hdd <= end);
-    const remaining = Math.max(0, (t.total_hours || 0) - (t.logged || 0));
-    return inWindow ? sum + remaining : sum;
-  }, 0);
+
+  // Scheduled fill: sort all active todos by priority, fill this week's hours bucket.
+  // Tasks due this week always count. Tasks due later fill any remaining capacity,
+  // so a designer's free hours are never shown as empty when real work is queued.
+  const activeTodos = (todos || []).filter(t => !t.is_complete && !t.is_misc);
+  const sorted = [...activeTodos].sort((a, b) => {
+    const da = (a.due_on || "9999-99-99").localeCompare(b.due_on || "9999-99-99");
+    if (da !== 0) return da;
+    const ha = a.has_hdd ? 0 : 1, hb = b.has_hdd ? 0 : 1;
+    if (ha !== hb) return ha - hb;
+    return (a.hdd || "9999-99-99").localeCompare(b.hdd || "9999-99-99");
+  });
+
+  let bucket = cap;
+  let weekly_est = 0;
+  const scheduledIds = new Set();
+
+  for (const t of sorted) {
+    if (!t.total_hours) continue;
+    const remaining = Math.max(0, t.total_hours - (t.logged || 0));
+    if (remaining <= 0) continue;
+
+    const inThisWeek = offset === 0
+      ? (t.hdd && t.hdd <= end)
+      : (t.hdd && t.hdd >= start && t.hdd <= end);
+
+    if (inThisWeek) {
+      weekly_est += remaining;
+      bucket = Math.max(0, bucket - remaining);
+      scheduledIds.add(t.id);
+    } else if (offset === 0 && bucket > 0) {
+      // Pull future task forward to fill remaining capacity
+      const fill = Math.min(remaining, bucket);
+      weekly_est += fill;
+      bucket -= fill;
+      scheduledIds.add(t.id);
+    }
+  }
+
   return {
     weekly_est: Math.round(weekly_est * 10) / 10,
     cap,
-    pct: cap > 0 ? Math.min(100, Math.round(weekly_est / cap * 100)) : 100,
+    pct: cap > 0 ? Math.min(100, Math.round(weekly_est / cap * 100)) : (weekly_est > 0 ? 100 : 0),
     pto_days: ptoDayCount,
+    scheduledIds,
   };
 }
 
@@ -436,15 +467,23 @@ function renderDesignerCard(d, showCompleted = false) {
     ? `<span class="pto-badge">${pto_days} OOO day${pto_days > 1 ? "s" : ""} this wk</span>`
     : "";
 
-  // Filter todo list by due_on (not hdd)
-  // Current week: show all todos with due_on <= this Friday (overdue rolls forward)
-  // Future weeks: only todos with due_on falling in that Mon–Fri window
+  // Filter todo list by due_on for current window, plus any future tasks pulled
+  // forward by the scheduled fill algorithm (they have remaining capacity this week).
   const allTodos = d.todos || [];
   const { start: wStart, end: wEnd } = getWeekBounds(_weekOffset);
   const weekTodos = allTodos.filter(t => {
     if (!t.due_on) return _weekOffset === 0;
-    return _weekOffset === 0 ? t.due_on <= wEnd : (t.due_on >= wStart && t.due_on <= wEnd);
+    const inWindow = _weekOffset === 0 ? t.due_on <= wEnd : (t.due_on >= wStart && t.due_on <= wEnd);
+    return inWindow || scheduledIds.has(t.id);
   });
+
+  // Pulled-forward tasks: have capacity this week but due_on is in the future
+  const pulledForward = new Set(weekTodos.filter(t => {
+    if (!t.due_on) return false;
+    const inWindow = _weekOffset === 0 ? t.due_on <= wEnd : (t.due_on >= wStart && t.due_on <= wEnd);
+    return !inWindow && scheduledIds.has(t.id);
+  }).map(t => t.id));
+
   const activeTodos    = weekTodos.filter(t => !t.is_complete);
   const completedTodos = weekTodos.filter(t =>  t.is_complete);
 
@@ -456,7 +495,7 @@ function renderDesignerCard(d, showCompleted = false) {
   ` : "";
 
   const todosHtml = activeTodos.length
-    ? `<ul class="designer-todos">${activeTodos.map(t => renderTodoItem(t, d.color)).join("")}</ul>${completedFooter}`
+    ? `<ul class="designer-todos">${activeTodos.map(t => renderTodoItem(t, d.color, false, pulledForward.has(t.id))).join("")}</ul>${completedFooter}`
     : `<div class="no-todos">No active tasks</div>${completedFooter}`;
 
   return `
@@ -528,7 +567,7 @@ async function saveCategory(todoId, value) {
   });
 }
 
-function renderTodoItem(t, color, isCompleted = false) {
+function renderTodoItem(t, color, isCompleted = false, pulledForward = false) {
   const ov = t.overrides || [];
   const hddCls = ov.includes("hdd") ? "hdd overridden" : "hdd";
   const estCls = ov.includes("est") ? "est overridden" : "est";
@@ -573,13 +612,17 @@ function renderTodoItem(t, color, isCompleted = false) {
     ? `<div class="todo-client">${esc(clientName)}</div>`
     : "";
 
+  const pulledBadge = pulledForward
+    ? `<div class="pulled-forward-badge">↓ starting this week</div>`
+    : "";
+
   return `
-  <li class="todo-item${isCompleted ? " todo-done" : ""}" id="todo-${t.id}">
+  <li class="todo-item${isCompleted ? " todo-done" : ""}${pulledForward ? " pulled-forward" : ""}" id="todo-${t.id}">
     <div class="todo-item-left">
       ${clientLabel}
       <div class="todo-item-title" title="${esc(t.title)}">${isCompleted ? `<s>${esc(truncate(t.title, 60))}</s>` : esc(truncate(t.title, 60))}</div>
       <div class="todo-meta">${dateStr}${hddStr}${estStr}</div>
-      <div class="todo-category">${catStr}</div>
+      <div class="todo-category">${catStr}${pulledBadge}</div>
       ${progressHtml}
     </div>
     <div class="todo-item-actions">

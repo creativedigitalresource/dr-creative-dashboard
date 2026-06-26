@@ -535,3 +535,14 @@ body { min-height: 100vh; }
 .mini-bar.bar-danger { background: var(--danger); }
 .pct-label { font-size: 12px; font-weight: 600; vertical-align: middle; }
 .text-muted { color: var(--text-muted); }
+
+/* Pulled-forward tasks (scheduled this week despite future due date) */
+.todo-item.pulled-forward {
+  border-left: 3px solid var(--warning);
+}
+.pulled-forward-badge {
+  display: inline-block; margin-top: 4px;
+  padding: 2px 8px; border-radius: 10px;
+  background: var(--warning-light); color: var(--warning);
+  font-size: 11px; font-weight: 600; letter-spacing: .02em;
+}
