@@ -536,6 +536,108 @@ body { min-height: 100vh; }
 .pct-label { font-size: 12px; font-weight: 600; vertical-align: middle; }
 .text-muted { color: var(--text-muted); }
 
+/* ============================================================
+   Day Planner
+   ============================================================ */
+
+.day-planner {
+  display: flex; flex-direction: column; gap: 16px; width: 100%;
+}
+
+.planner-unscheduled {
+  background: var(--surface); border: 1.5px dashed var(--border);
+  border-radius: var(--radius); padding: 14px 16px;
+  transition: background .15s, border-color .15s;
+}
+.planner-unscheduled.drag-over {
+  background: var(--accent-light); border-color: var(--accent);
+}
+.planner-unsched-header {
+  font-size: 11px; font-weight: 700; text-transform: uppercase;
+  letter-spacing: .07em; color: var(--text-muted); margin-bottom: 10px;
+}
+.planner-unsched-todos {
+  display: flex; flex-wrap: wrap; gap: 8px;
+}
+
+.planner-day-cols {
+  display: grid; grid-template-columns: repeat(5, 1fr); gap: 10px;
+}
+
+.planner-day-col {
+  background: var(--surface); border: 1.5px solid var(--border);
+  border-radius: var(--radius); display: flex; flex-direction: column;
+  min-height: 320px; transition: background .15s, border-color .15s;
+}
+.planner-day-col.is-today {
+  border-color: var(--accent); border-width: 2px;
+}
+.planner-day-col.is-past { opacity: .65; }
+.planner-day-col.drag-over {
+  background: var(--accent-light); border-color: var(--accent);
+}
+
+.planner-day-header {
+  padding: 12px 12px 10px; border-bottom: 1px solid var(--border);
+  display: flex; flex-direction: column; align-items: center; gap: 4px;
+}
+.planner-day-name {
+  font-size: 11px; font-weight: 700; text-transform: uppercase;
+  letter-spacing: .07em; color: var(--text-muted);
+}
+.planner-day-col.is-today .planner-day-name { color: var(--accent); }
+.planner-day-date {
+  font-size: 13px; font-weight: 600; color: var(--text);
+}
+
+/* Capacity ring */
+.planner-ring-wrap {
+  position: relative; width: 52px; height: 52px;
+  display: flex; align-items: center; justify-content: center; margin: 4px 0;
+}
+.planner-ring-svg { width: 52px; height: 52px; }
+.planner-ring-label {
+  position: absolute; font-size: 11px; font-weight: 700;
+  color: var(--text); letter-spacing: -.3px;
+}
+
+.planner-day-todos {
+  padding: 10px 8px; display: flex; flex-direction: column;
+  gap: 8px; flex: 1;
+}
+.planner-drop-hint {
+  font-size: 12px; color: var(--text-muted); text-align: center;
+  padding: 24px 0; opacity: .5;
+}
+
+/* Todo cards in planner */
+.planner-card {
+  background: var(--surface2); border: 1px solid var(--border);
+  border-radius: var(--radius-sm); padding: 8px 10px;
+  cursor: grab; transition: box-shadow .15s, opacity .15s;
+  user-select: none;
+}
+.planner-card:hover { box-shadow: var(--shadow); }
+.planner-card.is-dragging { opacity: .4; cursor: grabbing; }
+.planner-unsched-todos .planner-card { min-width: 180px; max-width: 240px; }
+
+.planner-card-client {
+  font-size: 10px; font-weight: 700; text-transform: uppercase;
+  letter-spacing: .06em; color: var(--text-muted); margin-bottom: 3px;
+}
+.planner-card-title {
+  font-size: 12px; font-weight: 500; color: var(--text);
+  line-height: 1.35; margin-bottom: 5px;
+}
+.planner-card-pills { display: flex; flex-wrap: wrap; gap: 4px; }
+.planner-pill {
+  font-size: 10px; font-weight: 600; padding: 1px 6px;
+  border-radius: 8px;
+}
+.planner-pill.hdd { background: var(--warning-light); color: var(--warning); }
+.planner-pill.est { background: var(--accent-light); color: var(--accent); }
+.planner-pill.logged { background: var(--success-light); color: var(--success); }
+
 /* Pulled-forward tasks (scheduled this week despite future due date) */
 .todo-item.pulled-forward {
   border-left: 3px solid var(--warning);

@@ -201,6 +201,16 @@ function renderDesignerGrid(designers) {
     ? designers
     : designers.filter(d => String(d.bc_id) === _workloadFilter);
 
+  // Single designer + current week → day planner (takes priority over split view)
+  if (filtered.length === 1 && _weekOffset === 0) {
+    hide("split-view");
+    show("designer-grid");
+    renderDayPlanner(filtered[0]);
+    populateDesignerDropdown();
+    populateWorkloadDropdown();
+    return;
+  }
+
   if (_splitViewActive && filtered.length === 1) {
     renderSplitView(filtered[0]);
   } else {
@@ -212,6 +222,166 @@ function renderDesignerGrid(designers) {
 
   populateDesignerDropdown();
   populateWorkloadDropdown();
+}
+
+// ---------------------------------------------------------------------------
+// Day Planner — shown when a single designer is selected on the current week
+// ---------------------------------------------------------------------------
+
+let _draggedTodoId = null;
+
+function renderDayPlanner(d) {
+  const { start } = getWeekBounds(0);
+  const todayStr  = localISO(new Date());
+
+  // Build Mon–Fri date strings
+  const days = [];
+  const startD = new Date(start + "T12:00:00");
+  for (let i = 0; i < 5; i++) {
+    const day = new Date(startD);
+    day.setDate(startD.getDate() + i);
+    days.push(localISO(day));
+  }
+
+  const allActive = (d.todos || []).filter(t => !t.is_complete);
+
+  // Bucket todos: assigned day or unscheduled
+  const byDay = {};
+  days.forEach(dt => (byDay[dt] = []));
+  const unscheduled = [];
+  for (const t of allActive) {
+    if (t.due_on && byDay[t.due_on] !== undefined) byDay[t.due_on].push(t);
+    else unscheduled.push(t);
+  }
+
+  function dayHours(list) {
+    return list.reduce((s, t) => s + Math.max(0, (t.total_hours || 0) - (t.logged || 0)), 0);
+  }
+
+  function capRing(hours, color) {
+    const pct    = Math.min(100, hours / 6.5 * 100);
+    const stroke = pct > 100 ? "var(--danger)" : pct >= 85 ? "var(--warning)" : pct >= 50 ? color : "var(--success)";
+    const dash   = pct.toFixed(1);
+    const gap    = (100 - Math.min(100, pct)).toFixed(1);
+    return `<div class="planner-ring-wrap">
+      <svg viewBox="0 0 36 36" class="planner-ring-svg">
+        <circle cx="18" cy="18" r="15.9" fill="none" stroke="var(--border)" stroke-width="3.8"/>
+        <circle cx="18" cy="18" r="15.9" fill="none" stroke="${stroke}" stroke-width="3.8"
+          stroke-dasharray="${dash} ${gap}" stroke-dashoffset="25"
+          transform="rotate(-90 18 18)" style="transition:stroke-dasharray .3s"/>
+      </svg>
+      <div class="planner-ring-label">${Math.round(hours * 10) / 10}h</div>
+    </div>`;
+  }
+
+  function plannerCard(t) {
+    const client = (t.bucket_name || "")
+      .replace(/\s*\(\d+\+?\)\([A-Z]+\)\s*$/, "").replace(/\s*\(\d+\+?\)\s*$/, "").trim();
+    const hddBadge = t.hdd ? `<span class="planner-pill hdd">HDD ${fmtDate(t.hdd)}</span>` : "";
+    const estBadge = t.est != null ? `<span class="planner-pill est">EST ${t.est}h</span>` : "";
+    const logBadge = t.logged > 0 ? `<span class="planner-pill logged">${t.logged}h logged</span>` : "";
+    return `<div class="planner-card" draggable="true"
+        ondragstart="onPlannerDragStart(event,'${t.id}')"
+        ondragend="onPlannerDragEnd(event)"
+        id="planner-card-${t.id}"
+        style="border-left:3px solid ${d.color}">
+      ${client ? `<div class="planner-card-client">${esc(client)}</div>` : ""}
+      <div class="planner-card-title">${esc(truncate(t.title, 52))}</div>
+      <div class="planner-card-pills">${hddBadge}${estBadge}${logBadge}</div>
+    </div>`;
+  }
+
+  function dropZoneAttrs(dt) {
+    const dateArg = dt ? `'${dt}'` : "null";
+    return `ondragover="onPlannerDragOver(event)" ondragleave="onPlannerDragLeave(event)" ondrop="onPlannerDrop(event,${dateArg})"`;
+  }
+
+  const dayColsHtml = days.map(dt => {
+    const date     = new Date(dt + "T12:00:00");
+    const dayName  = date.toLocaleDateString("en-US", { weekday: "short" });
+    const dayLabel = date.toLocaleDateString("en-US", { month: "short", day: "numeric" });
+    const isToday  = dt === todayStr;
+    const isPast   = dt < todayStr;
+    const hours    = dayHours(byDay[dt]);
+    const todosHtml = byDay[dt].map(plannerCard).join("") ||
+      `<div class="planner-drop-hint">Drop here</div>`;
+    return `<div class="planner-day-col${isToday ? " is-today" : ""}${isPast ? " is-past" : ""}"
+        data-date="${dt}" ${dropZoneAttrs(dt)}>
+      <div class="planner-day-header">
+        <div class="planner-day-name">${dayName}</div>
+        <div class="planner-day-date">${dayLabel}</div>
+        ${capRing(hours, d.color)}
+      </div>
+      <div class="planner-day-todos">${todosHtml}</div>
+    </div>`;
+  }).join("");
+
+  const unschHtml = `<div class="planner-unscheduled" ${dropZoneAttrs(null)}>
+    <div class="planner-unsched-header">Unscheduled · ${unscheduled.length}</div>
+    <div class="planner-unsched-todos">${unscheduled.map(plannerCard).join("") || '<div class="planner-drop-hint">All tasks scheduled</div>'}</div>
+  </div>`;
+
+  document.getElementById("designer-grid").innerHTML = `
+    <div class="day-planner" data-bc-id="${d.bc_id}">
+      ${unschHtml}
+      <div class="planner-day-cols">${dayColsHtml}</div>
+    </div>`;
+}
+
+function onPlannerDragStart(event, todoId) {
+  _draggedTodoId = String(todoId);
+  event.dataTransfer.effectAllowed = "move";
+  setTimeout(() => event.target.classList.add("is-dragging"), 0);
+}
+
+function onPlannerDragEnd(event) {
+  event.target.classList.remove("is-dragging");
+  document.querySelectorAll(".planner-day-col.drag-over, .planner-unscheduled.drag-over")
+    .forEach(el => el.classList.remove("drag-over"));
+}
+
+function onPlannerDragOver(event) {
+  event.preventDefault();
+  event.dataTransfer.dropEffect = "move";
+  const zone = event.currentTarget;
+  zone.classList.add("drag-over");
+}
+
+function onPlannerDragLeave(event) {
+  // Only remove if leaving the zone itself, not a child
+  if (!event.currentTarget.contains(event.relatedTarget)) {
+    event.currentTarget.classList.remove("drag-over");
+  }
+}
+
+async function onPlannerDrop(event, targetDate) {
+  event.preventDefault();
+  event.currentTarget.classList.remove("drag-over");
+
+  const todoId = _draggedTodoId;
+  _draggedTodoId = null;
+  if (!todoId) return;
+
+  const designer = (_designerData || []).find(d => String(d.bc_id) === _workloadFilter);
+  if (!designer) return;
+  const todo = designer.todos.find(t => String(t.id) === todoId);
+  if (!todo || todo.due_on === targetDate) return;
+
+  const prevDate = todo.due_on;
+  todo.due_on = targetDate; // optimistic
+  renderDayPlanner(designer);
+
+  try {
+    const r = await fetch(`/api/todos/${todoId}/fields`, {
+      method: "PUT",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ due_on: targetDate || "" }),
+    });
+    if (!r.ok) throw new Error("API error");
+  } catch {
+    todo.due_on = prevDate; // revert
+    renderDayPlanner(designer);
+  }
 }
 
 function populateWorkloadDropdown() {
