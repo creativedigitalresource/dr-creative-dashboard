@@ -266,10 +266,44 @@ async def get_designer_todos(designer_bc_id: int) -> list:
               if not t.get("completed")
               and not _is_skip(t.get("content", ""))
               and t.get("type") == "Todo"]
-    if not active:
-        return []
+
+    # Also surface parent todos for open steps assigned to the designer
+    # (designer may be on the step but not the parent todo)
+    active_ids = {t["id"] for t in active}
+    open_steps = [t for t in raw
+                  if not t.get("completed")
+                  and t.get("type") == "Kanban::Step"]
 
     sem = asyncio.Semaphore(3)
+
+    async def fetch_parent_todo(step):
+        parent = step.get("parent") or {}
+        if parent.get("type") != "Todo":
+            return None
+        parent_id = parent.get("id")
+        if not parent_id or parent_id in active_ids:
+            return None
+        bucket_id = str((step.get("bucket") or {}).get("id", ""))
+        if not bucket_id:
+            return None
+        try:
+            async with sem:
+                return await asyncio.wait_for(
+                    get_todo_detail(bucket_id, str(parent_id)), timeout=8.0
+                )
+        except Exception:
+            return None
+
+    parent_todos = await asyncio.gather(*[fetch_parent_todo(s) for s in open_steps])
+    for pt in parent_todos:
+        if (pt and not pt.get("completed")
+                and not _is_skip(pt.get("content", ""))
+                and pt["id"] not in active_ids):
+            active.append(pt)
+            active_ids.add(pt["id"])
+
+    if not active:
+        return []
 
     async def fetch_comments_limited(t):
         bucket_id = str((t.get("bucket") or {}).get("id", ""))
