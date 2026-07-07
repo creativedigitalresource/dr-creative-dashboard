@@ -354,8 +354,19 @@ body { min-height: 100vh; }
   height: calc(100vh - 190px);
 }
 .split-left { overflow-y: auto; padding-right: 4px; }
-.split-right { display: flex; flex-direction: column; min-height: 0; }
+.split-right { display: flex; flex-direction: column; min-height: 0; overflow-y: auto; }
 #split-calendar { flex: 1; min-height: 0; }
+
+/* Day planner inside split-right */
+.split-right .day-planner { padding: 0; }
+.split-right .planner-day-cols {
+  grid-template-columns: repeat(5, minmax(0, 1fr));
+}
+.split-right .planner-card-title { font-size: 11px; }
+.split-right .planner-card-client { font-size: 9px; }
+.split-right .planner-ring-wrap { width: 44px; height: 44px; }
+.split-right .planner-ring-svg { width: 44px; height: 44px; }
+.split-right .planner-ring-label { font-size: 10px; }
 
 /* ---- Calendar filter ---- */
 .cal-filter-select {

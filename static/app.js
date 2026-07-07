@@ -201,10 +201,12 @@ function renderDesignerGrid(designers) {
     ? designers
     : designers.filter(d => String(d.bc_id) === _workloadFilter);
 
-  // Single designer + current week → day planner (takes priority over split view)
+  // Single designer + current week → split: card left, day planner right
   if (filtered.length === 1 && _weekOffset === 0) {
-    hide("split-view");
-    show("designer-grid");
+    hide("designer-grid");
+    show("split-view");
+    document.getElementById("split-card-wrap").innerHTML =
+      renderDesignerCard(filtered[0], !!_completedToggleState[filtered[0].bc_id]);
     renderDayPlanner(filtered[0]);
     populateDesignerDropdown();
     populateWorkloadDropdown();
@@ -321,11 +323,13 @@ function renderDayPlanner(d) {
     <div class="planner-unsched-todos">${unscheduled.map(plannerCard).join("") || '<div class="planner-drop-hint">All tasks scheduled</div>'}</div>
   </div>`;
 
-  document.getElementById("designer-grid").innerHTML = `
-    <div class="day-planner" data-bc-id="${d.bc_id}">
+  const splitRight = document.querySelector("#split-view .split-right");
+  if (splitRight) {
+    splitRight.innerHTML = `<div class="day-planner" data-bc-id="${d.bc_id}">
       ${unschHtml}
       <div class="planner-day-cols">${dayColsHtml}</div>
     </div>`;
+  }
 }
 
 function onPlannerDragStart(event, todoId) {
