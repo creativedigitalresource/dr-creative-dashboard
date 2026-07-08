@@ -201,6 +201,34 @@ async def update_step_due(bucket_id: str, step_id: str, due_on: str, step: dict 
     return r.status_code == 200
 
 
+async def create_step(bucket_id: str, todo_id: str, title: str,
+                      due_on: str | None = None, assignee_ids: list | None = None) -> dict | None:
+    """Create a step (subtask) on a todo. Steps use the card_tables endpoint even for todos."""
+    token = get_token("access_token")
+    if not token:
+        return None
+    headers = {
+        "Authorization": f"Bearer {token}",
+        "User-Agent": USER_AGENT,
+        "Content-Type": "application/json",
+    }
+    import json as _json
+    payload = {"title": title}
+    if due_on:
+        payload["due_on"] = due_on
+    if assignee_ids:
+        payload["assignee_ids"] = assignee_ids
+    r = await get_http().post(
+        f"{BC_BASE}/buckets/{bucket_id}/card_tables/cards/{todo_id}/steps.json",
+        headers=headers,
+        content=_json.dumps(payload),
+    )
+    if r.status_code in (200, 201):
+        return r.json()
+    print(f"[bc] create_step failed {r.status_code}: {r.text[:200]}")
+    return None
+
+
 async def update_todo_due(bucket_id: str, todo_id: str, due_on: str, title: str = "") -> bool:
     """Update a todo's due_on date in Basecamp, preserving existing assignees."""
     token = get_token("access_token")
@@ -327,16 +355,24 @@ async def get_designer_todos(designer_bc_id: int) -> list:
 
         # Find the active step assigned to this designer — its due_on is the HDD
         steps = t.get("steps", [])
-        designer_step = next(
-            (s for s in steps
-             if not s.get("completed")
-             and any(a.get("id") == designer_bc_id for a in s.get("assignees", []))),
-            None
-        )
+        designer_steps = [s for s in steps
+                          if any(a.get("id") == designer_bc_id for a in s.get("assignees", []))]
+        designer_step = next((s for s in designer_steps if not s.get("completed")), None)
+
+        # Revision limbo: designer finished all their steps but is still assigned to
+        # the parent — the task came back (revisions) and has no real deadline yet.
+        in_revisions = bool(designer_steps) and designer_step is None
+        revisions_since = None
+        if in_revisions:
+            completions = [(s.get("completion") or {}).get("created_at")
+                           for s in designer_steps]
+            completions = [c for c in completions if c]
+            revisions_since = max(completions) if completions else None
 
         # HDD priority: step due_on (authoritative) > comment/title HDD > parent todo due_on
         step_due = designer_step.get("due_on") if designer_step else None
-        hdd = step_due or fields.get("hdd") or t.get("due_on")
+        # In revision limbo the old build-phase dates are history, not deadlines
+        hdd = None if in_revisions else (step_due or fields.get("hdd") or t.get("due_on"))
 
         results.append({
             "id": t["id"],
@@ -349,6 +385,8 @@ async def get_designer_todos(designer_bc_id: int) -> list:
             "todolist_name": t.get("parent", {}).get("title", ""),
             "url": t.get("app_url", ""),
             "designer_step": designer_step,
+            "in_revisions": in_revisions,
+            "revisions_since": revisions_since,
             "is_subtask": is_subtask,
             "is_misc": False,
             "is_complete": False,

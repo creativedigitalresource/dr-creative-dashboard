@@ -252,7 +252,8 @@ function renderDayPlanner(d) {
   days.forEach(dt => (byDay[dt] = []));
   const unscheduled = [];
   for (const t of allActive) {
-    if (t.due_on && byDay[t.due_on] !== undefined) byDay[t.due_on].push(t);
+    if (t.in_revisions) unscheduled.push(t); // stale due_on is not a revision deadline
+    else if (t.due_on && byDay[t.due_on] !== undefined) byDay[t.due_on].push(t);
     else unscheduled.push(t);
   }
 
@@ -280,6 +281,7 @@ function renderDayPlanner(d) {
     const client = (t.bucket_name || "")
       .replace(/\s*\(\d+\+?\)\([A-Z]+\)\s*$/, "").replace(/\s*\(\d+\+?\)\s*$/, "").trim();
     const hddBadge = t.hdd ? `<span class="planner-pill hdd">HDD ${fmtDate(t.hdd)}</span>` : "";
+    const revBadge = t.in_revisions ? `<span class="planner-pill revision">↩ Revisions</span>` : "";
     const estBadge = t.est != null ? `<span class="planner-pill est">EST ${t.est}h</span>` : "";
     const logBadge = t.logged > 0 ? `<span class="planner-pill logged">${t.logged}h logged</span>` : "";
     return `<div class="planner-card" draggable="true"
@@ -289,7 +291,7 @@ function renderDayPlanner(d) {
         style="border-left:3px solid ${d.color}">
       ${client ? `<div class="planner-card-client">${esc(client)}</div>` : ""}
       <div class="planner-card-title">${esc(truncate(t.title, 52))}</div>
-      <div class="planner-card-pills">${hddBadge}${estBadge}${logBadge}</div>
+      <div class="planner-card-pills">${hddBadge}${revBadge}${estBadge}${logBadge}</div>
     </div>`;
   }
 
@@ -372,18 +374,29 @@ async function onPlannerDrop(event, targetDate) {
   if (!todo || todo.due_on === targetDate) return;
 
   const prevDate = todo.due_on;
+  const wasRevision = todo.in_revisions;
   todo.due_on = targetDate; // optimistic
+  // Scheduling a revision-limbo task is the deadline decision — send hdd too,
+  // which creates a Revision step in Basecamp for this designer
+  const payload = { due_on: targetDate || "" };
+  if (wasRevision && targetDate) {
+    payload.hdd = targetDate;
+    todo.hdd = targetDate;
+    todo.in_revisions = false;
+    todo.revisions_since = null;
+  }
   renderDayPlanner(designer);
 
   try {
     const r = await fetch(`/api/todos/${todoId}/fields`, {
       method: "PUT",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ due_on: targetDate || "" }),
+      body: JSON.stringify(payload),
     });
     if (!r.ok) throw new Error("API error");
   } catch {
     todo.due_on = prevDate; // revert
+    if (wasRevision) { todo.hdd = null; todo.in_revisions = true; }
     renderDayPlanner(designer);
   }
 }
@@ -568,6 +581,7 @@ function calcCapacity(todos, pto, offset = 0) {
   const scheduledIds = new Set();
 
   for (const t of sorted) {
+    if (t.in_revisions) continue; // unscheduled revisions: no deadline decided yet, 0 capacity
     if (!t.total_hours) continue;
     const remaining = Math.max(0, t.total_hours - (t.logged || 0));
     if (remaining <= 0) continue;
@@ -753,7 +767,9 @@ function renderTodoItem(t, color, isCompleted = false, pulledForward = false) {
   const catOverridden = ov.includes("category");
 
   const dateStr = `<span class="meta-pill date-pill editable" onclick="editField(event,'${t.id}','due_on','date','${t.due_on||''}')" title="Click to change date — re-sorts the list">${t.due_on ? fmtDate(t.due_on) : "+ Date"}</span>`;
-  const hddStr = `<span class="meta-pill ${hddCls} editable" onclick="editField(event,'${t.id}','hdd','date','${t.hdd||''}')" title="Click to edit — updates Basecamp step due date">${t.hdd ? "HDD " + fmtDate(t.hdd) : "+ HDD"}</span>`;
+  const hddStr = t.in_revisions && !t.hdd
+    ? `<span class="meta-pill revision-hdd editable" onclick="editField(event,'${t.id}','hdd','date','')" title="Task is back for revisions with no deadline yet — picking a date creates a Revision step in Basecamp">+ Revision HDD</span>`
+    : `<span class="meta-pill ${hddCls} editable" onclick="editField(event,'${t.id}','hdd','date','${t.hdd||''}')" title="Click to edit — updates Basecamp step due date">${t.hdd ? "HDD " + fmtDate(t.hdd) : "+ HDD"}</span>`;
   const estStr = `<span class="meta-pill ${estCls} editable" onclick="editField(event,'${t.id}','est','number','${t.est??''}')" title="Click to edit — updates Everhour estimate">${t.est != null ? "EST " + t.est + "h" : "+ EST"}</span>`;
 
   // True EST: corrected estimate for capacity math (local only, never touches Everhour).
@@ -805,13 +821,23 @@ function renderTodoItem(t, color, isCompleted = false, pulledForward = false) {
     ? `<div class="pulled-forward-badge">↓ starting this week</div>`
     : "";
 
+  let revisionBadge = "";
+  if (t.in_revisions) {
+    let waiting = "";
+    if (t.revisions_since) {
+      const days = Math.max(0, Math.floor((Date.now() - new Date(t.revisions_since)) / 86400000));
+      waiting = ` · waiting ${days}d`;
+    }
+    revisionBadge = `<div class="revision-badge" title="Designer finished their step but the task was sent back — no revision deadline set yet">↩ Revisions${waiting}</div>`;
+  }
+
   return `
   <li class="todo-item${isCompleted ? " todo-done" : ""}${pulledForward ? " pulled-forward" : ""}" id="todo-${t.id}">
     <div class="todo-item-left">
       ${clientLabel}
       <div class="todo-item-title" title="${esc(t.title)}">${isCompleted ? `<s>${esc(truncate(t.title, 60))}</s>` : esc(truncate(t.title, 60))}</div>
       <div class="todo-meta">${dateStr}${hddStr}${estStr}${trueEstStr}</div>
-      <div class="todo-category">${catStr}${pulledBadge}</div>
+      <div class="todo-category">${catStr}${pulledBadge}${revisionBadge}</div>
       ${progressHtml}
     </div>
     <div class="todo-item-actions">
@@ -1039,7 +1065,10 @@ function editField(evt, todoId, field, inputType, currentValue) {
             if (field === "est")      { t.est = val ? parseFloat(val) : null; }
             if (field === "true_est") { t.true_est = val ? parseFloat(val) : null; }
             if (field === "logged")   { t.logged = val ? parseFloat(val) : 0; }
-            if (field === "hdd")    { t.hdd = val || null; }
+            if (field === "hdd")    {
+              t.hdd = val || null;
+              if (val && t.in_revisions) { t.in_revisions = false; t.revisions_since = null; }
+            }
             if (field === "due_on") {
               t.due_on = val || null;
               // Re-sort this designer's list by due_on so it auto-moves

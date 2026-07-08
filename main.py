@@ -236,7 +236,8 @@ async def _do_refresh():
                 for t in enriched
                 if t.get("hdd") and t["hdd"] <= week_end
                 and not t.get("is_complete")
-                and not t.get("is_misc"))
+                and not t.get("is_misc")
+                and not t.get("in_revisions"))
             capacity_pct = min(100, round(weekly_est / WEEKLY_CAP * 100))
             designers_out.append({**d, "todos": enriched,
                                    "weekly_est": round(weekly_est, 1),
@@ -437,6 +438,19 @@ async def set_todo_fields(todo_id: str, request: Request):
             if designer_step and bucket_id:
                 step_id = str(designer_step["id"])
                 await bc.update_step_due(bucket_id, step_id, str(value), step=designer_step)
+            elif bucket_id and cached_todo.get("in_revisions") and cached_designer:
+                # Revision limbo: setting an HDD is the moment the revision deadline
+                # is decided — create a real Revision step in Basecamp for the designer
+                new_step = await bc.create_step(
+                    bucket_id, todo_id, "Revision",
+                    due_on=str(value),
+                    assignee_ids=[int(cached_designer["bc_id"])],
+                )
+                if new_step:
+                    cached_todo["designer_step"] = new_step
+                    cached_todo["in_revisions"] = False
+                    cached_todo["revisions_since"] = None
+                    cached_todo["has_hdd"] = True
             # Also save locally as fallback
             store.set_override(todo_id, field, str(value))
 

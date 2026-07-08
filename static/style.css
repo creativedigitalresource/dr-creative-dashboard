@@ -258,6 +258,7 @@ body { min-height: 100vh; }
 .meta-pill.est { color: #7c3aed; background: #f5f3ff; border-color: #ddd6fe; }
 .meta-pill.true-est { color: #0d9488; background: #f0fdfa; border-color: #99f6e4; }
 .meta-pill.true-est.needed { color: #b45309; background: #fffbeb; border-color: #fcd34d; border-style: dashed; }
+.meta-pill.revision-hdd { color: #a21caf; background: #fdf4ff; border-color: #f0abfc; border-style: dashed; }
 .meta-pill.editable { cursor: pointer; }
 .meta-pill.editable:hover { opacity: 0.75; transform: scale(1.03); }
 
@@ -650,6 +651,7 @@ body { min-height: 100vh; }
 .planner-pill.hdd { background: var(--warning-light); color: var(--warning); }
 .planner-pill.est { background: var(--accent-light); color: var(--accent); }
 .planner-pill.logged { background: var(--success-light); color: var(--success); }
+.planner-pill.revision { background: #fdf4ff; color: #a21caf; }
 
 /* Pulled-forward tasks (scheduled this week despite future due date) */
 .todo-item.pulled-forward {
@@ -659,5 +661,13 @@ body { min-height: 100vh; }
   display: inline-block; margin-top: 4px;
   padding: 2px 8px; border-radius: 10px;
   background: var(--warning-light); color: var(--warning);
+  font-size: 11px; font-weight: 600; letter-spacing: .02em;
+}
+
+/* Revision limbo: designer's steps done but task sent back, no new deadline yet */
+.revision-badge {
+  display: inline-block; margin-top: 4px;
+  padding: 2px 8px; border-radius: 10px;
+  background: #fdf4ff; color: #a21caf;
   font-size: 11px; font-weight: 600; letter-spacing: .02em;
 }
