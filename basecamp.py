@@ -378,8 +378,10 @@ async def get_designer_todos(designer_bc_id: int) -> list:
 
         # HDD priority: step due_on (authoritative) > comment/title HDD > parent todo due_on
         step_due = designer_step.get("due_on") if designer_step else None
+        # pop so the **fields spread below can't clobber the computed chain
+        parsed_hdd = fields.pop("hdd", None)
         # In revision limbo the old build-phase dates are history, not deadlines
-        hdd = None if in_revisions else (step_due or fields.get("hdd") or t.get("due_on"))
+        hdd = None if in_revisions else (step_due or parsed_hdd or t.get("due_on"))
 
         results.append({
             "id": t["id"],
