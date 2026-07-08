@@ -148,13 +148,20 @@ async def _get_reports_assigned(person_id: str | int, page: int = 1) -> list:
 
 
 async def _get_all_reports_assigned(person_id: str | int, max_pages: int = 2) -> list:
-    """Fetch up to max_pages of assigned todos for a person/group."""
+    """Fetch up to max_pages of assigned todos for a person/group.
+    The reports endpoint ignores the page param and returns the full set,
+    so dedupe by id and stop as soon as a page adds nothing new."""
     results = []
+    seen = set()
     for page in range(1, max_pages + 1):
         page_data = await _get_reports_assigned(person_id, page)
         if not page_data:
             break
-        results.extend(page_data)
+        new = [t for t in page_data if t.get("id") not in seen]
+        if not new:
+            break
+        seen.update(t.get("id") for t in new)
+        results.extend(new)
         if len(page_data) < 50:
             break
     return results

@@ -150,12 +150,12 @@ def parse_todo_fields(title: str, comments: list[dict]) -> dict:
         creator = (comment.get("creator") or {}).get("name", "").lower()
         text = strip_html(comment.get("content", ""))
 
-        # Manager comments are authoritative for EST
-        if any(n in creator for n in MANAGER_NAMES):
-            if est is None:
-                est = parse_est(text)
-
-        # HDD/PDD can come from any comment but prefer title
+        # Only manager comments carry EST/HDD/PDD — designers quoting other
+        # task titles ("... (HDD: 1/20) ...") must not become deadlines
+        if not any(n in creator for n in MANAGER_NAMES):
+            continue
+        if est is None:
+            est = parse_est(text)
         if hdd is None:
             hdd = parse_hdd(text)
         if pdd is None:
