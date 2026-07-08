@@ -24,6 +24,7 @@ DESIGNERS = [
 ]
 
 WEEKLY_CAP = 32.5  # 6.5h/day × 5 days (1.5h/day reserved for misc/admin)
+STALE_HDD_DAYS = 14  # comment-sourced HDDs older than this are abandoned, not late
 CACHE_TTL = 300  # 5 minutes
 
 
@@ -185,6 +186,11 @@ async def _do_refresh():
                 step_due = designer_step.get("due_on") if designer_step else None
                 # Priority: step due_on → manual override → comment/title HDD → todo due_on
                 hdd    = step_due or ov.get("hdd") or t.get("hdd")
+                hdd_src = "step" if step_due else ("override" if ov.get("hdd") else t.get("hdd_source"))
+                # A comment deadline weeks in the past is abandoned, not late —
+                # surface it as a decision to re-set, never as days-late pressure
+                stale_cutoff = (date.today() - timedelta(days=STALE_HDD_DAYS)).isoformat()
+                hdd_stale = bool(hdd) and hdd_src == "comment" and hdd < stale_cutoff
                 pdd    = ov.get("pdd")   or t.get("pdd")
                 # EST priority: manual override > Everhour estimate > comment/title-parsed
                 # Uses explicit None check so a 0.0 Everhour estimate doesn't fall through
@@ -220,7 +226,8 @@ async def _do_refresh():
 
                 enriched.append({
                     **t,
-                    "hdd": hdd, "pdd": pdd, "est": est, "true_est": true_est, "revs": revs,
+                    "hdd": hdd, "hdd_stale": hdd_stale,
+                    "pdd": pdd, "est": est, "true_est": true_est, "revs": revs,
                     "total_hours": total,
                     "logged": logged, "progress": progress,
                     "over_by": over_by,
@@ -237,7 +244,8 @@ async def _do_refresh():
                 if t.get("hdd") and t["hdd"] <= week_end
                 and not t.get("is_complete")
                 and not t.get("is_misc")
-                and not t.get("in_revisions"))
+                and not t.get("in_revisions")
+                and not t.get("hdd_stale"))
             capacity_pct = min(100, round(weekly_est / WEEKLY_CAP * 100))
             designers_out.append({**d, "todos": enriched,
                                    "weekly_est": round(weekly_est, 1),
@@ -487,7 +495,10 @@ async def set_todo_fields(todo_id: str, request: Request):
     # Patch live cache so UI updates without a full refresh
     if cached_todo:
         ov = store.get_all_overrides().get(str(todo_id), {})
-        if "hdd" in body:          cached_todo["hdd"]          = body["hdd"] or cached_todo.get("hdd")
+        if "hdd" in body:
+            cached_todo["hdd"] = body["hdd"] or cached_todo.get("hdd")
+            if body.get("hdd"):
+                cached_todo["hdd_stale"] = False
         if "est" in body:          cached_todo["est"]          = float(body["est"]) if body.get("est") else cached_todo.get("est")
         if "true_est" in body:     cached_todo["true_est"]     = float(body["true_est"]) if body.get("true_est") else None
         if "logged" in body:       cached_todo["logged"]       = float(body["logged"]) if body.get("logged") else cached_todo.get("logged", 0)

@@ -584,6 +584,7 @@ function calcCapacity(todos, pto, offset = 0) {
 
   for (const t of sorted) {
     if (t.in_revisions) continue; // unscheduled revisions: no deadline decided yet, 0 capacity
+    if (t.hdd_stale) continue;    // abandoned comment deadline: needs a re-set, not scheduling
     if (!t.total_hours) continue;
     const remaining = Math.max(0, t.total_hours - (t.logged || 0));
     if (remaining <= 0) continue;
@@ -769,9 +770,14 @@ function renderTodoItem(t, color, isCompleted = false, pulledForward = false) {
   const catOverridden = ov.includes("category");
 
   const dateStr = `<span class="meta-pill date-pill editable" onclick="editField(event,'${t.id}','due_on','date','${t.due_on||''}')" title="Click to change date — re-sorts the list">${t.due_on ? fmtDate(t.due_on) : "+ Date"}</span>`;
-  const hddStr = t.in_revisions && !t.hdd
-    ? `<span class="meta-pill revision-hdd editable" onclick="editField(event,'${t.id}','hdd','date','')" title="Task is back for revisions with no deadline yet — picking a date creates a Revision step in Basecamp">+ Revision HDD</span>`
-    : `<span class="meta-pill ${hddCls} editable" onclick="editField(event,'${t.id}','hdd','date','${t.hdd||''}')" title="Click to edit — updates Basecamp step due date">${t.hdd ? "HDD " + fmtDate(t.hdd) : "+ HDD"}</span>`;
+  let hddStr;
+  if (t.in_revisions && !t.hdd) {
+    hddStr = `<span class="meta-pill revision-hdd editable" onclick="editField(event,'${t.id}','hdd','date','')" title="Task is back for revisions with no deadline yet — picking a date creates a Revision step in Basecamp">+ Revision HDD</span>`;
+  } else if (t.hdd_stale) {
+    hddStr = `<span class="meta-pill hdd stale editable" onclick="editField(event,'${t.id}','hdd','date','')" title="Comment deadline over 14 days old — abandoned, not late. Click to set a new HDD">HDD ${fmtDate(t.hdd)} · stale</span>`;
+  } else {
+    hddStr = `<span class="meta-pill ${hddCls} editable" onclick="editField(event,'${t.id}','hdd','date','${t.hdd||''}')" title="Click to edit — updates Basecamp step due date">${t.hdd ? "HDD " + fmtDate(t.hdd) : "+ HDD"}</span>`;
+  }
   const estStr = `<span class="meta-pill ${estCls} editable" onclick="editField(event,'${t.id}','est','number','${t.est??''}')" title="Click to edit — updates Everhour estimate">${t.est != null ? "EST " + t.est + "h" : "+ EST"}</span>`;
 
   // True EST: corrected estimate for capacity math (local only, never touches Everhour).
@@ -1069,6 +1075,7 @@ function editField(evt, todoId, field, inputType, currentValue) {
             if (field === "logged")   { t.logged = val ? parseFloat(val) : 0; }
             if (field === "hdd")    {
               t.hdd = val || null;
+              if (val) t.hdd_stale = false;
               if (val && t.in_revisions) { t.in_revisions = false; t.revisions_since = null; }
             }
             if (field === "due_on") {
@@ -1149,7 +1156,7 @@ function _overviewStats(d) {
   const { weekly_est, cap, pct } = calcCapacity(d.todos, d.pto, 0);
   const today = localISO(new Date());
   const active = (d.todos || []).filter(t => !t.is_complete && !t.is_misc);
-  const pastDue = active.filter(t => !t.in_revisions && t.hdd && t.hdd < today);
+  const pastDue = active.filter(t => !t.in_revisions && !t.hdd_stale && t.hdd && t.hdd < today);
   const free = Math.round((cap - weekly_est) * 10) / 10;
   return { weekly_est, cap, pct, active, pastDue, free };
 }
@@ -1210,6 +1217,8 @@ function renderPulseDetail(d, s) {
       hddCell = `<span class="ov-pill revision">&#8617; Revisions${waiting}</span>`;
     } else if (!t.hdd) {
       hddCell = `<span class="ov-muted">&mdash;</span>`;
+    } else if (t.hdd_stale) {
+      hddCell = `<span class="ov-pill needed" title="Comment deadline over 14 days old — set a new HDD">stale ${fmtDate(t.hdd)}</span>`;
     } else {
       const cls = t.hdd < today ? "late" : t.hdd <= soon ? "soon" : "";
       hddCell = `<span class="ov-pill ${cls}">${fmtDate(t.hdd)}</span>`;
@@ -1247,6 +1256,7 @@ function renderAttention(stats) {
     let missEst = 0, missHdd = 0;
     for (const t of s.active) {
       if (t.in_revisions) { decisions.push({ d, t, kind: "revision" }); continue; }
+      if (t.hdd_stale) { decisions.push({ d, t, kind: "stale" }); continue; }
       if (t.est == null) missEst++;
       if (!t.has_hdd) missHdd++;
       if (t.hdd && t.hdd < today) {
@@ -1299,6 +1309,9 @@ function renderAttention(stats) {
         waiting = ` ${days}d`;
       }
       return taskRow(item.d, t, `<span class="ov-pill revision">&#8617; waiting${waiting}</span>`);
+    }
+    if (item.kind === "stale") {
+      return taskRow(item.d, item.t, `<span class="ov-pill needed">stale HDD ${fmtDate(item.t.hdd)} · re-set?</span>`);
     }
     if (item.kind === "trueest") {
       return taskRow(item.d, item.t, `<span class="ov-pill needed">+${item.t.over_by}h · True EST?</span>`);

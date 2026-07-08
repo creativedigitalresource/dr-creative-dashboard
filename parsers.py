@@ -145,25 +145,30 @@ def parse_todo_fields(title: str, comments: list[dict]) -> dict:
     pdd = parse_pdd(combined_title)
     hdd = parse_hdd(combined_title)
     est = parse_est(combined_title)
+    hdd_source = "title" if hdd else None
 
-    for comment in comments:
+    # Comments arrive oldest-first; walk newest-first so a renegotiated
+    # deadline beats the original one. Only manager comments carry
+    # EST/HDD/PDD — designers quoting other task titles must not
+    # become deadlines.
+    for comment in reversed(comments):
         creator = (comment.get("creator") or {}).get("name", "").lower()
-        text = strip_html(comment.get("content", ""))
-
-        # Only manager comments carry EST/HDD/PDD — designers quoting other
-        # task titles ("... (HDD: 1/20) ...") must not become deadlines
         if not any(n in creator for n in MANAGER_NAMES):
             continue
+        text = strip_html(comment.get("content", ""))
         if est is None:
             est = parse_est(text)
         if hdd is None:
             hdd = parse_hdd(text)
+            if hdd:
+                hdd_source = "comment"
         if pdd is None:
             pdd = parse_pdd(text)
 
     return {
         "pdd": pdd,
         "hdd": hdd,
+        "hdd_source": hdd_source,
         "est": est,
         "revs": 0,
         "total_hours": est or 0,

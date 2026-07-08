@@ -254,6 +254,7 @@ body { min-height: 100vh; }
 }
 .meta-pill.date-pill { color: var(--text-muted); background: var(--surface2); border-color: var(--border); font-weight: 700; }
 .meta-pill.hdd { color: #ea580c; background: #fff7ed; border-color: #fed7aa; }
+.meta-pill.hdd.stale { color: #b45309; background: var(--warning-light); border-color: #fcd34d; border-style: dashed; }
 .meta-pill.pdd { color: #2563eb; background: var(--accent-light); border-color: #bfdbfe; }
 .meta-pill.est { color: #7c3aed; background: #f5f3ff; border-color: #ddd6fe; }
 .meta-pill.true-est { color: #0d9488; background: #f0fdfa; border-color: #99f6e4; }

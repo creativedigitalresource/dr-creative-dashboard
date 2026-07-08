@@ -380,8 +380,16 @@ async def get_designer_todos(designer_bc_id: int) -> list:
         step_due = designer_step.get("due_on") if designer_step else None
         # pop so the **fields spread below can't clobber the computed chain
         parsed_hdd = fields.pop("hdd", None)
+        parsed_src = fields.pop("hdd_source", None)
         # In revision limbo the old build-phase dates are history, not deadlines
-        hdd = None if in_revisions else (step_due or parsed_hdd or t.get("due_on"))
+        hdd, hdd_source = None, None
+        if not in_revisions:
+            if step_due:
+                hdd, hdd_source = step_due, "step"
+            elif parsed_hdd:
+                hdd, hdd_source = parsed_hdd, parsed_src or "title"
+            elif t.get("due_on"):
+                hdd, hdd_source = t["due_on"], "due_on"
 
         results.append({
             "id": t["id"],
@@ -394,6 +402,7 @@ async def get_designer_todos(designer_bc_id: int) -> list:
             "todolist_name": t.get("parent", {}).get("title", ""),
             "url": t.get("app_url", ""),
             "designer_step": designer_step,
+            "hdd_source": hdd_source,
             "in_revisions": in_revisions,
             "revisions_since": revisions_since,
             "is_subtask": is_subtask,
