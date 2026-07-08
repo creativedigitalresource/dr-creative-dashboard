@@ -36,14 +36,32 @@
     <!-- Main tabs -->
     <div id="main-content" class="main-content hidden">
       <nav class="tab-nav">
-        <button class="tab-btn active" data-tab="unassigned">To Delegate</button>
+        <button class="tab-btn active" data-tab="overview">Overview</button>
+        <button class="tab-btn" data-tab="unassigned">To Delegate</button>
         <button class="tab-btn" data-tab="designers">Designer Workload</button>
         <button class="tab-btn" data-tab="calendar">Calendar</button>
         <button class="tab-btn" data-tab="analytics">Analytics</button>
       </nav>
 
+      <!-- Tab 0: Overview -->
+      <div id="tab-overview" class="tab-panel active">
+        <div class="pulse-panel">
+          <div class="overview-panel-head">
+            <h2>Team Pulse</h2>
+            <div class="pulse-sort" id="pulse-sort">
+              <button class="sort-btn active" data-sort="load" onclick="setPulseSort('load')">By load</button>
+              <button class="sort-btn" data-sort="free" onclick="setPulseSort('free')">By availability</button>
+            </div>
+          </div>
+          <div id="pulse-rows" class="pulse-rows">
+            <div class="loading-card">Loading team data…</div>
+          </div>
+        </div>
+        <div class="attention-grid" id="attention-grid"></div>
+      </div>
+
       <!-- Tab 1: To Delegate -->
-      <div id="tab-unassigned" class="tab-panel active">
+      <div id="tab-unassigned" class="tab-panel">
         <div class="panel-header">
           <h2>Tasks to Delegate</h2>
           <span id="unassigned-count" class="badge"></span>
