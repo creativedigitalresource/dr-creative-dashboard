@@ -256,6 +256,8 @@ body { min-height: 100vh; }
 .meta-pill.hdd { color: #ea580c; background: #fff7ed; border-color: #fed7aa; }
 .meta-pill.pdd { color: #2563eb; background: var(--accent-light); border-color: #bfdbfe; }
 .meta-pill.est { color: #7c3aed; background: #f5f3ff; border-color: #ddd6fe; }
+.meta-pill.true-est { color: #0d9488; background: #f0fdfa; border-color: #99f6e4; }
+.meta-pill.true-est.needed { color: #b45309; background: #fffbeb; border-color: #fcd34d; border-style: dashed; }
 .meta-pill.editable { cursor: pointer; }
 .meta-pill.editable:hover { opacity: 0.75; transform: scale(1.03); }
 

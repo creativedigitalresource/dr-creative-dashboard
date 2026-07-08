@@ -198,8 +198,13 @@ async def _do_refresh():
                 logged = float(ov["logged"]) if "logged" in ov else (user_log if user_log is not None else eh_data.get("logged", 0.0))
 
                 revs = 0
-                total = est or 0
-                over_by = round(max(0, logged - total), 2) if total > 0 else 0
+                # true_est: manual corrected estimate for capacity math only —
+                # never written to Everhour, so EST-vs-actual analytics stay honest
+                true_est = float(ov["true_est"]) if "true_est" in ov else None
+                eff_est = true_est if true_est is not None else (est or 0)
+                # Floor: an estimated task's footprint is never less than hours already logged
+                total = max(eff_est, logged) if eff_est > 0 else 0
+                over_by = round(max(0, logged - eff_est), 2) if eff_est > 0 else 0
 
                 # Progress: 100% if designer's step is complete, else hours-based
                 step_complete = designer_step.get("completed", False) if designer_step else False
@@ -215,7 +220,7 @@ async def _do_refresh():
 
                 enriched.append({
                     **t,
-                    "hdd": hdd, "pdd": pdd, "est": est, "revs": revs,
+                    "hdd": hdd, "pdd": pdd, "est": est, "true_est": true_est, "revs": revs,
                     "total_hours": total,
                     "logged": logged, "progress": progress,
                     "over_by": over_by,
@@ -409,7 +414,7 @@ async def api_calendar():
 async def set_todo_fields(todo_id: str, request: Request):
     """Update todo fields — HDD writes to Basecamp step, EST writes to Everhour."""
     body = await request.json()
-    allowed = {"hdd", "est", "due_on", "logged", "category"}
+    allowed = {"hdd", "est", "true_est", "due_on", "logged", "category"}
 
     # Find the todo and its designer in the cache
     cached_todo = None
@@ -470,12 +475,17 @@ async def set_todo_fields(todo_id: str, request: Request):
         ov = store.get_all_overrides().get(str(todo_id), {})
         if "hdd" in body:          cached_todo["hdd"]          = body["hdd"] or cached_todo.get("hdd")
         if "est" in body:          cached_todo["est"]          = float(body["est"]) if body.get("est") else cached_todo.get("est")
+        if "true_est" in body:     cached_todo["true_est"]     = float(body["true_est"]) if body.get("true_est") else None
         if "logged" in body:       cached_todo["logged"]       = float(body["logged"]) if body.get("logged") else cached_todo.get("logged", 0)
-        total = cached_todo.get("est") or 0
+        true_est = cached_todo.get("true_est")
+        eff_est = true_est if true_est is not None else (cached_todo.get("est") or 0)
+        logged = cached_todo.get("logged", 0) or 0
+        total = max(eff_est, logged) if eff_est > 0 else 0
         designer_step = cached_todo.get("designer_step")
         step_complete = designer_step.get("completed", False) if designer_step else False
         cached_todo["total_hours"] = total
-        cached_todo["progress"] = 100 if step_complete else min(100, round((cached_todo.get("logged", 0) / total * 100) if total > 0 else 0))
+        cached_todo["over_by"] = round(max(0, logged - eff_est), 2) if eff_est > 0 else 0
+        cached_todo["progress"] = 100 if step_complete else min(100, round((logged / total * 100) if total > 0 else 0))
         cached_todo["overrides"] = list(ov.keys())
 
     return {"ok": True}

@@ -756,6 +756,16 @@ function renderTodoItem(t, color, isCompleted = false, pulledForward = false) {
   const hddStr = `<span class="meta-pill ${hddCls} editable" onclick="editField(event,'${t.id}','hdd','date','${t.hdd||''}')" title="Click to edit — updates Basecamp step due date">${t.hdd ? "HDD " + fmtDate(t.hdd) : "+ HDD"}</span>`;
   const estStr = `<span class="meta-pill ${estCls} editable" onclick="editField(event,'${t.id}','est','number','${t.est??''}')" title="Click to edit — updates Everhour estimate">${t.est != null ? "EST " + t.est + "h" : "+ EST"}</span>`;
 
+  // True EST: corrected estimate for capacity math (local only, never touches Everhour).
+  // Prompt for one when an active task has logged past its EST — otherwise it consumes 0 capacity.
+  const stepDone = t.designer_step && t.designer_step.completed;
+  let trueEstStr = "";
+  if (t.true_est != null) {
+    trueEstStr = `<span class="meta-pill true-est editable" onclick="editField(event,'${t.id}','true_est','number','${t.true_est}')" title="Corrected estimate used for capacity — clear to revert to EST">TRUE ${t.true_est}h</span>`;
+  } else if (!isCompleted && !stepDone && t.est > 0 && (t.logged || 0) >= t.est) {
+    trueEstStr = `<span class="meta-pill true-est needed editable" onclick="editField(event,'${t.id}','true_est','number','')" title="Logged hours reached EST but the task is still active, so it counts 0 toward capacity — set a true estimate">+ True EST</span>`;
+  }
+
   const total = t.total_hours || 0;
   const logged = t.logged || 0;
   const pct = t.progress || 0;
@@ -800,7 +810,7 @@ function renderTodoItem(t, color, isCompleted = false, pulledForward = false) {
     <div class="todo-item-left">
       ${clientLabel}
       <div class="todo-item-title" title="${esc(t.title)}">${isCompleted ? `<s>${esc(truncate(t.title, 60))}</s>` : esc(truncate(t.title, 60))}</div>
-      <div class="todo-meta">${dateStr}${hddStr}${estStr}</div>
+      <div class="todo-meta">${dateStr}${hddStr}${estStr}${trueEstStr}</div>
       <div class="todo-category">${catStr}${pulledBadge}</div>
       ${progressHtml}
     </div>
@@ -1026,19 +1036,23 @@ function editField(evt, todoId, field, inputType, currentValue) {
       for (const d of _designerData || []) {
         for (const t of d.todos || []) {
           if (String(t.id) === String(todoId)) {
-            if (field === "est")    { t.est = val ? parseFloat(val) : null; }
-            if (field === "logged") { t.logged = val ? parseFloat(val) : 0; }
+            if (field === "est")      { t.est = val ? parseFloat(val) : null; }
+            if (field === "true_est") { t.true_est = val ? parseFloat(val) : null; }
+            if (field === "logged")   { t.logged = val ? parseFloat(val) : 0; }
             if (field === "hdd")    { t.hdd = val || null; }
             if (field === "due_on") {
               t.due_on = val || null;
               // Re-sort this designer's list by due_on so it auto-moves
               d.todos.sort((a, b) => (a.due_on || "9999-99-99").localeCompare(b.due_on || "9999-99-99"));
             }
-            t.total_hours = t.est || 0;
+            const effEst = (t.true_est != null ? t.true_est : t.est) || 0;
+            t.total_hours = effEst > 0 ? Math.max(effEst, t.logged || 0) : 0;
+            t.over_by = effEst > 0 ? Math.max(0, Math.round(((t.logged || 0) - effEst) * 100) / 100) : 0;
             const stepComplete = t.designer_step && t.designer_step.completed;
             t.progress = stepComplete ? 100 : (t.total_hours > 0 ? Math.min(100, Math.round(t.logged / t.total_hours * 100)) : 0);
             if (!t.overrides) t.overrides = [];
-            if (!t.overrides.includes(field)) t.overrides.push(field);
+            if (val && !t.overrides.includes(field)) t.overrides.push(field);
+            if (!val) t.overrides = t.overrides.filter(f => f !== field);
           }
         }
       }
