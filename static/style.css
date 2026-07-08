@@ -814,3 +814,50 @@ body { min-height: 100vh; }
   .pulse-bar-wrap, .pulse-overdue-cell { display: none; }
   .pulse-detail { padding-left: 8px; }
 }
+
+/* ============================================================
+   Capacity analytics — MOM chart + tables
+   ============================================================ */
+
+.cap-dot { display: inline-block; width: 10px; height: 10px; border-radius: 50%; flex-shrink: 0; }
+
+.cap-chart-panel {
+  background: var(--surface); border: 1px solid var(--border);
+  border-radius: var(--radius); padding: 18px 22px;
+  box-shadow: var(--shadow-sm); margin-bottom: 20px;
+}
+.cap-chart-head { display: flex; align-items: flex-start; justify-content: space-between; gap: 16px; flex-wrap: wrap; margin-bottom: 6px; }
+.cap-chart-title { font-size: 14px; font-weight: 700; }
+.cap-chart-sub { font-size: 12px; color: var(--text-muted); margin-top: 3px; max-width: 62ch; }
+.cap-legend { display: flex; align-items: center; gap: 14px; flex-wrap: wrap; }
+.cap-legend-item { display: inline-flex; align-items: center; gap: 6px; font-size: 12px; font-weight: 600; color: var(--text); }
+
+.cap-chart-wrap { position: relative; }
+.cap-svg { width: 100%; height: auto; display: block; }
+.cap-axis { font-size: 10.5px; fill: #898781; font-family: inherit; }
+
+.cap-tip {
+  position: absolute; pointer-events: none;
+  background: var(--surface); border: 1px solid var(--border);
+  border-radius: var(--radius-sm); box-shadow: var(--shadow);
+  padding: 10px 12px; min-width: 170px; z-index: 5;
+}
+.cap-tip-title { font-size: 12px; font-weight: 700; margin-bottom: 6px; }
+.cap-tip-row { display: flex; align-items: center; gap: 7px; font-size: 12px; padding: 2px 0; }
+.cap-tip-row b { margin-left: auto; font-variant-numeric: tabular-nums; }
+.cap-tip-hrs { color: var(--text-muted); font-size: 11px; width: 44px; text-align: right; font-variant-numeric: tabular-nums; }
+
+.cap-tables { display: grid; grid-template-columns: 1fr 1fr; gap: 20px; align-items: start; }
+.cap-table-block .cap-chart-title { margin-bottom: 8px; }
+.cap-table td, .cap-table th { font-variant-numeric: tabular-nums; white-space: nowrap; }
+.cap-mtd {
+  font-size: 9.5px; font-weight: 700; letter-spacing: .05em;
+  color: var(--text-muted); background: var(--surface2);
+  border-radius: 8px; padding: 1px 6px; vertical-align: 1px;
+}
+@media (max-width: 1100px) { .cap-tables { grid-template-columns: 1fr; } }
+
+/* Refresh button working state */
+.refresh-spin { display: inline-block; animation: refresh-rotate 0.9s linear infinite; }
+@keyframes refresh-rotate { to { transform: rotate(360deg); } }
+#refresh-btn:disabled { opacity: 0.65; cursor: default; }

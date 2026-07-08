@@ -74,6 +74,30 @@ async def set_user_estimate(todo_id: str | int, eh_user_id: int, hours: float) -
     return r.status_code == 200
 
 
+async def get_user_time_records(everhour_user_id: int, from_date: str, to_date: str) -> list:
+    """All of a user's time records in a range, paged. Each record has
+    time (seconds), date, and task {id, name}."""
+    if not EH_KEY or not everhour_user_id:
+        return []
+    out, page = [], 1
+    while True:
+        r = await get_eh_http().get(
+            f"{EH_BASE}/users/{everhour_user_id}/time",
+            params={"from": from_date, "to": to_date, "limit": 1000, "page": page},
+            timeout=30.0,
+        )
+        if r.status_code != 200:
+            break
+        batch = r.json()
+        if not isinstance(batch, list) or not batch:
+            break
+        out.extend(batch)
+        if len(batch) < 1000:
+            break
+        page += 1
+    return out
+
+
 async def get_user_weekly_logged(everhour_user_id: int, from_date: str, to_date: str) -> float:
     """Return total hours logged by a user in a date range."""
     if not EH_KEY or not everhour_user_id:

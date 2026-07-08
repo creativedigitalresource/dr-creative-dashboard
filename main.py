@@ -20,11 +20,39 @@ DESIGNERS = [
     {"name": "Odette",   "bc_id": 48051100, "eh_id": 1403017,  "color": "#eab308"},
     {"name": "Debi",     "bc_id": 52244353, "eh_id": 1445224,  "color": "#22c55e"},
     {"name": "Maria C",  "bc_id": 52471282, "eh_id": 1451054,  "color": "#14b8a6"},
-    {"name": "Melany",   "bc_id": 46905124, "eh_id": None,     "color": "#ef4444"},
+    {"name": "Melany",   "bc_id": 46905124, "eh_id": 1367774,  "color": "#ef4444"},
 ]
 
 WEEKLY_CAP = 32.5  # 6.5h/day × 5 days (1.5h/day reserved for misc/admin)
+WORK_HOURS = 6.5
 STALE_HDD_DAYS = 14  # comment-sourced HDDs older than this are abandoned, not late
+
+# Service capacity groups (Everhour user ids). Departed members stay listed —
+# they only count toward a month's denominator if they logged time in it.
+CAPACITY_GROUPS = {
+    "Design": [1327353, 1336550, 1422085, 1451054, 1004587],  # Dexter, Lezly, Gaby, Maria C, RJ (departed 4/26)
+    "Multi":  [1403017],   # Odette
+    "IPM":    [1367774],   # Melany
+    "Email":  [1445224],   # Debi
+}
+
+# Task-title categories → service rollup for the monthly counts table
+SERVICE_ROLLUP = {
+    "Branding/Logo - Creation/Edits": "Design",
+    "Print - Collateral/Packaging": "Design",
+    "Web - Sites/Applications/UI": "Design",
+    "Web - Maintenance": "Design",
+    "LP - New": "Design",
+    "LP - Maintenance": "Design",
+    "Digital - Banner/Display Ads": "Design",
+    "Multi - Photo/Video/Edits": "Multi",
+    "IPM - Campaigns/Reports": "IPM",
+    "SM - templates/graphics/reels": "IPM",
+    "Email - Campaigns/Signatures": "Email",
+    "Misc.": "Other",
+    "Admin": "Other",
+}
+CAPACITY_HISTORY_START = (2025, 1)
 CACHE_TTL = 300  # 5 minutes
 
 
@@ -530,6 +558,105 @@ async def set_start_date(todo_id: str, request: Request):
 async def manual_refresh():
     asyncio.create_task(_refresh_all())
     return {"ok": True, "refreshing": True}
+
+
+def _workdays_in_month(y: int, m: int, upto: date | None = None) -> int:
+    d, n = date(y, m, 1), 0
+    while d.month == m:
+        if upto and d > upto:
+            break
+        if d.weekday() < 5:
+            n += 1
+        d += timedelta(days=1)
+    return n
+
+
+async def _compute_capacity_analytics() -> dict:
+    from parsers import categorize_todo
+    today = date.today()
+    y, m = CAPACITY_HISTORY_START
+    months = []
+    while (y, m) <= (today.year, today.month):
+        months.append(f"{y:04d}-{m:02d}")
+        m += 1
+        if m == 13:
+            y, m = y + 1, 1
+
+    all_uids = sorted({u for ids in CAPACITY_GROUPS.values() for u in ids})
+    recs_by_user = {}
+    for uid in all_uids:
+        try:
+            recs_by_user[uid] = await eh.get_user_time_records(
+                uid, f"{CAPACITY_HISTORY_START[0]:04d}-{CAPACITY_HISTORY_START[1]:02d}-01",
+                today.isoformat())
+        except Exception as e:
+            print(f"[capacity] user {uid} fetch error: {e}")
+            recs_by_user[uid] = []
+
+    hours = {g: {mo: 0.0 for mo in months} for g in CAPACITY_GROUPS}
+    active = {g: {mo: set() for mo in months} for g in CAPACITY_GROUPS}
+    tasks_by_month = {mo: {} for mo in months}  # task_id -> task name
+
+    for g, ids in CAPACITY_GROUPS.items():
+        for uid in ids:
+            for rec in recs_by_user.get(uid, []):
+                mo = (rec.get("date") or "")[:7]
+                if mo not in hours[g]:
+                    continue
+                hrs = (rec.get("time") or 0) / 3600
+                if hrs <= 0:
+                    continue
+                hours[g][mo] += hrs
+                active[g][mo].add(uid)
+                task = rec.get("task") or {}
+                tid = str(task.get("id") or "")
+                if tid:
+                    tasks_by_month[mo][tid] = task.get("name") or ""
+
+    def month_avail(mo: str, n_people: int) -> float:
+        yy, mm = int(mo[:4]), int(mo[5:7])
+        upto = today if (yy, mm) == (today.year, today.month) else None
+        return _workdays_in_month(yy, mm, upto) * WORK_HOURS * n_people
+
+    capacity, hours_out = {}, {}
+    for g in CAPACITY_GROUPS:
+        capacity[g], hours_out[g] = [], []
+        for mo in months:
+            avail = month_avail(mo, len(active[g][mo]))
+            capacity[g].append(round(hours[g][mo] / avail * 100, 1) if avail > 0 else None)
+            hours_out[g].append(round(hours[g][mo], 1))
+    capacity["All"], hours_out["All"] = [], []
+    for i, mo in enumerate(months):
+        total_h = sum(hours[g][mo] for g in CAPACITY_GROUPS)
+        n = len(set().union(*(active[g][mo] for g in CAPACITY_GROUPS)))
+        avail = month_avail(mo, n)
+        capacity["All"].append(round(total_h / avail * 100, 1) if avail > 0 else None)
+        hours_out["All"].append(round(total_h, 1))
+
+    services = ["Design", "Multi", "IPM", "Email", "Other"]
+    counts = {s: [] for s in services}
+    count_totals = []
+    for mo in months:
+        per = {s: 0 for s in services}
+        for tid, name in tasks_by_month[mo].items():
+            per[SERVICE_ROLLUP.get(categorize_todo(name or ""), "Other")] += 1
+        for s in services:
+            counts[s].append(per[s])
+        count_totals.append(sum(per.values()))
+
+    return {"months": months, "capacity": capacity, "hours": hours_out,
+            "counts": counts, "count_totals": count_totals,
+            "current_month_partial": True, "generated_at": time.time()}
+
+
+@app.get("/api/analytics/capacity")
+async def api_capacity_analytics(refresh: int = 0):
+    cached = store.cache_get("capacity_analytics")
+    if cached and not refresh:
+        return cached
+    data = await _compute_capacity_analytics()
+    store.cache_set("capacity_analytics", data, ttl_seconds=6 * 3600)
+    return data
 
 
 @app.get("/api/analytics")

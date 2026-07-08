@@ -155,6 +155,7 @@ async function loadAll() {
   await Promise.all([loadUnassigned(), loadDesigners()]);
   await loadCalendar();
   updateLastUpdated();
+  resetRefreshBtn();
 }
 
 async function loadUnassigned() {
@@ -1367,8 +1368,21 @@ function initTabs() {
 // ---------------------------------------------------------------------------
 
 function triggerRefresh() {
+  const btn = document.getElementById("refresh-btn");
+  if (btn) {
+    btn.disabled = true;
+    btn.innerHTML = `<span class="refresh-spin">&#8635;</span> Refreshing…`;
+  }
   fetch("/api/refresh", { method: "POST" });
   startPolling(); // poll until refresh completes, then reload UI
+}
+
+function resetRefreshBtn() {
+  const btn = document.getElementById("refresh-btn");
+  if (btn) {
+    btn.disabled = false;
+    btn.innerHTML = "&#8635; Refresh";
+  }
 }
 
 // ---------------------------------------------------------------------------
@@ -1541,7 +1555,18 @@ async function loadCalendar() {
 // ---------------------------------------------------------------------------
 
 let _analyticsData = null;
-let _analyticsSection = "completions";
+let _analyticsSection = "capacity";
+let _capacityData = null;
+
+// Service capacity — series colors validated against white surface
+// (dataviz palette; All is the aggregate and wears neutral ink, not a slot)
+const CAP_SERIES = [
+  { key: "Design", color: "#2a78d6" },
+  { key: "Multi",  color: "#1baf7a" },
+  { key: "IPM",    color: "#eda100" },
+  { key: "Email",  color: "#008300" },
+  { key: "All",    color: "#1a2240", width: 3 },
+];
 
 async function loadAnalytics() {
   const content = document.getElementById("analytics-content");
@@ -1600,8 +1625,169 @@ function renderAnalyticsStats(data) {
   `;
 }
 
+async function renderCapacitySection(el) {
+  if (!_capacityData) {
+    el.innerHTML = `<div class="loading-cell" style="padding:40px;text-align:center">Computing capacity from Everhour history — first load can take ~30s…</div>`;
+    try {
+      const r = await fetch("/api/analytics/capacity");
+      _capacityData = await r.json();
+    } catch {
+      el.innerHTML = _noData("Failed to load capacity data.");
+      return;
+    }
+    if (_analyticsSection !== "capacity") return; // user moved on while loading
+  }
+  const d = _capacityData;
+  const last = d.months.length - 1;
+  const moLabel = iso => {
+    const [y, m] = iso.split("-");
+    return new Date(y, m - 1, 1).toLocaleDateString("en-US", { month: "short" }) + " '" + y.slice(2);
+  };
+
+  const order = [CAP_SERIES[4], ...CAP_SERIES.slice(0, 4)]; // Overall first, then slot order
+  const statCards = order.map(s => {
+    const v = d.capacity[s.key][last];
+    return `<div class="analytics-stat-card">
+      <div class="stat-value" style="display:flex;align-items:center;gap:8px">
+        <span class="cap-dot" style="background:${s.color}"></span>${v != null ? v + "%" : "—"}
+      </div>
+      <div class="stat-label">${s.key === "All" ? "Overall Capacity" : s.key + " Capacity"}</div>
+      <div class="stat-sub">${moLabel(d.months[last])} month-to-date</div>
+    </div>`;
+  }).join("");
+
+  const legend = CAP_SERIES.map(s =>
+    `<span class="cap-legend-item"><span class="cap-dot" style="background:${s.color}"></span>${s.key}</span>`
+  ).join("");
+
+  const capRow = (mo, i) => {
+    const mtd = i === last ? ` <span class="cap-mtd">MTD</span>` : "";
+    const cells = CAP_SERIES.map(s => {
+      const v = d.capacity[s.key][i];
+      return `<td style="text-align:right">${v != null ? v.toFixed(1) + "%" : "—"}</td>`;
+    }).join("");
+    return `<tr><td>${moLabel(mo)}${mtd}</td>${cells}</tr>`;
+  };
+  const cntRow = (mo, i) => {
+    const cells = ["Design", "Multi", "IPM", "Email", "Other"].map(s =>
+      `<td style="text-align:right">${d.counts[s][i]}</td>`).join("");
+    return `<tr><td>${moLabel(mo)}${i === last ? ` <span class="cap-mtd">MTD</span>` : ""}</td>${cells}<td style="text-align:right;font-weight:700">${d.count_totals[i]}</td></tr>`;
+  };
+  const idxDesc = d.months.map((_, i) => i).reverse();
+
+  el.innerHTML = `
+    <div class="analytics-stats" style="margin-bottom:18px">${statCards}</div>
+    <div class="cap-chart-panel">
+      <div class="cap-chart-head">
+        <div>
+          <div class="cap-chart-title">Capacity by service, month over month</div>
+          <div class="cap-chart-sub">Hours logged ÷ available hours (workdays × 6.5h × people active that month). History reflects the current roster plus RJ; groups start when their people started logging.</div>
+        </div>
+        <div class="cap-legend">${legend}</div>
+      </div>
+      <div id="cap-chart" class="cap-chart-wrap"></div>
+    </div>
+    <div class="cap-tables">
+      <div class="cap-table-block">
+        <div class="cap-chart-title">Capacity % by month</div>
+        <div class="table-wrap"><table class="data-table cap-table">
+          <thead><tr><th>Month</th>${CAP_SERIES.map(s => `<th style="text-align:right">${s.key}</th>`).join("")}</tr></thead>
+          <tbody>${idxDesc.map(i => capRow(d.months[i], i)).join("")}</tbody>
+        </table></div>
+      </div>
+      <div class="cap-table-block">
+        <div class="cap-chart-title">Tasks worked by service category</div>
+        <div class="table-wrap"><table class="data-table cap-table">
+          <thead><tr><th>Month</th><th style="text-align:right">Design</th><th style="text-align:right">Multi</th><th style="text-align:right">IPM</th><th style="text-align:right">Email</th><th style="text-align:right">Other</th><th style="text-align:right">All</th></tr></thead>
+          <tbody>${idxDesc.map(i => cntRow(d.months[i], i)).join("")}</tbody>
+        </table></div>
+      </div>
+    </div>`;
+  drawCapacityChart(document.getElementById("cap-chart"), d, moLabel);
+}
+
+function drawCapacityChart(mount, d, moLabel) {
+  const W = 920, H = 320, L = 46, R = 16, T = 14, B = 30;
+  const n = d.months.length;
+  const maxVal = Math.max(120, ...CAP_SERIES.flatMap(s => d.capacity[s.key].filter(v => v != null)));
+  const yMax = Math.ceil(maxVal / 20) * 20;
+  const x = i => L + (n === 1 ? 0 : i * (W - L - R) / (n - 1));
+  const y = v => T + (H - T - B) * (1 - v / yMax);
+
+  let grid = "";
+  for (let g = 0; g <= yMax; g += 20) {
+    const ref = g === 100;
+    grid += `<line x1="${L}" y1="${y(g)}" x2="${W - R}" y2="${y(g)}" stroke="${ref ? "#c3c2b7" : "#e9e8f3"}" stroke-width="1"${ref ? ` stroke-dasharray="4 3"` : ""}/>` +
+            `<text x="${L - 8}" y="${y(g) + 3.5}" text-anchor="end" class="cap-axis">${g}%</text>`;
+  }
+  const step = n > 14 ? 2 : 1;
+  let xlabels = "";
+  for (let i = 0; i < n; i += step) {
+    xlabels += `<text x="${x(i)}" y="${H - 8}" text-anchor="middle" class="cap-axis">${moLabel(d.months[i])}</text>`;
+  }
+
+  let paths = "", dots = "";
+  for (const s of CAP_SERIES) {
+    const vals = d.capacity[s.key];
+    let path = "", pen = false;
+    vals.forEach((v, i) => {
+      if (v == null) { pen = false; return; }
+      path += `${pen ? "L" : "M"}${x(i).toFixed(1)},${y(Math.min(v, yMax)).toFixed(1)}`;
+      pen = true;
+    });
+    paths += `<path d="${path}" fill="none" stroke="${s.color}" stroke-width="${s.width || 2}" stroke-linejoin="round" stroke-linecap="round"/>`;
+  }
+
+  mount.innerHTML = `
+    <svg viewBox="0 0 ${W} ${H}" class="cap-svg" preserveAspectRatio="xMidYMid meet">
+      ${grid}${xlabels}${paths}
+      <line id="cap-cross" x1="0" y1="${T}" x2="0" y2="${H - B}" stroke="#7b8db8" stroke-width="1" opacity="0"/>
+      <g id="cap-hover-dots"></g>
+      <rect x="${L}" y="${T}" width="${W - L - R}" height="${H - T - B}" fill="transparent" id="cap-hit"/>
+    </svg>
+    <div id="cap-tip" class="cap-tip hidden"></div>`;
+
+  const svg = mount.querySelector("svg");
+  const hit = mount.querySelector("#cap-hit");
+  const cross = mount.querySelector("#cap-cross");
+  const dotsG = mount.querySelector("#cap-hover-dots");
+  const tip = mount.querySelector("#cap-tip");
+
+  hit.addEventListener("mousemove", e => {
+    const pt = svg.createSVGPoint();
+    pt.x = e.clientX; pt.y = e.clientY;
+    const loc = pt.matrixTransform(svg.getScreenCTM().inverse());
+    const i = Math.max(0, Math.min(n - 1, Math.round((loc.x - L) / ((W - L - R) / (n - 1)))));
+    cross.setAttribute("x1", x(i)); cross.setAttribute("x2", x(i));
+    cross.setAttribute("opacity", "0.6");
+    dotsG.innerHTML = CAP_SERIES.map(s => {
+      const v = d.capacity[s.key][i];
+      return v == null ? "" : `<circle cx="${x(i)}" cy="${y(Math.min(v, yMax))}" r="4" fill="${s.color}" stroke="#fff" stroke-width="2"/>`;
+    }).join("");
+    tip.innerHTML = `<div class="cap-tip-title">${moLabel(d.months[i])}</div>` +
+      CAP_SERIES.map(s => {
+        const v = d.capacity[s.key][i];
+        const h = d.hours[s.key][i];
+        return `<div class="cap-tip-row"><span class="cap-dot" style="background:${s.color}"></span><span>${s.key}</span><b>${v != null ? v + "%" : "—"}</b><span class="cap-tip-hrs">${h ? h + "h" : ""}</span></div>`;
+      }).join("");
+    tip.classList.remove("hidden");
+    const rect = mount.getBoundingClientRect();
+    const px = (x(i) / W) * rect.width;
+    tip.style.left = Math.min(rect.width - 190, Math.max(0, px + 14)) + "px";
+    tip.style.top = "16px";
+  });
+  hit.addEventListener("mouseleave", () => {
+    cross.setAttribute("opacity", "0");
+    dotsG.innerHTML = "";
+    tip.classList.add("hidden");
+  });
+}
+
 function renderAnalyticsSection(section) {
   const el = document.getElementById("analytics-content");
+  // The completions-based stat strip is noise on the capacity section
+  document.getElementById("analytics-stats")?.classList.toggle("hidden", section === "capacity");
+  if (section === "capacity") { renderCapacitySection(el); return; }
   if (!_analyticsData) return;
   const { completions, weekly_snapshots, queue_time, category_volume } = _analyticsData;
 
