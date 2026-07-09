@@ -618,20 +618,29 @@ async def _compute_capacity_analytics() -> dict:
         upto = today if (yy, mm) == (today.year, today.month) else None
         return _workdays_in_month(yy, mm, upto) * WORK_HOURS * n_people
 
-    capacity, hours_out = {}, {}
+    # Per-month one-person available hours — lets the frontend simulate headcount
+    workhours = []
+    for mo in months:
+        yy, mm = int(mo[:4]), int(mo[5:7])
+        upto = today if (yy, mm) == (today.year, today.month) else None
+        workhours.append(round(_workdays_in_month(yy, mm, upto) * WORK_HOURS, 1))
+
+    capacity, hours_out, people = {}, {}, {}
     for g in CAPACITY_GROUPS:
-        capacity[g], hours_out[g] = [], []
+        capacity[g], hours_out[g], people[g] = [], [], []
         for mo in months:
             avail = month_avail(mo, len(active[g][mo]))
             capacity[g].append(round(hours[g][mo] / avail * 100, 1) if avail > 0 else None)
             hours_out[g].append(round(hours[g][mo], 1))
-    capacity["All"], hours_out["All"] = [], []
+            people[g].append(len(active[g][mo]))
+    capacity["All"], hours_out["All"], people["All"] = [], [], []
     for i, mo in enumerate(months):
         total_h = sum(hours[g][mo] for g in CAPACITY_GROUPS)
         n = len(set().union(*(active[g][mo] for g in CAPACITY_GROUPS)))
         avail = month_avail(mo, n)
         capacity["All"].append(round(total_h / avail * 100, 1) if avail > 0 else None)
         hours_out["All"].append(round(total_h, 1))
+        people["All"].append(n)
 
     services = ["Design", "Multi", "IPM", "Email", "Other"]
     counts = {s: [] for s in services}
@@ -645,17 +654,18 @@ async def _compute_capacity_analytics() -> dict:
         count_totals.append(sum(per.values()))
 
     return {"months": months, "capacity": capacity, "hours": hours_out,
+            "people": people, "workhours": workhours,
             "counts": counts, "count_totals": count_totals,
             "current_month_partial": True, "generated_at": time.time()}
 
 
 @app.get("/api/analytics/capacity")
 async def api_capacity_analytics(refresh: int = 0):
-    cached = store.cache_get("capacity_analytics")
+    cached = store.cache_get("capacity_analytics_v2")
     if cached and not refresh:
         return cached
     data = await _compute_capacity_analytics()
-    store.cache_set("capacity_analytics", data, ttl_seconds=6 * 3600)
+    store.cache_set("capacity_analytics_v2", data, ttl_seconds=6 * 3600)
     return data
 
 

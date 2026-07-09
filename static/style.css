@@ -861,3 +861,33 @@ body { min-height: 100vh; }
 .refresh-spin { display: inline-block; animation: refresh-rotate 0.9s linear infinite; }
 @keyframes refresh-rotate { to { transform: rotate(360deg); } }
 #refresh-btn:disabled { opacity: 0.65; cursor: default; }
+
+/* Capacity headcount simulator */
+.cap-sim {
+  display: flex; align-items: center; gap: 14px; flex-wrap: wrap;
+  background: var(--surface); border: 1px solid var(--border);
+  border-radius: var(--radius); padding: 12px 18px;
+  box-shadow: var(--shadow-sm); margin-bottom: 20px;
+  transition: border-color .2s, background .2s;
+}
+.cap-sim.active { border-color: #fcd34d; background: #fffdf5; }
+.cap-sim-label { font-size: 11px; font-weight: 700; text-transform: uppercase; letter-spacing: .07em; color: var(--text-muted); margin-right: 4px; }
+.cap-sim-group {
+  display: inline-flex; align-items: center; gap: 7px;
+  border: 1px solid var(--border); border-radius: 20px; padding: 4px 8px 4px 10px;
+  background: var(--surface2);
+}
+.cap-sim-group.on { border-color: #fcd34d; background: var(--warning-light); }
+.cap-sim-name { font-size: 12px; font-weight: 600; }
+.cap-sim-btn {
+  width: 20px; height: 20px; border-radius: 50%;
+  border: 1px solid var(--border); background: var(--surface);
+  cursor: pointer; font-size: 13px; line-height: 1; color: var(--text);
+  display: inline-flex; align-items: center; justify-content: center;
+}
+.cap-sim-btn:hover:not(:disabled) { border-color: var(--accent); color: var(--accent); }
+.cap-sim-btn:disabled { opacity: .35; cursor: default; }
+.cap-sim-val { font-size: 12.5px; font-weight: 700; min-width: 18px; text-align: center; font-variant-numeric: tabular-nums; }
+.cap-sim-note { font-size: 12px; color: #b45309; font-weight: 600; }
+.cap-table td.simmed { color: #b45309; font-weight: 600; }
+.analytics-stat-card.simmed-card { border-color: #fcd34d; background: #fffdf5; }

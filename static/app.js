@@ -1561,12 +1561,40 @@ let _capacityData = null;
 // Service capacity — series colors validated against white surface
 // (dataviz palette; All is the aggregate and wears neutral ink, not a slot)
 const CAP_SERIES = [
-  { key: "Design", color: "#2a78d6" },
-  { key: "Multi",  color: "#1baf7a" },
-  { key: "IPM",    color: "#eda100" },
-  { key: "Email",  color: "#008300" },
+  { key: "Design", color: "#2a78d6", label: "Designer" },
+  { key: "Multi",  color: "#1baf7a", label: "Multi" },
+  { key: "IPM",    color: "#eda100", label: "IPM" },
+  { key: "Email",  color: "#008300", label: "Email" },
   { key: "All",    color: "#1a2240", width: 3 },
 ];
+
+// Headcount what-if simulator: delta people per group.
+// IPM has one person, so only +1 is allowed there.
+const _capSim = { Design: 0, Multi: 0, IPM: 0, Email: 0 };
+const CAP_SIM_MIN = { Design: -1, Multi: -1, IPM: 0, Email: -1 };
+
+function capSimTotal() { return Object.values(_capSim).reduce((a, b) => a + b, 0); }
+function capSimDelta(g) { return g === "All" ? capSimTotal() : (_capSim[g] || 0); }
+
+// Simulated (or actual, when the group's delta is 0) capacity % for month i
+function capSimPct(d, g, i) {
+  const delta = capSimDelta(g);
+  if (!delta) return d.capacity[g][i];
+  const n = (d.people[g][i] || 0) + delta;
+  const wh = d.workhours[i];
+  if (n <= 0 || !wh) return null;
+  return Math.round((d.hours[g][i] || 0) / (wh * n) * 1000) / 10;
+}
+
+function adjCapSim(g, dir) {
+  _capSim[g] = Math.max(CAP_SIM_MIN[g], Math.min(1, (_capSim[g] || 0) + dir));
+  renderCapacitySection(document.getElementById("analytics-content"));
+}
+
+function resetCapSim() {
+  for (const g of Object.keys(_capSim)) _capSim[g] = 0;
+  renderCapacitySection(document.getElementById("analytics-content"));
+}
 
 async function loadAnalytics() {
   const content = document.getElementById("analytics-content");
@@ -1644,15 +1672,22 @@ async function renderCapacitySection(el) {
     return new Date(y, m - 1, 1).toLocaleDateString("en-US", { month: "short" }) + " '" + y.slice(2);
   };
 
+  const simOn = capSimTotal() !== 0 || Object.values(_capSim).some(v => v !== 0);
+
   const order = [CAP_SERIES[4], ...CAP_SERIES.slice(0, 4)]; // Overall first, then slot order
   const statCards = order.map(s => {
-    const v = d.capacity[s.key][last];
-    return `<div class="analytics-stat-card">
+    const affected = capSimDelta(s.key) !== 0;
+    const v = capSimPct(d, s.key, last);
+    const actual = d.capacity[s.key][last];
+    const sub = affected
+      ? `actual ${actual != null ? actual + "%" : "—"} · ${moLabel(d.months[last])} MTD`
+      : `${moLabel(d.months[last])} month-to-date`;
+    return `<div class="analytics-stat-card${affected ? " simmed-card" : ""}">
       <div class="stat-value" style="display:flex;align-items:center;gap:8px">
         <span class="cap-dot" style="background:${s.color}"></span>${v != null ? v + "%" : "—"}
       </div>
       <div class="stat-label">${s.key === "All" ? "Overall Capacity" : s.key + " Capacity"}</div>
-      <div class="stat-sub">${moLabel(d.months[last])} month-to-date</div>
+      <div class="stat-sub">${sub}</div>
     </div>`;
   }).join("");
 
@@ -1660,11 +1695,32 @@ async function renderCapacitySection(el) {
     `<span class="cap-legend-item"><span class="cap-dot" style="background:${s.color}"></span>${s.key}</span>`
   ).join("");
 
+  const simGroups = CAP_SERIES.slice(0, 4).map(s => {
+    const v = _capSim[s.key];
+    return `<div class="cap-sim-group${v !== 0 ? " on" : ""}">
+      <span class="cap-dot" style="background:${s.color}"></span>
+      <span class="cap-sim-name">${s.label}</span>
+      <button class="cap-sim-btn" onclick="adjCapSim('${s.key}',-1)" ${v <= CAP_SIM_MIN[s.key] ? "disabled" : ""}>&minus;</button>
+      <span class="cap-sim-val">${v > 0 ? "+" + v : v}</span>
+      <button class="cap-sim-btn" onclick="adjCapSim('${s.key}',1)" ${v >= 1 ? "disabled" : ""}>+</button>
+    </div>`;
+  }).join("");
+  const simDesc = CAP_SERIES.slice(0, 4)
+    .filter(s => _capSim[s.key] !== 0)
+    .map(s => `${_capSim[s.key] > 0 ? "+" : ""}${_capSim[s.key]} ${s.label}`).join(", ");
+  const simBar = `<div class="cap-sim${simOn ? " active" : ""}">
+    <span class="cap-sim-label">Simulate headcount</span>
+    ${simGroups}
+    ${simOn ? `<button class="btn btn-ghost btn-sm" onclick="resetCapSim()">Reset</button>
+      <span class="cap-sim-note">Simulating ${simDesc} — hypothetical numbers, dashed lines show actuals</span>` : ""}
+  </div>`;
+
   const capRow = (mo, i) => {
     const mtd = i === last ? ` <span class="cap-mtd">MTD</span>` : "";
     const cells = CAP_SERIES.map(s => {
-      const v = d.capacity[s.key][i];
-      return `<td style="text-align:right">${v != null ? v.toFixed(1) + "%" : "—"}</td>`;
+      const affected = capSimDelta(s.key) !== 0;
+      const v = capSimPct(d, s.key, i);
+      return `<td style="text-align:right"${affected ? ` class="simmed"` : ""}>${v != null ? v.toFixed(1) + "%" : "—"}</td>`;
     }).join("");
     return `<tr><td>${moLabel(mo)}${mtd}</td>${cells}</tr>`;
   };
@@ -1677,6 +1733,7 @@ async function renderCapacitySection(el) {
 
   el.innerHTML = `
     <div class="analytics-stats" style="margin-bottom:18px">${statCards}</div>
+    ${simBar}
     <div class="cap-chart-panel">
       <div class="cap-chart-head">
         <div>
@@ -1709,7 +1766,10 @@ async function renderCapacitySection(el) {
 function drawCapacityChart(mount, d, moLabel) {
   const W = 920, H = 320, L = 46, R = 16, T = 14, B = 30;
   const n = d.months.length;
-  const maxVal = Math.max(120, ...CAP_SERIES.flatMap(s => d.capacity[s.key].filter(v => v != null)));
+  const seriesVals = {};
+  for (const s of CAP_SERIES) seriesVals[s.key] = d.months.map((_, i) => capSimPct(d, s.key, i));
+  const maxVal = Math.max(120, ...CAP_SERIES.flatMap(s =>
+    [...seriesVals[s.key], ...d.capacity[s.key]].filter(v => v != null)));
   const yMax = Math.ceil(maxVal / 20) * 20;
   const x = i => L + (n === 1 ? 0 : i * (W - L - R) / (n - 1));
   const y = v => T + (H - T - B) * (1 - v / yMax);
@@ -1726,16 +1786,23 @@ function drawCapacityChart(mount, d, moLabel) {
     xlabels += `<text x="${x(i)}" y="${H - 8}" text-anchor="middle" class="cap-axis">${moLabel(d.months[i])}</text>`;
   }
 
-  let paths = "", dots = "";
-  for (const s of CAP_SERIES) {
-    const vals = d.capacity[s.key];
+  const linePath = vals => {
     let path = "", pen = false;
     vals.forEach((v, i) => {
       if (v == null) { pen = false; return; }
       path += `${pen ? "L" : "M"}${x(i).toFixed(1)},${y(Math.min(v, yMax)).toFixed(1)}`;
       pen = true;
     });
-    paths += `<path d="${path}" fill="none" stroke="${s.color}" stroke-width="${s.width || 2}" stroke-linejoin="round" stroke-linecap="round"/>`;
+    return path;
+  };
+
+  let paths = "";
+  for (const s of CAP_SERIES) {
+    // Affected by an active simulation: actual stays visible as a dashed ghost
+    if (capSimDelta(s.key) !== 0) {
+      paths += `<path d="${linePath(d.capacity[s.key])}" fill="none" stroke="${s.color}" stroke-width="1.5" stroke-dasharray="5 4" opacity="0.4"/>`;
+    }
+    paths += `<path d="${linePath(seriesVals[s.key])}" fill="none" stroke="${s.color}" stroke-width="${s.width || 2}" stroke-linejoin="round" stroke-linecap="round"/>`;
   }
 
   mount.innerHTML = `
@@ -1761,14 +1828,19 @@ function drawCapacityChart(mount, d, moLabel) {
     cross.setAttribute("x1", x(i)); cross.setAttribute("x2", x(i));
     cross.setAttribute("opacity", "0.6");
     dotsG.innerHTML = CAP_SERIES.map(s => {
-      const v = d.capacity[s.key][i];
+      const v = seriesVals[s.key][i];
       return v == null ? "" : `<circle cx="${x(i)}" cy="${y(Math.min(v, yMax))}" r="4" fill="${s.color}" stroke="#fff" stroke-width="2"/>`;
     }).join("");
     tip.innerHTML = `<div class="cap-tip-title">${moLabel(d.months[i])}</div>` +
       CAP_SERIES.map(s => {
-        const v = d.capacity[s.key][i];
+        const v = seriesVals[s.key][i];
+        const actual = d.capacity[s.key][i];
+        const affected = capSimDelta(s.key) !== 0;
         const h = d.hours[s.key][i];
-        return `<div class="cap-tip-row"><span class="cap-dot" style="background:${s.color}"></span><span>${s.key}</span><b>${v != null ? v + "%" : "—"}</b><span class="cap-tip-hrs">${h ? h + "h" : ""}</span></div>`;
+        const extra = affected
+          ? `<span class="cap-tip-hrs">actual ${actual != null ? actual + "%" : "—"}</span>`
+          : `<span class="cap-tip-hrs">${h ? h + "h" : ""}</span>`;
+        return `<div class="cap-tip-row"><span class="cap-dot" style="background:${s.color}"></span><span>${s.key}</span><b>${v != null ? v + "%" : "—"}</b>${extra}</div>`;
       }).join("");
     tip.classList.remove("hidden");
     const rect = mount.getBoundingClientRect();
