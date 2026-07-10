@@ -27,10 +27,10 @@ async def get_time_logged(todo_id: str | int) -> dict:
     }
     """
     if not EH_KEY:
-        return {"logged": 0.0, "estimate": None, "user_estimates": {}, "user_logged": {}}
+        return {"logged": 0.0, "estimate": None, "estimate_type": None, "user_estimates": {}, "user_logged": {}}
     r = await get_eh_http().get(f"{EH_BASE}/tasks/b3:{todo_id}")
     if r.status_code != 200:
-        return {"logged": 0.0, "estimate": None, "user_estimates": {}, "user_logged": {}}
+        return {"logged": 0.0, "estimate": None, "estimate_type": None, "user_estimates": {}, "user_logged": {}}
     data = r.json()
 
     time_obj = data.get("time") or {}
@@ -57,6 +57,7 @@ async def get_time_logged(todo_id: str | int) -> dict:
     return {
         "logged": logged,
         "estimate": estimate,
+        "estimate_type": estimate_obj.get("type") if isinstance(estimate_obj, dict) else None,
         "user_estimates": user_estimates,
         "user_logged": user_logged,
     }

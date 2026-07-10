@@ -221,15 +221,26 @@ async def _do_refresh():
                 hdd_stale = bool(hdd) and hdd_src == "comment" and hdd < stale_cutoff
                 pdd    = ov.get("pdd")   or t.get("pdd")
                 # EST priority: manual override > Everhour estimate > comment/title-parsed
-                # Uses explicit None check so a 0.0 Everhour estimate doesn't fall through
+                # When Everhour's estimate is per-user, that breakdown is authoritative:
+                # a designer absent from it has no estimate — never inherit the task
+                # total, which may belong to another assignee (e.g. a web dev)
                 eh_uid = str(d.get("eh_id") or "")
-                user_est = eh_data.get("user_estimates", {}).get(eh_uid) if eh_uid else None
-                eh_est = user_est if user_est is not None else eh_data.get("estimate")
+                if eh_data.get("estimate_type") == "users":
+                    eh_est = eh_data.get("user_estimates", {}).get(eh_uid) if eh_uid else None
+                else:
+                    eh_est = eh_data.get("estimate")
                 est = float(ov["est"]) if "est" in ov else (eh_est if eh_est is not None else t.get("est"))
 
-                # Logged: manual override > per-user Everhour logged > total logged
-                user_log = eh_data.get("user_logged", {}).get(eh_uid) if eh_uid else None
-                logged = float(ov["logged"]) if "logged" in ov else (user_log if user_log is not None else eh_data.get("logged", 0.0))
+                # Logged: manual override > per-user Everhour logged. The per-user
+                # breakdown is authoritative whenever anyone has logged time — a
+                # designer absent from it logged 0, not the task total. Total is
+                # the fallback only when no breakdown exists (or no eh_id).
+                user_logged = eh_data.get("user_logged", {})
+                if eh_uid and (user_logged or not eh_data.get("logged")):
+                    user_log = user_logged.get(eh_uid, 0.0)
+                else:
+                    user_log = eh_data.get("logged", 0.0)
+                logged = float(ov["logged"]) if "logged" in ov else user_log
 
                 revs = 0
                 # true_est: manual corrected estimate for capacity math only —
