@@ -229,7 +229,16 @@ async def _do_refresh():
                     eh_est = eh_data.get("user_estimates", {}).get(eh_uid) if eh_uid else None
                 else:
                     eh_est = eh_data.get("estimate")
-                est = float(ov["est"]) if "est" in ov else (eh_est if eh_est is not None else t.get("est"))
+                # Everhour outranks the local override: dashboard EST edits are
+                # written into Everhour, so a local copy is only a fallback for
+                # tasks Everhour doesn't know — a stale one must not shadow a
+                # later correction made in Everhour itself
+                if eh_est is not None:
+                    est = eh_est
+                elif "est" in ov:
+                    est = float(ov["est"])
+                else:
+                    est = t.get("est")
 
                 # Logged: manual override > per-user Everhour logged. The per-user
                 # breakdown is authoritative whenever anyone has logged time — a
@@ -518,11 +527,18 @@ async def set_todo_fields(todo_id: str, request: Request):
             ))
 
         elif field == "est" and value is not None and value != "":
-            # Write to Everhour estimate for this designer
+            # Write to Everhour estimate for this designer. On success Everhour
+            # is the source of truth — remove any local copy so it can't go
+            # stale and shadow future corrections. Local override only when
+            # the Everhour write isn't possible.
             eh_id = cached_designer.get("eh_id") if cached_designer else None
+            wrote = False
             if eh_id:
-                await eh.set_user_estimate(todo_id, eh_id, float(value))
-            store.set_override(todo_id, field, str(value))
+                wrote = await eh.set_user_estimate(todo_id, eh_id, float(value))
+            if wrote:
+                store.delete_override(todo_id, field)
+            else:
+                store.set_override(todo_id, field, str(value))
 
         elif value is None or value == "":
             store.delete_override(todo_id, field)
