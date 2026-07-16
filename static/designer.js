@@ -9,6 +9,19 @@ const TOKEN = (() => {
   return m ? m[1] : new URLSearchParams(location.search).get("token");
 })();
 
+// Designer commit hook for the shared inline editors — writes go through
+// the token-scoped endpoint, which validates the todo belongs to this designer
+window.__commitField = async (todoId, field, val) => {
+  fetch(`/api/my/${TOKEN}/todos/${todoId}/fields`, {
+    method: "PUT",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ [field]: val || null }),
+  });
+  const t = (_me?.todos || []).find(x => String(x.id) === String(todoId));
+  if (t) applyFieldLocal(t, field, val);
+  renderMe();
+};
+
 let _me = null;
 let _dragId = null;
 
@@ -53,23 +66,7 @@ function renderMe() {
   const { weekly_est, cap, pct, pto_days } = calcCapacity(d.todos, d.pto, 0);
   const free = Math.round((cap - weekly_est) * 10) / 10;
   const barCls = pct < 60 ? "low" : pct < 85 ? "mid" : "high";
-  const today = localISO(new Date());
-  const soon = localISO(new Date(Date.now() + 2 * 86400000));
-
   const active = (d.todos || []).filter(t => !t.is_complete && !t.is_misc);
-  const pastDue = active.filter(t => !t.in_revisions && !t.hdd_stale && t.hdd && t.hdd < today);
-  const dueSoon = active.filter(t => !t.in_revisions && !t.hdd_stale && t.hdd && t.hdd >= today && t.hdd <= soon && (t.progress || 0) < 50);
-  const revisions = active.filter(t => t.in_revisions);
-  const missingDates = active.filter(t => !t.in_revisions && (!t.has_hdd || t.est == null));
-
-  const chip = (n, label, cls) => n
-    ? `<span class="my-chip ${cls}">${n} ${label}</span>` : "";
-  const chips = [
-    chip(pastDue.length, "past due", "red"),
-    chip(dueSoon.length, "due in 2 days", "amber"),
-    chip(revisions.length, "back for revisions", "purple"),
-    chip(missingDates.length, "missing EST or HDD", "amber"),
-  ].filter(Boolean).join("") || `<span class="my-chip ok">All clear — nothing needs attention</span>`;
 
   root.innerHTML = `
     <div class="pulse-panel">
@@ -85,53 +82,82 @@ function renderMe() {
         </div>
         <div class="pulse-free ${free <= 2 ? "low" : free <= 8 ? "mid" : "ok"}">${free < 0 ? Math.abs(free) + "h over" : free + "h free"}</div>
       </div>
-      <div class="my-chips">${chips}</div>
+      <div class="my-table-wrap">${buildTaskTable(active, d.color)}</div>
     </div>
     <div class="pulse-panel">
       <div class="cap-chart-title" style="margin-bottom:4px">This Week</div>
       <div class="cap-chart-sub" style="margin-bottom:12px">Drag a task onto a day to schedule it — the due date updates in Basecamp.</div>
       <div class="my-planner" id="my-planner"></div>
     </div>
-    <div class="pulse-panel">
-      <div class="cap-chart-title" style="margin-bottom:10px">My Tasks</div>
-      ${renderMyTable(active, d.color, today, soon)}
-    </div>`;
+    <div class="attention-grid" id="my-attention"></div>`;
   renderMyPlanner();
+  renderMyAttention(active, d.color);
 }
 
-function renderMyTable(active, color, today, soon) {
-  if (!active.length) return `<div class="attention-empty">No active tasks. Enjoy the quiet.</div>`;
-  const rows = active.map(t => {
-    let hddCell;
-    if (t.in_revisions) {
-      hddCell = `<span class="ov-pill revision">&#8617; Revisions — waiting on a new date</span>`;
-    } else if (t.hdd_stale) {
-      hddCell = `<span class="ov-pill needed">date needs a re-set</span>`;
-    } else if (!t.hdd) {
-      hddCell = `<span class="ov-muted">&mdash;</span>`;
-    } else {
-      const cls = t.hdd < today ? "late" : t.hdd <= soon ? "soon" : "";
-      hddCell = `<span class="ov-pill ${cls}">${fmtDate(t.hdd)}</span>`;
+function renderMyAttention(active, color) {
+  const today = localISO(new Date());
+  const soon = localISO(new Date(Date.now() + 2 * 86400000));
+  const pastDue = [], atRisk = [], decisions = [];
+
+  for (const t of active) {
+    if (t.in_revisions) { decisions.push({ t, kind: "revision" }); continue; }
+    if (t.hdd_stale) { decisions.push({ t, kind: "stale" }); continue; }
+    if (t.hdd && t.hdd < today) {
+      const days = Math.round((new Date(today) - new Date(t.hdd)) / 86400000);
+      pastDue.push({ t, days });
+    } else if (t.hdd && t.hdd <= soon && (t.progress || 0) < 50) {
+      atRisk.push({ t });
     }
-    const est = t.est;
-    const logged = t.logged || 0;
-    const overTxt = (t.over_by || 0) > 0 ? ` <span class="ov-over">+${t.over_by}h over</span>` : "";
-    const barPct = t.step_complete ? 100 : (est > 0 ? Math.min(100, logged / est * 100) : 0);
-    const progCell = est > 0
-      ? `<div class="ov-prog"><div class="ov-prog-track"><div class="ov-prog-fill" style="width:${barPct}%;background:${color}"></div></div><span class="ov-muted">${logged}h / ${est}h</span>${overTxt}</div>`
-      : `<span class="ov-muted">${logged ? logged + "h logged" : "&mdash;"}</span>`;
-    return `<tr class="ov-task-row">
-      <td class="ov-client">${esc(cleanClient(t.bucket_name)) || "&mdash;"}</td>
-      <td class="ov-title" title="${esc(t.title)}">${esc(truncate(t.title, 64))}</td>
-      <td>${hddCell}</td>
-      <td class="ov-est">${est != null ? est + "h" : `<span class="ov-muted">&mdash;</span>`}</td>
-      <td>${progCell}</td>
-      <td>${t.url ? `<a href="${t.url}" target="_blank" class="link-btn" title="Open in Basecamp">&#8599;</a>` : ""}</td>
-    </tr>`;
-  }).join("");
-  return `<div class="table-wrap" style="box-shadow:none;border:none"><table class="ov-table">
-    <thead><tr><th>Client</th><th>Task</th><th>HDD</th><th>EST</th><th>Progress</th><th></th></tr></thead>
-    <tbody>${rows}</tbody></table></div>`;
+    const stepDone = t.designer_step && t.designer_step.completed;
+    if (!stepDone && t.true_est == null && t.est > 0 && (t.logged || 0) >= t.est) {
+      decisions.push({ t, kind: "trueest" });
+    }
+    if (t.est == null) decisions.push({ t, kind: "missing", what: "EST" });
+    else if (!t.has_hdd && !t.in_revisions) decisions.push({ t, kind: "missing", what: "HDD" });
+  }
+  pastDue.sort((a, b) => b.days - a.days);
+  atRisk.sort((a, b) => a.t.hdd.localeCompare(b.t.hdd));
+
+  const row = (t, right) => {
+    const inner = `<div class="attn-text">
+        <div class="attn-client">${esc(cleanClient(t.bucket_name)) || "&nbsp;"}</div>
+        <div class="attn-title">${esc(truncate(t.title, 52))}</div>
+      </div>
+      <div class="attn-right">${right}</div>`;
+    return t.url ? `<a class="attn-row" href="${t.url}" target="_blank">${inner}</a>`
+                 : `<div class="attn-row">${inner}</div>`;
+  };
+  const capList = rows => rows.slice(0, 8).join("") +
+    (rows.length > 8 ? `<div class="attn-more">+${rows.length - 8} more</div>` : "");
+  const panel = (label, rows, empty) => `
+    <div class="attention-panel">
+      <div class="attention-head">${label}${rows.length ? ` <span class="attention-count">${rows.length}</span>` : ""}</div>
+      ${rows.length ? capList(rows) : `<div class="attention-empty">${empty}</div>`}
+    </div>`;
+
+  const pastRows = pastDue.map(({ t, days }) =>
+    row(t, `<span class="ov-pill late">${fmtDate(t.hdd)}</span><span class="attn-days">${days}d late</span>`));
+  const riskRows = atRisk.map(({ t }) =>
+    row(t, `<span class="ov-pill soon">${fmtDate(t.hdd)}</span><span class="attn-days amber">${t.progress || 0}%</span>`));
+  const decRows = decisions.map(item => {
+    const t = item.t;
+    if (item.kind === "revision") {
+      let waiting = "";
+      if (t.revisions_since) {
+        const days = Math.max(0, Math.floor((Date.now() - new Date(t.revisions_since)) / 86400000));
+        waiting = ` ${days}d`;
+      }
+      return row(t, `<span class="ov-pill revision">&#8617; waiting${waiting}</span>`);
+    }
+    if (item.kind === "stale") return row(t, `<span class="ov-pill needed">stale HDD ${fmtDate(t.hdd)} · re-set?</span>`);
+    if (item.kind === "trueest") return row(t, `<span class="ov-pill needed">+${t.over_by}h · True EST?</span>`);
+    return row(t, `<span class="ov-pill needed">needs ${item.what}</span>`);
+  });
+
+  document.getElementById("my-attention").innerHTML =
+    panel("Past Due", pastRows, "Nothing past due.") +
+    panel("At Risk", riskRows, "Nothing at risk in the next two days.") +
+    panel("Tidy Up", decRows, "Everything is tracked cleanly. Nice.");
 }
 
 function renderMyPlanner() {
@@ -205,7 +231,7 @@ async function myDrop(evt, targetDate) {
   todo.due_on = targetDate;
   renderMe();
   try {
-    const r = await fetch(`/api/my/${TOKEN}/todos/${id}/due`, {
+    const r = await fetch(`/api/my/${TOKEN}/todos/${id}/fields`, {
       method: "PUT",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ due_on: targetDate }),

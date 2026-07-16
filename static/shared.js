@@ -150,3 +150,190 @@ function cleanClient(bucketName) {
     .replace(/\s*\(\d+\+?\)\s*$/, "")
     .trim();
 }
+
+/* ---- Task categories (dropdown) ---- */
+const CATEGORIES = [
+  "Branding/Logo - Creation/Edits",
+  "Print - Collateral/Packaging",
+  "Web - Sites/Applications/UI",
+  "Web - Maintenance",
+  "Email - Campaigns/Signatures",
+  "LP - New",
+  "LP - Maintenance",
+  "Digital - Banner/Display Ads",
+  "Multi - Photo/Video/Edits",
+  "IPM - Campaigns/Reports",
+  "SM - templates/graphics/reels",
+  "Misc.",
+  "Admin",
+];
+
+/* ---- Inline field editing, shared by both views ----
+   The page defines window.__commitField(todoId, field, val) to say where
+   the edit is saved and how the local model re-renders. */
+
+function applyFieldLocal(t, field, val) {
+  if (field === "est")      t.est = val ? parseFloat(val) : null;
+  if (field === "true_est") t.true_est = val ? parseFloat(val) : null;
+  if (field === "logged")   t.logged = val ? parseFloat(val) : 0;
+  if (field === "category") t.category = val;
+  if (field === "due_on")   t.due_on = val || null;
+  if (field === "hdd") {
+    t.hdd = val || null;
+    if (val) t.hdd_stale = false;
+    if (val && t.in_revisions) { t.in_revisions = false; t.revisions_since = null; }
+  }
+  const effEst = (t.true_est != null ? t.true_est : t.est) || 0;
+  t.total_hours = effEst > 0 ? Math.max(effEst, t.logged || 0) : 0;
+  t.over_by = effEst > 0 ? Math.max(0, Math.round(((t.logged || 0) - effEst) * 100) / 100) : 0;
+  const stepComplete = t.designer_step && t.designer_step.completed;
+  t.progress = stepComplete ? 100 : (t.total_hours > 0 ? Math.min(100, Math.round((t.logged || 0) / t.total_hours * 100)) : 0);
+  if (!t.overrides) t.overrides = [];
+  if (val && !t.overrides.includes(field)) t.overrides.push(field);
+  if (!val) t.overrides = t.overrides.filter(f => f !== field);
+}
+
+function editField(evt, todoId, field, inputType, currentValue) {
+  evt.stopPropagation();
+  const pill = evt.currentTarget;
+  const orig = pill.outerHTML;
+
+  const input = document.createElement("input");
+  input.type = inputType;
+  input.className = "inline-field-input";
+  if (inputType === "number") {
+    input.step = "0.5"; input.min = "0"; input.style.width = "70px";
+  } else {
+    input.style.width = "110px";
+  }
+  input.value = currentValue;
+
+  pill.replaceWith(input);
+  input.focus();
+  if (inputType === "date" && currentValue) input.value = currentValue;
+
+  const commit = async () => {
+    const val = input.value.trim();
+    if (val !== currentValue) {
+      await window.__commitField(todoId, field, val);
+    } else {
+      input.insertAdjacentHTML("afterend", orig);
+      input.remove();
+    }
+  };
+
+  input.addEventListener("blur", commit);
+  input.addEventListener("keydown", e => {
+    if (e.key === "Enter") { e.preventDefault(); input.blur(); }
+    if (e.key === "Escape") { input.insertAdjacentHTML("afterend", orig); input.remove(); }
+  });
+}
+
+function saveCategory(todoId, value) {
+  window.__commitField(todoId, "category", value);
+}
+
+/* ---- Editable pill builders (one source for both views) ---- */
+
+function pillDate(t) {
+  return `<span class="meta-pill date-pill editable" onclick="editField(event,'${t.id}','due_on','date','${t.due_on || ""}')" title="Click to change date — re-sorts the list">${t.due_on ? fmtDate(t.due_on) : "+ Date"}</span>`;
+}
+
+function pillHdd(t) {
+  const cls = (t.overrides || []).includes("hdd") ? "hdd overridden" : "hdd";
+  if (t.in_revisions && !t.hdd) {
+    return `<span class="meta-pill revision-hdd editable" onclick="editField(event,'${t.id}','hdd','date','')" title="Task is back for revisions with no deadline yet — picking a date creates a Revision step in Basecamp">+ Revision HDD</span>`;
+  }
+  if (t.hdd_stale) {
+    return `<span class="meta-pill hdd stale editable" onclick="editField(event,'${t.id}','hdd','date','')" title="Comment deadline over 14 days old — abandoned, not late. Click to set a new HDD">HDD ${fmtDate(t.hdd)} · stale</span>`;
+  }
+  return `<span class="meta-pill ${cls} editable" onclick="editField(event,'${t.id}','hdd','date','${t.hdd || ""}')" title="Click to edit — updates Basecamp step due date">${t.hdd ? "HDD " + fmtDate(t.hdd) : "+ HDD"}</span>`;
+}
+
+function pillEst(t) {
+  const cls = (t.overrides || []).includes("est") ? "est overridden" : "est";
+  return `<span class="meta-pill ${cls} editable" onclick="editField(event,'${t.id}','est','number','${t.est ?? ""}')" title="Click to edit — updates Everhour estimate">${t.est != null ? "EST " + t.est + "h" : "+ EST"}</span>`;
+}
+
+function pillTrueEst(t, isCompleted = false) {
+  const stepDone = t.designer_step && t.designer_step.completed;
+  if (t.true_est != null) {
+    return `<span class="meta-pill true-est editable" onclick="editField(event,'${t.id}','true_est','number','${t.true_est}')" title="Corrected estimate used for capacity — clear to revert to EST">TRUE ${t.true_est}h</span>`;
+  }
+  if (!isCompleted && !stepDone && t.est > 0 && (t.logged || 0) >= t.est) {
+    return `<span class="meta-pill true-est needed editable" onclick="editField(event,'${t.id}','true_est','number','')" title="Logged hours reached EST but the task is still active, so it counts 0 toward capacity — set a true estimate">+ True EST</span>`;
+  }
+  return "";
+}
+
+function pillLogged(t) {
+  const logged = t.logged || 0;
+  const cls = (t.overrides || []).includes("logged") ? "overridden" : "";
+  return `<span class="meta-pill ${cls} editable" onclick="editField(event,'${t.id}','logged','number','${logged}')" title="Click to log hours">${logged > 0 ? logged + "h" : "+ Log"}</span>`;
+}
+
+function selCategory(t) {
+  const catOptions = CATEGORIES.map(c =>
+    `<option value="${c}"${c === (t.category || "") ? " selected" : ""}>${c}</option>`
+  ).join("");
+  const cls = (t.overrides || []).includes("category") ? "category-select overridden" : "category-select";
+  return `<select class="${cls}" onchange="saveCategory('${t.id}', this.value)" title="Task category">${catOptions}</select>`;
+}
+
+// Progress against the stable allocation window max(est, true_est) —
+// never the moving max(est, logged) capacity floor
+function progressBlock(t, color) {
+  const allocTotal = Math.max(t.est ?? 0, t.true_est ?? 0);
+  const logged = t.logged || 0;
+  const overBy = t.over_by || 0;
+  const stepComplete = t.designer_step && t.designer_step.completed;
+  const barPct = stepComplete ? 100 : (allocTotal > 0 ? Math.min(100, logged / allocTotal * 100) : 0);
+  const loggedEl = pillLogged(t);
+  if (allocTotal <= 0) return `<div class="progress-wrap">${loggedEl}</div>`;
+  const barColor = overBy > 0 ? "var(--danger)" : color;
+  const overBadge = overBy > 0 ? `<span class="over-budget-badge">+${overBy}h over</span>` : "";
+  return `<div class="progress-wrap">
+    <div class="progress-bar-outer"><div class="progress-bar-inner" style="width:${barPct}%;background:${barColor}"></div></div>
+    <span class="progress-label">${logged}h / ${allocTotal}h ${overBadge}</span>
+    ${loggedEl}
+  </div>`;
+}
+
+function progressCellCompact(t, color) {
+  const allocTotal = Math.max(t.est ?? 0, t.true_est ?? 0);
+  const logged = t.logged || 0;
+  const stepComplete = t.designer_step && t.designer_step.completed;
+  const barPct = stepComplete ? 100 : (allocTotal > 0 ? Math.min(100, logged / allocTotal * 100) : 0);
+  const overTxt = (t.over_by || 0) > 0 ? ` <span class="ov-over">+${t.over_by}h over</span>` : "";
+  if (allocTotal <= 0) return `<span class="ov-muted">${logged ? logged + "h logged" : "&mdash;"}</span>`;
+  return `<div class="ov-prog"><div class="ov-prog-track"><div class="ov-prog-fill" style="width:${barPct}%;background:${color}"></div></div><span class="ov-muted">${logged}h / ${allocTotal}h</span>${overTxt}</div>`;
+}
+
+/* ---- Editable task table — the Overview expanded row and the designer
+   page render exactly this ---- */
+function buildTaskTable(todos, color) {
+  if (!todos.length) return `<div class="attention-empty">No active tasks this week.</div>`;
+  const rows = todos.map(t => {
+    let revNote = "";
+    if (t.in_revisions && t.revisions_since) {
+      const days = Math.max(0, Math.floor((Date.now() - new Date(t.revisions_since)) / 86400000));
+      revNote = `<div class="ov-revnote">&#8617; back for revisions · waiting ${days}d</div>`;
+    }
+    return `<tr class="ov-task-row">
+      <td class="ov-client">${esc(cleanClient(t.bucket_name)) || "&mdash;"}</td>
+      <td class="ov-title" title="${esc(t.title)}">${esc(truncate(t.title, 52))}${revNote}</td>
+      <td>${pillDate(t)}</td>
+      <td>${pillHdd(t)}</td>
+      <td>${pillEst(t)}</td>
+      <td>${pillTrueEst(t) || `<span class="ov-muted">&mdash;</span>`}</td>
+      <td>${pillLogged(t)}</td>
+      <td>${selCategory(t)}</td>
+      <td>${progressCellCompact(t, color)}</td>
+      <td>${t.url ? `<a href="${t.url}" target="_blank" class="link-btn" title="Open in Basecamp" onclick="event.stopPropagation()">&#8599;</a>` : ""}</td>
+    </tr>`;
+  }).join("");
+  return `<table class="ov-table">
+    <thead><tr><th>Client</th><th>Task</th><th>Date</th><th>HDD</th><th>EST</th><th>True</th><th>Logged</th><th>Category</th><th>Progress</th><th></th></tr></thead>
+    <tbody>${rows}</tbody>
+  </table>`;
+}

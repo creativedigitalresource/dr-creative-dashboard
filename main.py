@@ -451,26 +451,29 @@ async def api_my(token: str):
     pto = store.get_all_pto().get(str(d["bc_id"]), [])
     todos = []
     for t in d.get("todos", []):
-        est = t.get("true_est") if t.get("true_est") is not None else t.get("est")
         todos.append({
             "id": t["id"], "title": t.get("title"), "bucket_name": t.get("bucket_name"),
             "url": t.get("url"), "due_on": t.get("due_on"), "hdd": t.get("hdd"),
             "has_hdd": t.get("has_hdd"), "hdd_stale": t.get("hdd_stale"),
-            "est": est, "logged": t.get("logged", 0), "over_by": t.get("over_by", 0),
+            "est": t.get("est"), "true_est": t.get("true_est"),
+            "logged": t.get("logged", 0), "over_by": t.get("over_by", 0),
             "total_hours": t.get("total_hours", 0),
             "progress": t.get("progress", 0), "category": t.get("category"),
+            "overrides": t.get("overrides", []),
             "in_revisions": t.get("in_revisions", False),
             "revisions_since": t.get("revisions_since"),
             "is_complete": t.get("is_complete", False), "is_misc": t.get("is_misc", False),
             "step_complete": bool((t.get("designer_step") or {}).get("completed")),
+            "designer_step": {"completed": bool((t.get("designer_step") or {}).get("completed"))} if t.get("designer_step") else None,
         })
     return {"name": d["name"], "color": d["color"], "pto": pto, "todos": todos,
             "last_updated": _cached_data.get("last_updated")}
 
 
-@app.put("/api/my/{token}/todos/{todo_id}/due")
-async def api_my_set_due(token: str, todo_id: str, request: Request):
-    """Designer self-scheduling: due_on only, and only on their own todos."""
+@app.put("/api/my/{token}/todos/{todo_id}/fields")
+async def api_my_set_fields(token: str, todo_id: str, request: Request):
+    """Designer self-service edits — only on their own todos, same field
+    rules as the manager endpoint (HDD → Basecamp step, EST → Everhour)."""
     if not store.resolve_designer_token(token):
         return Response(status_code=404)
     d = _designer_for_token(token)
@@ -480,14 +483,7 @@ async def api_my_set_due(token: str, todo_id: str, request: Request):
     if not todo:
         return Response(status_code=403)
     body = await request.json()
-    value = body.get("due_on")
-    if not value:
-        return {"ok": False, "error": "due_on required"}
-    bucket_id = todo.get("bucket_id")
-    if bucket_id:
-        await bc.update_todo_due(bucket_id, str(todo_id), str(value), todo.get("title", ""))
-    todo["due_on"] = str(value)
-    return {"ok": True}
+    return await _apply_todo_fields(str(todo_id), body, todo, d)
 
 
 @app.get("/api/designer-links")
@@ -558,7 +554,6 @@ async def api_calendar():
 async def set_todo_fields(todo_id: str, request: Request):
     """Update todo fields — HDD writes to Basecamp step, EST writes to Everhour."""
     body = await request.json()
-    allowed = {"hdd", "est", "true_est", "due_on", "logged", "category"}
 
     # Find the todo and its designer in the cache
     cached_todo = None
@@ -569,6 +564,13 @@ async def set_todo_fields(todo_id: str, request: Request):
                 cached_todo = t
                 cached_designer = d
                 break
+
+    return await _apply_todo_fields(todo_id, body, cached_todo, cached_designer)
+
+
+async def _apply_todo_fields(todo_id: str, body: dict, cached_todo, cached_designer):
+    """Shared field-update core used by the manager and designer endpoints."""
+    allowed = {"hdd", "est", "true_est", "due_on", "logged", "category"}
 
     for field, value in body.items():
         if field not in allowed:

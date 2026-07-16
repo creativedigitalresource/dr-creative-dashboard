@@ -638,95 +638,37 @@ function toggleCompleted(bcId) {
   renderDesignerGrid(_designerData);
 }
 
-const CATEGORIES = [
-  "Branding/Logo - Creation/Edits",
-  "Print - Collateral/Packaging",
-  "Web - Sites/Applications/UI",
-  "Web - Maintenance",
-  "Email - Campaigns/Signatures",
-  "LP - New",
-  "LP - Maintenance",
-  "Digital - Banner/Display Ads",
-  "Multi - Photo/Video/Edits",
-  "IPM - Campaigns/Reports",
-  "SM - templates/graphics/reels",
-  "Misc.",
-  "Admin",
-];
 
-async function saveCategory(todoId, value) {
-  // Update in-memory data immediately
+// Manager commit hook for the shared inline editors (shared.js editField/saveCategory)
+window.__commitField = async (todoId, field, val) => {
+  fetch(`/api/todos/${todoId}/fields`, {
+    method: "PUT",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ [field]: val || null }),
+  });
   for (const d of _designerData || []) {
     for (const t of d.todos || []) {
-      if (String(t.id) === String(todoId)) {
-        t.category = value;
-        if (!t.overrides) t.overrides = [];
-        if (!t.overrides.includes("category")) t.overrides.push("category");
+      if (String(t.id) !== String(todoId)) continue;
+      applyFieldLocal(t, field, val);
+      if (field === "due_on") {
+        d.todos.sort((a, b) => (a.due_on || "9999-99-99").localeCompare(b.due_on || "9999-99-99"));
       }
     }
   }
-  await fetch(`/api/todos/${todoId}/fields`, {
-    method: "PUT",
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ category: value }),
-  });
-}
+  if (field === "category") { renderOverview(); return; }
+  renderDesignerGrid(_designerData);
+  renderOverview();
+  await loadCalendar();
+  updateLastUpdated();
+};
 
 function renderTodoItem(t, color, isCompleted = false, pulledForward = false) {
-  const ov = t.overrides || [];
-  const hddCls = ov.includes("hdd") ? "hdd overridden" : "hdd";
-  const estCls = ov.includes("est") ? "est overridden" : "est";
-  const catOverridden = ov.includes("category");
-
-  const dateStr = `<span class="meta-pill date-pill editable" onclick="editField(event,'${t.id}','due_on','date','${t.due_on||''}')" title="Click to change date — re-sorts the list">${t.due_on ? fmtDate(t.due_on) : "+ Date"}</span>`;
-  let hddStr;
-  if (t.in_revisions && !t.hdd) {
-    hddStr = `<span class="meta-pill revision-hdd editable" onclick="editField(event,'${t.id}','hdd','date','')" title="Task is back for revisions with no deadline yet — picking a date creates a Revision step in Basecamp">+ Revision HDD</span>`;
-  } else if (t.hdd_stale) {
-    hddStr = `<span class="meta-pill hdd stale editable" onclick="editField(event,'${t.id}','hdd','date','')" title="Comment deadline over 14 days old — abandoned, not late. Click to set a new HDD">HDD ${fmtDate(t.hdd)} · stale</span>`;
-  } else {
-    hddStr = `<span class="meta-pill ${hddCls} editable" onclick="editField(event,'${t.id}','hdd','date','${t.hdd||''}')" title="Click to edit — updates Basecamp step due date">${t.hdd ? "HDD " + fmtDate(t.hdd) : "+ HDD"}</span>`;
-  }
-  const estStr = `<span class="meta-pill ${estCls} editable" onclick="editField(event,'${t.id}','est','number','${t.est??''}')" title="Click to edit — updates Everhour estimate">${t.est != null ? "EST " + t.est + "h" : "+ EST"}</span>`;
-
-  // True EST: corrected estimate for capacity math (local only, never touches Everhour).
-  // Prompt for one when an active task has logged past its EST — otherwise it consumes 0 capacity.
-  const stepDone = t.designer_step && t.designer_step.completed;
-  let trueEstStr = "";
-  if (t.true_est != null) {
-    trueEstStr = `<span class="meta-pill true-est editable" onclick="editField(event,'${t.id}','true_est','number','${t.true_est}')" title="Corrected estimate used for capacity — clear to revert to EST">TRUE ${t.true_est}h</span>`;
-  } else if (!isCompleted && !stepDone && t.est > 0 && (t.logged || 0) >= t.est) {
-    trueEstStr = `<span class="meta-pill true-est needed editable" onclick="editField(event,'${t.id}','true_est','number','')" title="Logged hours reached EST but the task is still active, so it counts 0 toward capacity — set a true estimate">+ True EST</span>`;
-  }
-
-  // Progress runs against the stable allocation window max(est, true_est),
-  // never the moving max(est, logged) floor (that one is for capacity math)
-  const allocTotal = Math.max(t.est ?? 0, t.true_est ?? 0);
-  const logged = t.logged || 0;
-  const overBy = t.over_by || 0;
-  const stepComplete = t.designer_step && t.designer_step.completed;
-  const barPct = stepComplete ? 100 : (allocTotal > 0 ? Math.min(100, logged / allocTotal * 100) : 0);
-  const loggedCls = (t.overrides||[]).includes("logged") ? "overridden" : "";
-  const loggedEl  = `<span class="meta-pill ${loggedCls} editable" onclick="editField(event,'${t.id}','logged','number','${logged}')" title="Click to log hours">${logged > 0 ? logged + "h" : "+ Log"}</span>`;
-
-  let progressHtml = "";
-  if (allocTotal > 0) {
-    const barColor = overBy > 0 ? "var(--danger)" : color;
-    const overBadge = overBy > 0 ? `<span class="over-budget-badge">+${overBy}h over</span>` : "";
-    progressHtml = `<div class="progress-wrap">
-      <div class="progress-bar-outer"><div class="progress-bar-inner" style="width:${barPct}%;background:${barColor}"></div></div>
-      <span class="progress-label">${logged}h / ${allocTotal}h ${overBadge}</span>
-      ${loggedEl}
-    </div>`;
-  } else {
-    progressHtml = `<div class="progress-wrap">${loggedEl}</div>`;
-  }
-
-  const catOptions = CATEGORIES.map(c =>
-    `<option value="${c}"${c === (t.category || "") ? " selected" : ""}>${c}</option>`
-  ).join("");
-  const catCls = catOverridden ? "category-select overridden" : "category-select";
-  const catStr = `<select class="${catCls}" onchange="saveCategory('${t.id}', this.value)" title="Task category">${catOptions}</select>`;
+  const dateStr = pillDate(t);
+  const hddStr = pillHdd(t);
+  const estStr = pillEst(t);
+  const trueEstStr = pillTrueEst(t, isCompleted);
+  const progressHtml = progressBlock(t, color);
+  const catStr = selCategory(t);
 
   // Clean client name — strip tier/AM suffixes like "(2)(BW)" or "(1+)(TS)"
   const clientName = (t.bucket_name || "")
@@ -947,80 +889,6 @@ function updateCalCapacityBar() {
 // Inline field editing (HDD, PDD, EST)
 // ---------------------------------------------------------------------------
 
-function editField(evt, todoId, field, inputType, currentValue) {
-  evt.stopPropagation();
-  const pill = evt.currentTarget;
-  const orig = pill.outerHTML;
-
-  // Build inline input
-  const input = document.createElement("input");
-  input.type = inputType;
-  input.className = "inline-field-input";
-  if (inputType === "number") {
-    input.step = "0.5"; input.min = "0"; input.style.width = "70px";
-  } else {
-    input.style.width = "110px";
-  }
-  input.value = currentValue;
-
-  pill.replaceWith(input);
-  input.focus();
-  if (inputType === "date" && currentValue) input.value = currentValue;
-
-  const commit = async () => {
-    const val = input.value.trim();
-    if (val !== currentValue) {
-      // Save to server (fire and forget — don't await)
-      fetch(`/api/todos/${todoId}/fields`, {
-        method: "PUT",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ [field]: val || null }),
-      });
-      // Update in-memory designer data immediately for instant UI response
-      for (const d of _designerData || []) {
-        for (const t of d.todos || []) {
-          if (String(t.id) === String(todoId)) {
-            if (field === "est")      { t.est = val ? parseFloat(val) : null; }
-            if (field === "true_est") { t.true_est = val ? parseFloat(val) : null; }
-            if (field === "logged")   { t.logged = val ? parseFloat(val) : 0; }
-            if (field === "hdd")    {
-              t.hdd = val || null;
-              if (val) t.hdd_stale = false;
-              if (val && t.in_revisions) { t.in_revisions = false; t.revisions_since = null; }
-            }
-            if (field === "due_on") {
-              t.due_on = val || null;
-              // Re-sort this designer's list by due_on so it auto-moves
-              d.todos.sort((a, b) => (a.due_on || "9999-99-99").localeCompare(b.due_on || "9999-99-99"));
-            }
-            const effEst = (t.true_est != null ? t.true_est : t.est) || 0;
-            t.total_hours = effEst > 0 ? Math.max(effEst, t.logged || 0) : 0;
-            t.over_by = effEst > 0 ? Math.max(0, Math.round(((t.logged || 0) - effEst) * 100) / 100) : 0;
-            const stepComplete = t.designer_step && t.designer_step.completed;
-            t.progress = stepComplete ? 100 : (t.total_hours > 0 ? Math.min(100, Math.round(t.logged / t.total_hours * 100)) : 0);
-            if (!t.overrides) t.overrides = [];
-            if (val && !t.overrides.includes(field)) t.overrides.push(field);
-            if (!val) t.overrides = t.overrides.filter(f => f !== field);
-          }
-        }
-      }
-      // Re-render from updated in-memory data (preserve pto)
-      renderDesignerGrid(_designerData);
-      renderOverview();
-      await loadCalendar();
-      updateLastUpdated();
-    } else {
-      input.insertAdjacentHTML("afterend", orig);
-      input.remove();
-    }
-  };
-
-  input.addEventListener("blur", commit);
-  input.addEventListener("keydown", e => {
-    if (e.key === "Enter") { e.preventDefault(); input.blur(); }
-    if (e.key === "Escape") { input.insertAdjacentHTML("afterend", orig); input.remove(); }
-  });
-}
 
 
 // ---------------------------------------------------------------------------
@@ -1100,55 +968,12 @@ function renderPulseItem(d, s) {
 }
 
 function renderPulseDetail(d, s) {
-  const today = localISO(new Date());
-  const soon = localISO(new Date(Date.now() + 2 * 86400000));
   if (!s.active.length) {
     return `<div class="pulse-detail"><div class="attention-empty">No active tasks this week.</div></div>`;
   }
-  const rows = s.active.map(t => {
-    let hddCell;
-    if (t.in_revisions) {
-      let waiting = "";
-      if (t.revisions_since) {
-        const days = Math.max(0, Math.floor((Date.now() - new Date(t.revisions_since)) / 86400000));
-        waiting = ` · ${days}d`;
-      }
-      hddCell = `<span class="ov-pill revision">&#8617; Revisions${waiting}</span>`;
-    } else if (!t.hdd) {
-      hddCell = `<span class="ov-muted">&mdash;</span>`;
-    } else if (t.hdd_stale) {
-      hddCell = `<span class="ov-pill needed" title="Comment deadline over 14 days old — set a new HDD">stale ${fmtDate(t.hdd)}</span>`;
-    } else {
-      const cls = t.hdd < today ? "late" : t.hdd <= soon ? "soon" : "";
-      hddCell = `<span class="ov-pill ${cls}">${fmtDate(t.hdd)}</span>`;
-    }
-    // Working estimate (TRUE when set) in the EST column; progress runs against
-    // the stable allocation window max(est, true_est) — never the moving logged floor
-    const estCell = t.true_est != null
-      ? `<span class="ov-pill true-est" title="True estimate — Everhour allocation is ${t.est != null ? t.est + "h" : "unset"}">TRUE ${t.true_est}h</span>`
-      : (t.est != null ? `${t.est}h` : `<span class="ov-muted">&mdash;</span>`);
-    const allocTotal = Math.max(t.est ?? 0, t.true_est ?? 0);
-    const stepDone = t.designer_step && t.designer_step.completed;
-    const overTxt = (t.over_by || 0) > 0 ? ` <span class="ov-over">+${t.over_by}h over</span>` : "";
-    const barPct = stepDone ? 100 : (allocTotal > 0 ? Math.min(100, (t.logged || 0) / allocTotal * 100) : 0);
-    const progCell = allocTotal > 0
-      ? `<div class="ov-prog"><div class="ov-prog-track"><div class="ov-prog-fill" style="width:${barPct}%;background:${d.color}"></div></div><span class="ov-muted">${t.logged || 0}h / ${allocTotal}h</span>${overTxt}</div>`
-      : `<span class="ov-muted">${t.logged ? t.logged + "h logged" : "&mdash;"}</span>`;
-    return `<tr class="ov-task-row">
-      <td class="ov-client">${esc(cleanClient(t.bucket_name)) || "&mdash;"}</td>
-      <td class="ov-title" title="${esc(t.title)}">${esc(truncate(t.title, 64))}</td>
-      <td>${hddCell}</td>
-      <td class="ov-est">${estCell}</td>
-      <td>${progCell}</td>
-      <td>${t.url ? `<a href="${t.url}" target="_blank" class="link-btn" title="Open in Basecamp" onclick="event.stopPropagation()">&#8599;</a>` : ""}</td>
-    </tr>`;
-  }).join("");
   return `<div class="pulse-detail">
-    <table class="ov-table">
-      <thead><tr><th>Client</th><th>Task</th><th>HDD</th><th>EST</th><th>Progress</th><th></th></tr></thead>
-      <tbody>${rows}</tbody>
-    </table>
-    <button class="btn btn-ghost btn-sm ov-edit-link" onclick="gotoDesigner('${d.bc_id}')">Edit in Designer Workload &rarr;</button>
+    ${buildTaskTable(s.active, d.color)}
+    <button class="btn btn-ghost btn-sm ov-edit-link" onclick="gotoDesigner('${d.bc_id}')">Open day planner &rarr;</button>
   </div>`;
 }
 
