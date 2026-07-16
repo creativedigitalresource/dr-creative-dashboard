@@ -764,6 +764,7 @@ body { min-height: 100vh; }
   background: var(--surface2); color: var(--text-muted);
 }
 .ov-pill.late { background: var(--danger-light); color: var(--danger); }
+.ov-pill.true-est { background: #f0fdfa; color: #0d9488; }
 .ov-pill.soon { background: var(--warning-light); color: #b45309; }
 .ov-pill.revision { background: #fdf4ff; color: #a21caf; }
 .ov-pill.needed { background: var(--warning-light); color: #b45309; border: 1px dashed #fcd34d; }

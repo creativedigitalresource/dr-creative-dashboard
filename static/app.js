@@ -791,20 +791,23 @@ function renderTodoItem(t, color, isCompleted = false, pulledForward = false) {
     trueEstStr = `<span class="meta-pill true-est needed editable" onclick="editField(event,'${t.id}','true_est','number','')" title="Logged hours reached EST but the task is still active, so it counts 0 toward capacity — set a true estimate">+ True EST</span>`;
   }
 
-  const total = t.total_hours || 0;
+  // Progress runs against the stable allocation window max(est, true_est),
+  // never the moving max(est, logged) floor (that one is for capacity math)
+  const allocTotal = Math.max(t.est ?? 0, t.true_est ?? 0);
   const logged = t.logged || 0;
-  const pct = t.progress || 0;
   const overBy = t.over_by || 0;
+  const stepComplete = t.designer_step && t.designer_step.completed;
+  const barPct = stepComplete ? 100 : (allocTotal > 0 ? Math.min(100, logged / allocTotal * 100) : 0);
   const loggedCls = (t.overrides||[]).includes("logged") ? "overridden" : "";
   const loggedEl  = `<span class="meta-pill ${loggedCls} editable" onclick="editField(event,'${t.id}','logged','number','${logged}')" title="Click to log hours">${logged > 0 ? logged + "h" : "+ Log"}</span>`;
 
   let progressHtml = "";
-  if (total > 0) {
+  if (allocTotal > 0) {
     const barColor = overBy > 0 ? "var(--danger)" : color;
     const overBadge = overBy > 0 ? `<span class="over-budget-badge">+${overBy}h over</span>` : "";
     progressHtml = `<div class="progress-wrap">
-      <div class="progress-bar-outer"><div class="progress-bar-inner" style="width:${pct}%;background:${barColor}"></div></div>
-      <span class="progress-label">${logged}h / ${total}h ${overBadge}</span>
+      <div class="progress-bar-outer"><div class="progress-bar-inner" style="width:${barPct}%;background:${barColor}"></div></div>
+      <span class="progress-label">${logged}h / ${allocTotal}h ${overBadge}</span>
       ${loggedEl}
     </div>`;
   } else {
@@ -1224,11 +1227,17 @@ function renderPulseDetail(d, s) {
       const cls = t.hdd < today ? "late" : t.hdd <= soon ? "soon" : "";
       hddCell = `<span class="ov-pill ${cls}">${fmtDate(t.hdd)}</span>`;
     }
-    const estCell = t.est != null ? `${t.est}h` : `<span class="ov-muted">&mdash;</span>`;
-    const total = t.total_hours || 0;
+    // Working estimate (TRUE when set) in the EST column; progress runs against
+    // the stable allocation window max(est, true_est) — never the moving logged floor
+    const estCell = t.true_est != null
+      ? `<span class="ov-pill true-est" title="True estimate — Everhour allocation is ${t.est != null ? t.est + "h" : "unset"}">TRUE ${t.true_est}h</span>`
+      : (t.est != null ? `${t.est}h` : `<span class="ov-muted">&mdash;</span>`);
+    const allocTotal = Math.max(t.est ?? 0, t.true_est ?? 0);
+    const stepDone = t.designer_step && t.designer_step.completed;
     const overTxt = (t.over_by || 0) > 0 ? ` <span class="ov-over">+${t.over_by}h over</span>` : "";
-    const progCell = total > 0
-      ? `<div class="ov-prog"><div class="ov-prog-track"><div class="ov-prog-fill" style="width:${Math.min(100, t.progress || 0)}%;background:${d.color}"></div></div><span class="ov-muted">${t.logged || 0}h / ${total}h</span>${overTxt}</div>`
+    const barPct = stepDone ? 100 : (allocTotal > 0 ? Math.min(100, (t.logged || 0) / allocTotal * 100) : 0);
+    const progCell = allocTotal > 0
+      ? `<div class="ov-prog"><div class="ov-prog-track"><div class="ov-prog-fill" style="width:${barPct}%;background:${d.color}"></div></div><span class="ov-muted">${t.logged || 0}h / ${allocTotal}h</span>${overTxt}</div>`
       : `<span class="ov-muted">${t.logged ? t.logged + "h logged" : "&mdash;"}</span>`;
     return `<tr class="ov-task-row">
       <td class="ov-client">${esc(cleanClient(t.bucket_name)) || "&mdash;"}</td>
