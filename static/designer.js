@@ -19,7 +19,14 @@ async function loadMe() {
       `<div class="loading-card">This link isn't valid. Ask Richard for a fresh one.</div>`;
     return;
   }
-  _me = await r.json();
+  const data = await r.json();
+  if (data.warming) {
+    document.getElementById("my-root").innerHTML =
+      `<div class="loading-card">Fetching your week from Basecamp — up to a minute after a fresh deploy…</div>`;
+    setTimeout(loadMe, 10000);
+    return;
+  }
+  _me = data;
   renderMe();
   const lu = document.getElementById("last-updated");
   if (lu && _me.last_updated) {

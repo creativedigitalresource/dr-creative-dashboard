@@ -439,11 +439,15 @@ async def designer_page(token: str):
 
 @app.get("/api/my/{token}")
 async def api_my(token: str):
+    # Invalid token is a hard 404; a valid token with a cold cache (fresh
+    # deploy) gets a warming signal so the page can wait and retry
+    if not store.resolve_designer_token(token):
+        return Response(status_code=404)
     if _cache_is_stale() and not _refresh_running:
         asyncio.create_task(_refresh_all())
     d = _designer_for_token(token)
     if not d:
-        return Response(status_code=404)
+        return {"warming": True}
     pto = store.get_all_pto().get(str(d["bc_id"]), [])
     todos = []
     for t in d.get("todos", []):
@@ -467,9 +471,11 @@ async def api_my(token: str):
 @app.put("/api/my/{token}/todos/{todo_id}/due")
 async def api_my_set_due(token: str, todo_id: str, request: Request):
     """Designer self-scheduling: due_on only, and only on their own todos."""
+    if not store.resolve_designer_token(token):
+        return Response(status_code=404)
     d = _designer_for_token(token)
     if not d:
-        return Response(status_code=404)
+        return Response(status_code=503)  # cache warming after a deploy
     todo = next((t for t in d.get("todos", []) if str(t["id"]) == str(todo_id)), None)
     if not todo:
         return Response(status_code=403)
