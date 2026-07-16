@@ -1,0 +1,614 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<title>DR Creative Dashboard — Mockup</title>
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet" />
+<style>
+*, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+:root {
+  --navy: #010f37;
+  --orange: #f6931e;
+  --blue: #26a9e1;
+  --lime: #d5de23;
+  --red: #ef4444;
+  --green: #22c55e;
+  --yellow: #f59e0b;
+  --bg: #f0f4f8;
+  --surface: #ffffff;
+  --border: #e2e8f0;
+  --text: #0f172a;
+  --muted: #64748b;
+  --radius: 12px;
+}
+body { font-family: 'Inter', system-ui, sans-serif; background: var(--bg); color: var(--text); font-size: 14px; min-height: 100vh; }
+
+/* Header */
+.app-header {
+  background: var(--navy); color: #fff;
+  display: flex; align-items: center; justify-content: space-between;
+  padding: 0 28px; height: 54px;
+}
+.logo { font-size: 17px; font-weight: 700; letter-spacing: -.4px; }
+.logo span { color: var(--orange); }
+.header-right { display: flex; align-items: center; gap: 20px; font-size: 13px; opacity: .75; }
+.refresh-btn { background: rgba(255,255,255,.12); border: none; color: #fff; padding: 6px 14px; border-radius: 8px; font-size: 13px; font-weight: 500; cursor: pointer; }
+
+/* Layout */
+.page { padding: 24px 28px; display: flex; flex-direction: column; gap: 20px; }
+
+/* Section label */
+.section-label {
+  font-size: 11px; font-weight: 700; text-transform: uppercase;
+  letter-spacing: .08em; color: var(--muted); margin-bottom: 10px;
+}
+
+/* ── Team Pulse Bar ─────────────────────────────────── */
+.pulse-panel { background: var(--surface); border-radius: var(--radius); border: 1px solid var(--border); padding: 20px 24px; }
+.pulse-rows { display: flex; flex-direction: column; gap: 10px; }
+.pulse-row {
+  display: grid;
+  grid-template-columns: 32px 110px 1fr 80px 90px 90px;
+  align-items: center; gap: 14px;
+}
+.avatar {
+  width: 32px; height: 32px; border-radius: 50%;
+  display: flex; align-items: center; justify-content: center;
+  font-size: 12px; font-weight: 700; color: #fff; flex-shrink: 0;
+}
+.designer-name { font-weight: 600; font-size: 13px; }
+.cap-bar-wrap { display: flex; align-items: center; gap: 10px; }
+.cap-bar-track { flex: 1; height: 8px; background: #e2e8f0; border-radius: 4px; overflow: hidden; }
+.cap-bar-fill { height: 100%; border-radius: 4px; transition: width .3s; }
+.cap-pct { font-size: 12px; font-weight: 600; width: 36px; text-align: right; }
+.task-count { font-size: 12px; color: var(--muted); text-align: center; }
+.overdue-badge {
+  display: inline-flex; align-items: center; gap: 4px;
+  background: #fef2f2; color: var(--red); font-size: 11px; font-weight: 700;
+  padding: 3px 8px; border-radius: 20px; border: 1px solid #fecaca;
+}
+.overdue-badge.none { background: transparent; border-color: transparent; color: transparent; }
+.avail-hrs { font-size: 12px; font-weight: 600; text-align: right; }
+.avail-hrs.low { color: var(--red); }
+.avail-hrs.mid { color: var(--yellow); }
+.avail-hrs.ok  { color: var(--green); }
+
+/* ── Two-column section ─────────────────────────────── */
+.two-col { display: grid; grid-template-columns: 1fr 340px; gap: 20px; }
+
+/* Overdue panel */
+.overdue-panel { background: var(--surface); border-radius: var(--radius); border: 1px solid var(--border); padding: 20px 24px; }
+.overdue-list { display: flex; flex-direction: column; gap: 2px; }
+.overdue-row {
+  display: grid; grid-template-columns: 26px 90px 1fr 70px 50px 50px;
+  align-items: center; gap: 12px;
+  padding: 9px 10px; border-radius: 8px;
+  transition: background .1s;
+}
+.overdue-row:hover { background: #f8fafc; }
+.overdue-row .avatar { width: 26px; height: 26px; font-size: 10px; }
+.overdue-client { font-size: 11px; font-weight: 600; text-transform: uppercase; letter-spacing: .04em; color: var(--muted); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.overdue-title { font-size: 13px; font-weight: 500; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.hdd-pill { display: inline-block; padding: 2px 8px; border-radius: 10px; font-size: 11px; font-weight: 700; }
+.hdd-pill.overdue { background: #fef2f2; color: var(--red); }
+.hdd-pill.soon { background: #fff7ed; color: var(--orange); }
+.est-label { font-size: 12px; color: var(--muted); font-weight: 500; }
+.days-over { font-size: 11px; font-weight: 700; color: var(--red); }
+
+/* Availability panel */
+.avail-panel { background: var(--surface); border-radius: var(--radius); border: 1px solid var(--border); padding: 20px 24px; }
+.avail-list { display: flex; flex-direction: column; gap: 14px; }
+.avail-row { display: flex; align-items: center; gap: 12px; }
+.avail-row .avatar { width: 30px; height: 30px; font-size: 11px; flex-shrink: 0; }
+.avail-info { flex: 1; }
+.avail-name { font-size: 13px; font-weight: 600; }
+.avail-tasks { font-size: 11px; color: var(--muted); }
+.avail-bar-wrap { display: flex; align-items: center; gap: 8px; margin-top: 5px; }
+.avail-bar-track { flex: 1; height: 5px; background: #e2e8f0; border-radius: 3px; overflow: hidden; }
+.avail-bar-fill { height: 100%; border-radius: 3px; }
+.avail-hrs-big { font-size: 15px; font-weight: 700; flex-shrink: 0; }
+.avail-hrs-big.ok { color: var(--green); }
+.avail-hrs-big.mid { color: var(--yellow); }
+.avail-hrs-big.low { color: var(--red); }
+
+/* ── Designer Accordion ─────────────────────────────── */
+.accordion-panel { background: var(--surface); border-radius: var(--radius); border: 1px solid var(--border); overflow: hidden; }
+.accordion-item { border-bottom: 1px solid var(--border); }
+.accordion-item:last-child { border-bottom: none; }
+.accordion-header {
+  display: grid; grid-template-columns: 36px 140px 1fr 80px 90px 36px;
+  align-items: center; gap: 14px;
+  padding: 14px 20px; cursor: pointer; transition: background .1s;
+}
+.accordion-header:hover { background: #f8fafc; }
+.accordion-header .avatar { width: 36px; height: 36px; font-size: 13px; }
+.acc-name { font-weight: 600; font-size: 14px; }
+.acc-cap { display: flex; align-items: center; gap: 10px; }
+.acc-cap-track { flex: 1; height: 7px; background: #e2e8f0; border-radius: 4px; overflow: hidden; }
+.acc-cap-fill { height: 100%; border-radius: 4px; }
+.acc-tasks { font-size: 12px; color: var(--muted); text-align: center; }
+.acc-overdue { }
+.acc-chevron { font-size: 16px; color: var(--muted); text-align: center; transition: transform .2s; }
+.accordion-item.open .acc-chevron { transform: rotate(180deg); }
+
+.accordion-body { display: none; padding: 0 20px 16px; }
+.accordion-item.open .accordion-body { display: block; }
+.task-table { width: 100%; border-collapse: collapse; }
+.task-table th {
+  font-size: 11px; font-weight: 600; text-transform: uppercase;
+  letter-spacing: .06em; color: var(--muted);
+  text-align: left; padding: 8px 10px; border-bottom: 1px solid var(--border);
+}
+.task-row { border-bottom: 1px solid #f1f5f9; }
+.task-row:last-child { border-bottom: none; }
+.task-row td { padding: 9px 10px; vertical-align: middle; }
+.task-row:hover td { background: #f8fafc; }
+.task-client { font-size: 11px; font-weight: 600; text-transform: uppercase; letter-spacing: .04em; color: var(--muted); white-space: nowrap; }
+.task-title-cell { font-size: 13px; font-weight: 500; max-width: 280px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.task-title-cell.overdue-task { color: var(--red); }
+.prog-wrap { display: flex; align-items: center; gap: 8px; }
+.prog-track { width: 60px; height: 5px; background: #e2e8f0; border-radius: 3px; overflow: hidden; }
+.prog-fill { height: 100%; border-radius: 3px; }
+.prog-label { font-size: 11px; color: var(--muted); white-space: nowrap; }
+.prog-over { font-size: 11px; color: var(--red); font-weight: 600; }
+</style>
+</head>
+<body>
+
+<header class="app-header">
+  <div class="logo">DR <span>Creative</span> <span style="font-weight:400;opacity:.5;font-size:13px;margin-left:6px">Team Dashboard</span></div>
+  <div class="header-right">
+    <span>Updated 9:52 AM EST</span>
+    <button class="refresh-btn">↻ Refresh</button>
+  </div>
+</header>
+
+<div class="page">
+
+  <!-- Team Pulse -->
+  <div class="pulse-panel">
+    <div class="section-label">Team Pulse — Current Week</div>
+    <div class="pulse-rows">
+
+      <div class="pulse-row">
+        <div class="avatar" style="background:#3b82f6">D</div>
+        <div class="designer-name">Dexter</div>
+        <div class="cap-bar-wrap">
+          <div class="cap-bar-track"><div class="cap-bar-fill" style="width:100%;background:var(--red)"></div></div>
+          <span class="cap-pct" style="color:var(--red)">107%</span>
+        </div>
+        <div class="task-count">14 tasks</div>
+        <div><span class="overdue-badge">⚠ 6 overdue</span></div>
+        <div class="avail-hrs low">−2.1h over</div>
+      </div>
+
+      <div class="pulse-row">
+        <div class="avatar" style="background:#8b5cf6">L</div>
+        <div class="designer-name">Lezly</div>
+        <div class="cap-bar-wrap">
+          <div class="cap-bar-track"><div class="cap-bar-fill" style="width:62%;background:var(--green)"></div></div>
+          <span class="cap-pct" style="color:var(--green)">62%</span>
+        </div>
+        <div class="task-count">13 tasks</div>
+        <div><span class="overdue-badge">⚠ 2 overdue</span></div>
+        <div class="avail-hrs ok">+12.4h free</div>
+      </div>
+
+      <div class="pulse-row">
+        <div class="avatar" style="background:#f97316">G</div>
+        <div class="designer-name">Gaby</div>
+        <div class="cap-bar-wrap">
+          <div class="cap-bar-track"><div class="cap-bar-fill" style="width:88%;background:var(--yellow)"></div></div>
+          <span class="cap-pct" style="color:var(--yellow)">88%</span>
+        </div>
+        <div class="task-count">15 tasks</div>
+        <div><span class="overdue-badge none">none</span></div>
+        <div class="avail-hrs mid">+3.9h free</div>
+      </div>
+
+      <div class="pulse-row">
+        <div class="avatar" style="background:#eab308">O</div>
+        <div class="designer-name">Odette</div>
+        <div class="cap-bar-wrap">
+          <div class="cap-bar-track"><div class="cap-bar-fill" style="width:45%;background:var(--green)"></div></div>
+          <span class="cap-pct" style="color:var(--green)">45%</span>
+        </div>
+        <div class="task-count">8 tasks</div>
+        <div><span class="overdue-badge none">none</span></div>
+        <div class="avail-hrs ok">+17.9h free</div>
+      </div>
+
+      <div class="pulse-row">
+        <div class="avatar" style="background:#22c55e">Db</div>
+        <div class="designer-name">Debi</div>
+        <div class="cap-bar-wrap">
+          <div class="cap-bar-track"><div class="cap-bar-fill" style="width:79%;background:var(--yellow)"></div></div>
+          <span class="cap-pct" style="color:var(--yellow)">79%</span>
+        </div>
+        <div class="task-count">11 tasks</div>
+        <div><span class="overdue-badge">⚠ 1 overdue</span></div>
+        <div class="avail-hrs mid">+6.8h free</div>
+      </div>
+
+      <div class="pulse-row">
+        <div class="avatar" style="background:#14b8a6">MC</div>
+        <div class="designer-name">Maria C</div>
+        <div class="cap-bar-wrap">
+          <div class="cap-bar-track"><div class="cap-bar-fill" style="width:31%;background:var(--green)"></div></div>
+          <span class="cap-pct" style="color:var(--green)">31%</span>
+        </div>
+        <div class="task-count">5 tasks</div>
+        <div><span class="overdue-badge none">none</span></div>
+        <div class="avail-hrs ok">+22.4h free</div>
+      </div>
+
+      <div class="pulse-row">
+        <div class="avatar" style="background:#ef4444">M</div>
+        <div class="designer-name">Melany</div>
+        <div class="cap-bar-wrap">
+          <div class="cap-bar-track"><div class="cap-bar-fill" style="width:95%;background:var(--red)"></div></div>
+          <span class="cap-pct" style="color:var(--red)">95%</span>
+        </div>
+        <div class="task-count">18 tasks</div>
+        <div><span class="overdue-badge">⚠ 4 overdue</span></div>
+        <div class="avail-hrs low">+1.6h free</div>
+      </div>
+
+    </div>
+  </div>
+
+  <!-- Two-column -->
+  <div class="two-col">
+
+    <!-- Overdue & At Risk -->
+    <div class="overdue-panel">
+      <div class="section-label">Past Due & At Risk</div>
+      <div class="overdue-list">
+
+        <div class="overdue-row">
+          <div class="avatar" style="background:#3b82f6;width:26px;height:26px;font-size:10px">D</div>
+          <div class="overdue-client">Westover Dentistry</div>
+          <div class="overdue-title">[Launch] New General Dentistry LP</div>
+          <span class="hdd-pill overdue">HDD 7/2</span>
+          <div class="est-label">EST 5h</div>
+          <div class="days-over">6d late</div>
+        </div>
+
+        <div class="overdue-row">
+          <div class="avatar" style="background:#3b82f6;width:26px;height:26px;font-size:10px">D</div>
+          <div class="overdue-client">Westover Dentistry</div>
+          <div class="overdue-title">[Review] New Emergency Dentistry LP</div>
+          <span class="hdd-pill overdue">HDD 7/2</span>
+          <div class="est-label">EST 5h</div>
+          <div class="days-over">6d late</div>
+        </div>
+
+        <div class="overdue-row">
+          <div class="avatar" style="background:#ef4444;width:26px;height:26px;font-size:10px">M</div>
+          <div class="overdue-client">DR Team: Creative</div>
+          <div class="overdue-title">[July] Social Media Content Week 1</div>
+          <span class="hdd-pill overdue">HDD 7/4</span>
+          <div class="est-label">EST 6h</div>
+          <div class="days-over">4d late</div>
+        </div>
+
+        <div class="overdue-row">
+          <div class="avatar" style="background:#ef4444;width:26px;height:26px;font-size:10px">M</div>
+          <div class="overdue-client">North Penn Dental Arts</div>
+          <div class="overdue-title">REVIEW [campaign/general dentistry] LP</div>
+          <span class="hdd-pill overdue">HDD 7/3</span>
+          <div class="est-label">EST 4h</div>
+          <div class="days-over">5d late</div>
+        </div>
+
+        <div class="overdue-row">
+          <div class="avatar" style="background:#8b5cf6;width:26px;height:26px;font-size:10px">L</div>
+          <div class="overdue-client">Cedar Walk Family Dental</div>
+          <div class="overdue-title">[READY] Write & Design Emergency LP</div>
+          <span class="hdd-pill overdue">HDD 7/4</span>
+          <div class="est-label">EST 5h</div>
+          <div class="days-over">4d late</div>
+        </div>
+
+        <div class="overdue-row">
+          <div class="avatar" style="background:#3b82f6;width:26px;height:26px;font-size:10px">D</div>
+          <div class="overdue-client">Opelika Dental Arts</div>
+          <div class="overdue-title">[review] Design Emergency Dentistry LP</div>
+          <span class="hdd-pill soon">HDD 7/7</span>
+          <div class="est-label">EST 3h</div>
+          <div class="days-over">1d late</div>
+        </div>
+
+        <div class="overdue-row">
+          <div class="avatar" style="background:#22c55e;width:26px;height:26px;font-size:10px">Db</div>
+          <div class="overdue-client">Sam Kleitches Dentistry</div>
+          <div class="overdue-title">[DESIGN] General Dentistry LP & TY Page</div>
+          <span class="hdd-pill overdue">HDD 7/1</span>
+          <div class="est-label">EST 6h</div>
+          <div class="days-over">7d late</div>
+        </div>
+
+        <div class="overdue-row">
+          <div class="avatar" style="background:#ef4444;width:26px;height:26px;font-size:10px">M</div>
+          <div class="overdue-client">iPolish</div>
+          <div class="overdue-title">[Review] Creative Request – 3x AI Images</div>
+          <span class="hdd-pill overdue">HDD 7/3</span>
+          <div class="est-label">EST 9h</div>
+          <div class="days-over">5d late</div>
+        </div>
+
+        <div class="overdue-row">
+          <div class="avatar" style="background:#3b82f6;width:26px;height:26px;font-size:10px">D</div>
+          <div class="overdue-client">DivisionOne Construction</div>
+          <div class="overdue-title">[Revision] Hi-fi Mockup – Home Page</div>
+          <span class="hdd-pill soon">HDD 7/10</span>
+          <div class="est-label">EST 2h</div>
+          <div class="days-over">At risk</div>
+        </div>
+
+      </div>
+    </div>
+
+    <!-- Availability -->
+    <div class="avail-panel">
+      <div class="section-label">Available This Week</div>
+      <div class="avail-list">
+
+        <div class="avail-row">
+          <div class="avatar" style="background:#14b8a6;width:30px;height:30px;font-size:11px">MC</div>
+          <div class="avail-info">
+            <div class="avail-name">Maria C</div>
+            <div class="avail-tasks">5 tasks · 0 overdue</div>
+            <div class="avail-bar-wrap">
+              <div class="avail-bar-track"><div class="avail-bar-fill" style="width:31%;background:var(--green)"></div></div>
+            </div>
+          </div>
+          <div class="avail-hrs-big ok">22.4h</div>
+        </div>
+
+        <div class="avail-row">
+          <div class="avatar" style="background:#eab308;width:30px;height:30px;font-size:11px">O</div>
+          <div class="avail-info">
+            <div class="avail-name">Odette</div>
+            <div class="avail-tasks">8 tasks · 0 overdue</div>
+            <div class="avail-bar-wrap">
+              <div class="avail-bar-track"><div class="avail-bar-fill" style="width:45%;background:var(--green)"></div></div>
+            </div>
+          </div>
+          <div class="avail-hrs-big ok">17.9h</div>
+        </div>
+
+        <div class="avail-row">
+          <div class="avatar" style="background:#8b5cf6;width:30px;height:30px;font-size:11px">L</div>
+          <div class="avail-info">
+            <div class="avail-name">Lezly</div>
+            <div class="avail-tasks">13 tasks · 2 overdue</div>
+            <div class="avail-bar-wrap">
+              <div class="avail-bar-track"><div class="avail-bar-fill" style="width:62%;background:var(--green)"></div></div>
+            </div>
+          </div>
+          <div class="avail-hrs-big ok">12.4h</div>
+        </div>
+
+        <div class="avail-row">
+          <div class="avatar" style="background:#22c55e;width:30px;height:30px;font-size:11px">Db</div>
+          <div class="avail-info">
+            <div class="avail-name">Debi</div>
+            <div class="avail-tasks">11 tasks · 1 overdue</div>
+            <div class="avail-bar-wrap">
+              <div class="avail-bar-track"><div class="avail-bar-fill" style="width:79%;background:var(--yellow)"></div></div>
+            </div>
+          </div>
+          <div class="avail-hrs-big mid">6.8h</div>
+        </div>
+
+        <div class="avail-row">
+          <div class="avatar" style="background:#f97316;width:30px;height:30px;font-size:11px">G</div>
+          <div class="avail-info">
+            <div class="avail-name">Gaby</div>
+            <div class="avail-tasks">15 tasks · 0 overdue</div>
+            <div class="avail-bar-wrap">
+              <div class="avail-bar-track"><div class="avail-bar-fill" style="width:88%;background:var(--yellow)"></div></div>
+            </div>
+          </div>
+          <div class="avail-hrs-big mid">3.9h</div>
+        </div>
+
+        <div class="avail-row">
+          <div class="avatar" style="background:#ef4444;width:30px;height:30px;font-size:11px">M</div>
+          <div class="avail-info">
+            <div class="avail-name">Melany</div>
+            <div class="avail-tasks">18 tasks · 4 overdue</div>
+            <div class="avail-bar-wrap">
+              <div class="avail-bar-track"><div class="avail-bar-fill" style="width:95%;background:var(--red)"></div></div>
+            </div>
+          </div>
+          <div class="avail-hrs-big low">1.6h</div>
+        </div>
+
+        <div class="avail-row">
+          <div class="avatar" style="background:#3b82f6;width:30px;height:30px;font-size:11px">D</div>
+          <div class="avail-info">
+            <div class="avail-name">Dexter</div>
+            <div class="avail-tasks">14 tasks · 6 overdue</div>
+            <div class="avail-bar-wrap">
+              <div class="avail-bar-track"><div class="avail-bar-fill" style="width:100%;background:var(--red)"></div></div>
+            </div>
+          </div>
+          <div class="avail-hrs-big low">Maxed</div>
+        </div>
+
+      </div>
+    </div>
+  </div>
+
+  <!-- Designer Accordion -->
+  <div class="accordion-panel">
+    <div class="section-label" style="padding:16px 20px 0">Designer Task Detail</div>
+
+    <!-- Dexter -->
+    <div class="accordion-item" id="acc-dexter">
+      <div class="accordion-header" onclick="toggleAcc('acc-dexter')">
+        <div class="avatar" style="background:#3b82f6">D</div>
+        <div>
+          <div class="acc-name">Dexter</div>
+          <div style="font-size:11px;color:var(--muted)">14 tasks</div>
+        </div>
+        <div class="acc-cap">
+          <div class="acc-cap-track"><div class="acc-cap-fill" style="width:100%;background:var(--red)"></div></div>
+          <span style="font-size:12px;font-weight:600;color:var(--red)">107% · maxed</span>
+        </div>
+        <div class="acc-tasks"></div>
+        <div><span class="overdue-badge">⚠ 6 overdue</span></div>
+        <div class="acc-chevron">▾</div>
+      </div>
+      <div class="accordion-body">
+        <table class="task-table">
+          <thead><tr><th>Client</th><th>Task</th><th>HDD</th><th>Progress</th></tr></thead>
+          <tbody>
+            <tr class="task-row"><td class="task-client">Westover Dentistry</td><td class="task-title-cell overdue-task">[Launch] New General Dentistry LP</td><td><span class="hdd-pill overdue">7/2 ↑6d</span></td><td><div class="prog-wrap"><div class="prog-track"><div class="prog-fill" style="width:100%;background:var(--red)"></div></div><span class="prog-over">+0.95h over</span></div></td></tr>
+            <tr class="task-row"><td class="task-client">Westover Dentistry</td><td class="task-title-cell overdue-task">[Review] New Emergency Dentistry LP</td><td><span class="hdd-pill overdue">7/2 ↑6d</span></td><td><div class="prog-wrap"><div class="prog-track"><div class="prog-fill" style="width:62%;background:#3b82f6"></div></div><span class="prog-label">3.1h / 5h</span></div></td></tr>
+            <tr class="task-row"><td class="task-client">Opelika Dental Arts</td><td class="task-title-cell overdue-task">[review] Design Emergency Dentistry LP</td><td><span class="hdd-pill overdue">7/7 ↑1d</span></td><td><div class="prog-wrap"><div class="prog-track"><div class="prog-fill" style="width:100%;background:var(--red)"></div></div><span class="prog-over">+0.45h over</span></div></td></tr>
+            <tr class="task-row"><td class="task-client">Mountain Safe Exteriors</td><td class="task-title-cell">Create a 'service title' LP & TY – Meta</td><td><span class="hdd-pill soon">7/10</span></td><td><div class="prog-wrap"><div class="prog-track"><div class="prog-fill" style="width:0%;background:#3b82f6"></div></div><span class="prog-label">0h / 3h</span></div></td></tr>
+            <tr class="task-row"><td class="task-client">DivisionOne Construction</td><td class="task-title-cell">[Revision] Hi-fi Mockup – Home Page</td><td><span class="hdd-pill soon">7/10</span></td><td><div class="prog-wrap"><div class="prog-track"><div class="prog-fill" style="width:57%;background:#3b82f6"></div></div><span class="prog-label">9.02h / 10h</span></div></td></tr>
+            <tr class="task-row"><td class="task-client">A Dental Center</td><td class="task-title-cell">[READY] Write & Design LP & TY Page</td><td><span class="hdd-pill soon">7/9</span></td><td><div class="prog-wrap"><div class="prog-track"><div class="prog-fill" style="width:0%;background:#3b82f6"></div></div><span class="prog-label">0h / 5h</span></div></td></tr>
+          </tbody>
+        </table>
+      </div>
+    </div>
+
+    <!-- Melany -->
+    <div class="accordion-item" id="acc-melany">
+      <div class="accordion-header" onclick="toggleAcc('acc-melany')">
+        <div class="avatar" style="background:#ef4444">M</div>
+        <div>
+          <div class="acc-name">Melany</div>
+          <div style="font-size:11px;color:var(--muted)">18 tasks</div>
+        </div>
+        <div class="acc-cap">
+          <div class="acc-cap-track"><div class="acc-cap-fill" style="width:95%;background:var(--red)"></div></div>
+          <span style="font-size:12px;font-weight:600;color:var(--red)">95% · near full</span>
+        </div>
+        <div class="acc-tasks"></div>
+        <div><span class="overdue-badge">⚠ 4 overdue</span></div>
+        <div class="acc-chevron">▾</div>
+      </div>
+      <div class="accordion-body">
+        <table class="task-table">
+          <thead><tr><th>Client</th><th>Task</th><th>HDD</th><th>Progress</th></tr></thead>
+          <tbody>
+            <tr class="task-row"><td class="task-client">DR Team: Creative</td><td class="task-title-cell overdue-task">[July] Social Media Content Week 1</td><td><span class="hdd-pill overdue">7/4 ↑4d</span></td><td><div class="prog-wrap"><div class="prog-track"><div class="prog-fill" style="width:0%;background:var(--red)"></div></div><span class="prog-label">0h / 6h</span></div></td></tr>
+            <tr class="task-row"><td class="task-client">North Penn Dental Arts</td><td class="task-title-cell overdue-task">REVIEW [campaign/general dentistry] LP</td><td><span class="hdd-pill overdue">7/3 ↑5d</span></td><td><div class="prog-wrap"><div class="prog-track"><div class="prog-fill" style="width:98%;background:var(--red)"></div></div><span class="prog-over">+3.93h over</span></div></td></tr>
+            <tr class="task-row"><td class="task-client">iPolish</td><td class="task-title-cell overdue-task">[Review] Creative Request – 3x AI Images</td><td><span class="hdd-pill overdue">7/3 ↑5d</span></td><td><div class="prog-wrap"><div class="prog-track"><div class="prog-fill" style="width:100%;background:var(--red)"></div></div><span class="prog-over">+1.13h over</span></div></td></tr>
+            <tr class="task-row"><td class="task-client">Stretch Zone Corporate</td><td class="task-title-cell overdue-task">[Reference] Stretch Zone AI Videos</td><td><span class="hdd-pill overdue">7/3 ↑5d</span></td><td><div class="prog-wrap"><div class="prog-track"><div class="prog-fill" style="width:100%;background:var(--red)"></div></div><span class="prog-over">+4.13h over</span></div></td></tr>
+            <tr class="task-row"><td class="task-client">Marketing: DR</td><td class="task-title-cell">July Reel #1 – Anti-Agency Metrics</td><td><span class="hdd-pill soon">7/8</span></td><td><div class="prog-wrap"><div class="prog-track"><div class="prog-fill" style="width:100%;background:var(--red)"></div></div><span class="prog-label">9.92h</span></div></td></tr>
+          </tbody>
+        </table>
+      </div>
+    </div>
+
+    <!-- Gaby -->
+    <div class="accordion-item" id="acc-gaby">
+      <div class="accordion-header" onclick="toggleAcc('acc-gaby')">
+        <div class="avatar" style="background:#f97316">G</div>
+        <div>
+          <div class="acc-name">Gaby</div>
+          <div style="font-size:11px;color:var(--muted)">15 tasks</div>
+        </div>
+        <div class="acc-cap">
+          <div class="acc-cap-track"><div class="acc-cap-fill" style="width:88%;background:var(--yellow)"></div></div>
+          <span style="font-size:12px;font-weight:600;color:var(--yellow)">88% · 3.9h free</span>
+        </div>
+        <div class="acc-tasks"></div>
+        <div><span class="overdue-badge none">none</span></div>
+        <div class="acc-chevron">▾</div>
+      </div>
+      <div class="accordion-body">
+        <table class="task-table">
+          <thead><tr><th>Client</th><th>Task</th><th>HDD</th><th>Progress</th></tr></thead>
+          <tbody>
+            <tr class="task-row"><td class="task-client">Marketing: DR</td><td class="task-title-cell">[DESIGN] Phase 1 B2 SEO – AIO</td><td><span class="hdd-pill soon">7/9</span></td><td><div class="prog-wrap"><div class="prog-track"><div class="prog-fill" style="width:16%;background:#f97316"></div></div><span class="prog-label">0.63h / 4h</span></div></td></tr>
+            <tr class="task-row"><td class="task-client">Sam Kleitches Dentistry</td><td class="task-title-cell">[DESIGN] General Dentistry LP & TY Page</td><td><span class="hdd-pill soon">7/9</span></td><td><div class="prog-wrap"><div class="prog-track"><div class="prog-fill" style="width:0%;background:#f97316"></div></div><span class="prog-label">0h / 6h</span></div></td></tr>
+            <tr class="task-row"><td class="task-client">Marketing: DR</td><td class="task-title-cell">[DESIGN] Phase 1 B2 Fractional C-Suite</td><td><span class="hdd-pill soon">7/10</span></td><td><div class="prog-wrap"><div class="prog-track"><div class="prog-fill" style="width:0%;background:#f97316"></div></div><span class="prog-label">0h / 4h</span></div></td></tr>
+          </tbody>
+        </table>
+      </div>
+    </div>
+
+    <!-- Lezly -->
+    <div class="accordion-item" id="acc-lezly">
+      <div class="accordion-header" onclick="toggleAcc('acc-lezly')">
+        <div class="avatar" style="background:#8b5cf6">L</div>
+        <div>
+          <div class="acc-name">Lezly</div>
+          <div style="font-size:11px;color:var(--muted)">13 tasks</div>
+        </div>
+        <div class="acc-cap">
+          <div class="acc-cap-track"><div class="acc-cap-fill" style="width:62%;background:var(--green)"></div></div>
+          <span style="font-size:12px;font-weight:600;color:var(--green)">62% · 12.4h free</span>
+        </div>
+        <div class="acc-tasks"></div>
+        <div><span class="overdue-badge">⚠ 2 overdue</span></div>
+        <div class="acc-chevron">▾</div>
+      </div>
+      <div class="accordion-body">
+        <table class="task-table">
+          <thead><tr><th>Client</th><th>Task</th><th>HDD</th><th>Progress</th></tr></thead>
+          <tbody>
+            <tr class="task-row"><td class="task-client">Cedar Walk Family Dental</td><td class="task-title-cell overdue-task">[READY] Write & Design Emergency LP</td><td><span class="hdd-pill overdue">7/4 ↑4d</span></td><td><div class="prog-wrap"><div class="prog-track"><div class="prog-fill" style="width:53%;background:#8b5cf6"></div></div><span class="prog-label">2.67h / 5h</span></div></td></tr>
+            <tr class="task-row"><td class="task-client">Smile Exchange Springfield</td><td class="task-title-cell overdue-task">LAUNCH General Dentistry LP & TY Page</td><td><span class="hdd-pill overdue">7/1 ↑7d</span></td><td><div class="prog-wrap"><div class="prog-track"><div class="prog-fill" style="width:23%;background:#8b5cf6"></div></div><span class="prog-label">1.18h / 5h</span></div></td></tr>
+            <tr class="task-row"><td class="task-client">Smile Exchange Springfield</td><td class="task-title-cell">Launch Emergency Dentistry LP & TY</td><td><span class="hdd-pill soon">7/9</span></td><td><div class="prog-wrap"><div class="prog-track"><div class="prog-fill" style="width:0%;background:#8b5cf6"></div></div><span class="prog-label">0h / 5h</span></div></td></tr>
+          </tbody>
+        </table>
+      </div>
+    </div>
+
+    <!-- Odette, Debi, Maria C collapsed -->
+    <div class="accordion-item" id="acc-odette">
+      <div class="accordion-header" onclick="toggleAcc('acc-odette')">
+        <div class="avatar" style="background:#eab308">O</div>
+        <div><div class="acc-name">Odette</div><div style="font-size:11px;color:var(--muted)">8 tasks</div></div>
+        <div class="acc-cap"><div class="acc-cap-track"><div class="acc-cap-fill" style="width:45%;background:var(--green)"></div></div><span style="font-size:12px;font-weight:600;color:var(--green)">45% · 17.9h free</span></div>
+        <div></div>
+        <div><span class="overdue-badge none">none</span></div>
+        <div class="acc-chevron">▾</div>
+      </div>
+      <div class="accordion-body"><p style="color:var(--muted);font-size:13px;padding:8px 0">8 tasks on track · expand to review</p></div>
+    </div>
+
+    <div class="accordion-item" id="acc-debi">
+      <div class="accordion-header" onclick="toggleAcc('acc-debi')">
+        <div class="avatar" style="background:#22c55e">Db</div>
+        <div><div class="acc-name">Debi</div><div style="font-size:11px;color:var(--muted)">11 tasks</div></div>
+        <div class="acc-cap"><div class="acc-cap-track"><div class="acc-cap-fill" style="width:79%;background:var(--yellow)"></div></div><span style="font-size:12px;font-weight:600;color:var(--yellow)">79% · 6.8h free</span></div>
+        <div></div>
+        <div><span class="overdue-badge">⚠ 1 overdue</span></div>
+        <div class="acc-chevron">▾</div>
+      </div>
+      <div class="accordion-body"><p style="color:var(--muted);font-size:13px;padding:8px 0">1 overdue task · expand to review</p></div>
+    </div>
+
+    <div class="accordion-item" id="acc-maria">
+      <div class="accordion-header" onclick="toggleAcc('acc-maria')">
+        <div class="avatar" style="background:#14b8a6">MC</div>
+        <div><div class="acc-name">Maria C</div><div style="font-size:11px;color:var(--muted)">5 tasks</div></div>
+        <div class="acc-cap"><div class="acc-cap-track"><div class="acc-cap-fill" style="width:31%;background:var(--green)"></div></div><span style="font-size:12px;font-weight:600;color:var(--green)">31% · 22.4h free</span></div>
+        <div></div>
+        <div><span class="overdue-badge none">none</span></div>
+        <div class="acc-chevron">▾</div>
+      </div>
+      <div class="accordion-body"><p style="color:var(--muted);font-size:13px;padding:8px 0">5 tasks on track · expand to review</p></div>
+    </div>
+
+  </div>
+</div>
+
+<script>
+function toggleAcc(id) {
+  const el = document.getElementById(id);
+  el.classList.toggle('open');
+}
+</script>
+</body>
+</html>

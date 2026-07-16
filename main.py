@@ -3,8 +3,8 @@ from collections import Counter
 from datetime import date, timedelta
 from contextlib import asynccontextmanager
 
-from fastapi import FastAPI, Request
-from fastapi.responses import HTMLResponse, RedirectResponse, StreamingResponse
+from fastapi import FastAPI, Request, Response
+from fastapi.responses import FileResponse, HTMLResponse, RedirectResponse, StreamingResponse
 from fastapi.staticfiles import StaticFiles
 
 import store, basecamp as bc, everhour as eh
@@ -412,6 +412,87 @@ async def api_designers():
     for d in designers:
         d["pto"] = pto_map.get(str(d["bc_id"]), [])
     return designers
+
+
+# ---------------------------------------------------------------------------
+# Designer view — token-scoped, server-enforced. A token resolves to exactly
+# one designer; the payload never contains anyone else's data, and True EST
+# mechanics are folded into a single working estimate before it leaves.
+# ---------------------------------------------------------------------------
+
+def _designer_for_token(token: str):
+    bc_id = store.resolve_designer_token(token)
+    if not bc_id:
+        return None
+    for d in _cached_data.get("designers", []):
+        if str(d["bc_id"]) == str(bc_id):
+            return d
+    return None
+
+
+@app.get("/my/{token}")
+async def designer_page(token: str):
+    if not store.resolve_designer_token(token):
+        return Response(status_code=404)
+    return FileResponse("static/designer.html")
+
+
+@app.get("/api/my/{token}")
+async def api_my(token: str):
+    if _cache_is_stale() and not _refresh_running:
+        asyncio.create_task(_refresh_all())
+    d = _designer_for_token(token)
+    if not d:
+        return Response(status_code=404)
+    pto = store.get_all_pto().get(str(d["bc_id"]), [])
+    todos = []
+    for t in d.get("todos", []):
+        est = t.get("true_est") if t.get("true_est") is not None else t.get("est")
+        todos.append({
+            "id": t["id"], "title": t.get("title"), "bucket_name": t.get("bucket_name"),
+            "url": t.get("url"), "due_on": t.get("due_on"), "hdd": t.get("hdd"),
+            "has_hdd": t.get("has_hdd"), "hdd_stale": t.get("hdd_stale"),
+            "est": est, "logged": t.get("logged", 0), "over_by": t.get("over_by", 0),
+            "total_hours": t.get("total_hours", 0),
+            "progress": t.get("progress", 0), "category": t.get("category"),
+            "in_revisions": t.get("in_revisions", False),
+            "revisions_since": t.get("revisions_since"),
+            "is_complete": t.get("is_complete", False), "is_misc": t.get("is_misc", False),
+            "step_complete": bool((t.get("designer_step") or {}).get("completed")),
+        })
+    return {"name": d["name"], "color": d["color"], "pto": pto, "todos": todos,
+            "last_updated": _cached_data.get("last_updated")}
+
+
+@app.put("/api/my/{token}/todos/{todo_id}/due")
+async def api_my_set_due(token: str, todo_id: str, request: Request):
+    """Designer self-scheduling: due_on only, and only on their own todos."""
+    d = _designer_for_token(token)
+    if not d:
+        return Response(status_code=404)
+    todo = next((t for t in d.get("todos", []) if str(t["id"]) == str(todo_id)), None)
+    if not todo:
+        return Response(status_code=403)
+    body = await request.json()
+    value = body.get("due_on")
+    if not value:
+        return {"ok": False, "error": "due_on required"}
+    bucket_id = todo.get("bucket_id")
+    if bucket_id:
+        await bc.update_todo_due(bucket_id, str(todo_id), str(value), todo.get("title", ""))
+    todo["due_on"] = str(value)
+    return {"ok": True}
+
+
+@app.get("/api/designer-links")
+async def api_designer_links(pin: str = ""):
+    if pin != "1868":
+        return Response(status_code=403)
+    links = []
+    for d in DESIGNERS:
+        token = store.ensure_designer_token(d["bc_id"])
+        links.append({"name": d["name"], "url": f"/my/{token}"})
+    return links
 
 
 @app.get("/api/pto")

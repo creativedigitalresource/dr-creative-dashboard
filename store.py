@@ -45,6 +45,11 @@ def init_db():
                 updated_at REAL DEFAULT (unixepoch()),
                 PRIMARY KEY (todo_id, field)
             );
+            CREATE TABLE IF NOT EXISTS designer_tokens (
+                designer_bc_id TEXT PRIMARY KEY,
+                token TEXT NOT NULL UNIQUE,
+                created_at REAL DEFAULT (unixepoch())
+            );
             CREATE TABLE IF NOT EXISTS pto (
                 id INTEGER PRIMARY KEY AUTOINCREMENT,
                 designer_bc_id TEXT NOT NULL,
@@ -195,6 +200,31 @@ def get_all_overrides() -> dict:
     for r in rows:
         result.setdefault(r["todo_id"], {})[r["field"]] = r["value"]
     return result
+
+
+def ensure_designer_token(designer_bc_id: str) -> str:
+    """Return the designer's access token, creating one if missing."""
+    import secrets
+    with get_db() as c:
+        row = c.execute(
+            "SELECT token FROM designer_tokens WHERE designer_bc_id=?",
+            (str(designer_bc_id),)).fetchone()
+        if row:
+            return row["token"]
+        token = secrets.token_urlsafe(12)
+        c.execute(
+            "INSERT INTO designer_tokens (designer_bc_id, token) VALUES (?, ?)",
+            (str(designer_bc_id), token))
+        return token
+
+
+def resolve_designer_token(token: str) -> str | None:
+    """Return the designer_bc_id for a token, or None."""
+    with get_db() as c:
+        row = c.execute(
+            "SELECT designer_bc_id FROM designer_tokens WHERE token=?",
+            (token,)).fetchone()
+        return row["designer_bc_id"] if row else None
 
 
 def add_pto(designer_bc_id: str, date: str, note: str = ""):

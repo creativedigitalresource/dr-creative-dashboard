@@ -1,0 +1,28 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>My Week — DR Creative</title>
+  <link rel="stylesheet" href="/static/style.css" />
+</head>
+<body>
+  <div id="app">
+    <header class="app-header">
+      <div class="header-left">
+        <span class="logo">DR Creative</span>
+        <span class="header-subtitle" id="my-subtitle">My Week</span>
+      </div>
+      <div class="header-right">
+        <span id="last-updated" class="last-updated"></span>
+        <button id="refresh-btn" class="btn btn-ghost" onclick="myRefresh()">&#8635; Refresh</button>
+      </div>
+    </header>
+    <div class="my-page" id="my-root">
+      <div class="loading-card">Loading your week…</div>
+    </div>
+  </div>
+  <script src="/static/shared.js"></script>
+  <script src="/static/designer.js"></script>
+</body>
+</html>

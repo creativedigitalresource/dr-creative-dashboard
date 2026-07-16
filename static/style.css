@@ -892,3 +892,25 @@ body { min-height: 100vh; }
 .cap-sim-note { font-size: 12px; color: #b45309; font-weight: 600; }
 .cap-table td.simmed { color: #b45309; font-weight: 600; }
 .analytics-stat-card.simmed-card { border-color: #fcd34d; background: #fffdf5; }
+
+/* ============================================================
+   Designer view (/my/{token}) — one person's week
+   ============================================================ */
+.my-page { padding: 24px 28px; max-width: 1180px; margin: 0 auto; display: flex; flex-direction: column; }
+.my-pulse { display: flex; align-items: center; gap: 16px; flex-wrap: wrap; }
+.my-pulse-info { min-width: 140px; }
+.my-pulse-sub { font-size: 12px; color: var(--text-muted); margin-top: 2px; }
+.my-pulse-bar { flex: 1; min-width: 220px; }
+.my-chips { display: flex; gap: 8px; flex-wrap: wrap; margin-top: 14px; }
+.my-chip {
+  font-size: 12px; font-weight: 600; padding: 4px 12px; border-radius: 20px;
+  background: var(--surface2); border: 1px solid var(--border); color: var(--text-muted);
+}
+.my-chip.red    { background: var(--danger-light);  border-color: #fecaca; color: var(--danger); }
+.my-chip.amber  { background: var(--warning-light); border-color: #fcd34d; color: #b45309; }
+.my-chip.purple { background: #fdf4ff; border-color: #f0abfc; color: #a21caf; }
+.my-chip.ok     { background: var(--success-light); border-color: #a7f3d0; color: #047857; }
+.my-planner { display: grid; grid-template-columns: repeat(6, 1fr); gap: 10px; }
+.my-unscheduled { background: var(--surface2); }
+.my-day-hours { font-size: 11px; font-weight: 700; color: var(--text-muted); margin-top: 2px; font-variant-numeric: tabular-nums; }
+@media (max-width: 980px) { .my-planner { grid-template-columns: repeat(2, 1fr); } }
