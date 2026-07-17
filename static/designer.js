@@ -72,8 +72,8 @@ function renderMe() {
   const ticker = kudos.length ? `
     <div class="kudos-ticker" id="kudos-ticker">
       <span class="kudos-label">&#127881; Kudos</span>
-      <a class="kudos-msg" id="kudos-msg" target="_blank" href="${esc(kudos[0].permalink || "#")}"></a>
-      <span class="kudos-count">${kudos.length} shout-out${kudos.length === 1 ? "" : "s"}</span>
+      <div class="kudos-wheel" id="kudos-wheel"></div>
+      <span class="kudos-count">${kudos.length} shout-out${kudos.length === 1 ? "" : "s"} &middot; 6 mo</span>
     </div>` : "";
   const mm = d.manager_message;
   const mmBanner = mm ? `
@@ -116,7 +116,7 @@ function renderMe() {
   renderMyPlanner();
   renderMyAttention(active, d.color);
   initNotes();
-  initKudosTicker();
+  initKudosWheel();
 }
 
 let _notesTimer = null;
@@ -139,25 +139,47 @@ function initNotes() {
   });
 }
 
-let _kudosIdx = 0, _kudosTimer = null;
-function initKudosTicker() {
-  const el = document.getElementById("kudos-msg");
-  if (!el) return;
-  const kudos = _me.kudos || [];
-  const show = i => {
-    const k = kudos[i % kudos.length];
-    el.classList.remove("show");
-    setTimeout(() => {
-      el.textContent = `"${truncate(k.text, 140)}" — ${k.author}`;
-      el.href = k.permalink || "#";
-      el.classList.add("show");
-    }, 250);
-  };
-  show(0);
+let _kudosTimer = null;
+const KUDOS_HOLD_MS = 6500; // how long each shout-out sits centered before rolling on
+
+// Watch-crown wheel: the next kudos rolls in from above, settles in the
+// middle, holds, then rolls down and out as its successor arrives
+function initKudosWheel() {
+  const wheel = document.getElementById("kudos-wheel");
   clearInterval(_kudosTimer);
-  if (kudos.length > 1) {
-    _kudosTimer = setInterval(() => { _kudosIdx = (_kudosIdx + 1) % kudos.length; show(_kudosIdx); }, 7000);
-  }
+  if (!wheel) return;
+  const kudos = _me.kudos || [];
+  if (!kudos.length) return;
+
+  const make = k => {
+    const a = document.createElement("a");
+    a.className = "kudos-item";
+    a.target = "_blank";
+    a.href = k.permalink || "#";
+    a.textContent = `"${truncate(k.text, 140)}" — ${k.author}`;
+    return a;
+  };
+
+  let idx = 0;
+  let cur = make(kudos[0]);
+  cur.classList.add("center");
+  wheel.replaceChildren(cur);
+  if (kudos.length < 2) return;
+
+  _kudosTimer = setInterval(() => {
+    idx = (idx + 1) % kudos.length;
+    const next = make(kudos[idx]);
+    next.classList.add("above");
+    wheel.appendChild(next);
+    const old = cur;
+    cur = next;
+    // double rAF: paint the off-screen position first, then transition
+    requestAnimationFrame(() => requestAnimationFrame(() => {
+      old.classList.replace("center", "below");
+      next.classList.replace("above", "center");
+    }));
+    setTimeout(() => old.remove(), 1000);
+  }, KUDOS_HOLD_MS);
 }
 
 function renderMyAttention(active, color) {

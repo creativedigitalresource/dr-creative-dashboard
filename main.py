@@ -520,7 +520,7 @@ async def api_my(token: str):
     return {"name": d["name"], "color": d["color"], "pto": pto, "todos": todos,
             "planner_order": store.get_planner_order(d["bc_id"]),
             "notes": store.get_designer_note(d["bc_id"]),
-            "kudos": store.get_kudos(d["bc_id"]),
+            "kudos": store.get_kudos(d["bc_id"], since_ts=str(int(time.time() - 183 * 86400))),
             "manager_message": manager_message,
             "shipped_week": store.count_completions_since(d["bc_id"], week_start),
             "last_updated": _cached_data.get("last_updated")}

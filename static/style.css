@@ -942,13 +942,27 @@ input.cal-filter-select { font-weight: 500; }
   box-shadow: var(--shadow-sm); margin-bottom: 16px; min-height: 44px;
 }
 .kudos-label { font-size: 11px; font-weight: 800; letter-spacing: .06em; text-transform: uppercase; color: #b45309; white-space: nowrap; }
-.kudos-msg {
-  flex: 1; font-size: 13px; color: var(--text); text-decoration: none;
-  opacity: 0; transition: opacity .4s ease;
-  white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+/* Kudos wheel — items roll vertically through a one-line window like a
+   watch crown: in from the top, hold centered, out through the bottom */
+.kudos-wheel {
+  position: relative; flex: 1; min-width: 0; height: 20px;
+  overflow: hidden; perspective: 320px;
 }
-.kudos-msg.show { opacity: 1; }
-.kudos-msg:hover { color: var(--accent); }
+.kudos-item {
+  position: absolute; inset: 0;
+  font-size: 13px; line-height: 20px; color: var(--text); text-decoration: none;
+  white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+  transition: transform .85s cubic-bezier(.22, .61, .36, 1), opacity .85s ease;
+  will-change: transform, opacity;
+}
+.kudos-item:hover { color: var(--accent); }
+.kudos-item.above  { transform: translateY(-120%) rotateX(58deg) scale(.9); opacity: 0; }
+.kudos-item.center { transform: translateY(0) rotateX(0) scale(1); opacity: 1; }
+.kudos-item.below  { transform: translateY(120%) rotateX(-58deg) scale(.9); opacity: 0; }
+@media (prefers-reduced-motion: reduce) {
+  .kudos-item { transition: opacity .4s ease; }
+  .kudos-item.above, .kudos-item.below { transform: none; }
+}
 .kudos-count { font-size: 11px; font-weight: 700; color: var(--text-muted); background: var(--surface2); border-radius: 12px; padding: 2px 9px; white-space: nowrap; }
 
 .mm-banner {

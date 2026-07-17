@@ -485,11 +485,12 @@ def add_kudos(designer_bc_id: str, text: str, author: str, slack_ts: str, permal
         return cur.rowcount > 0
 
 
-def get_kudos(designer_bc_id: str, limit: int = 20) -> list:
+def get_kudos(designer_bc_id: str, since_ts: str = "", limit: int = 200) -> list:
+    # slack_ts is an epoch-seconds string; lexicographic >= works until year 2286
     with get_db() as c:
         rows = c.execute(
-            "SELECT text, author, slack_ts, permalink FROM kudos WHERE designer_bc_id=? ORDER BY slack_ts DESC LIMIT ?",
-            (str(designer_bc_id), limit)).fetchall()
+            "SELECT text, author, slack_ts, permalink FROM kudos WHERE designer_bc_id=? AND slack_ts >= ? ORDER BY slack_ts DESC LIMIT ?",
+            (str(designer_bc_id), since_ts, limit)).fetchall()
     return [dict(r) for r in rows]
 
 
