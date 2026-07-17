@@ -146,7 +146,7 @@ async function fetchWithTimeout(url, opts = {}, ms = 15000) {
 }
 
 async function loadAll() {
-  await Promise.all([loadUnassigned(), loadDesigners()]);
+  await Promise.all([loadUnassigned(), loadDesigners(), loadMyStuff()]);
   await loadCalendar();
   updateLastUpdated();
   resetRefreshBtn();
@@ -655,9 +655,13 @@ window.__commitField = async (todoId, field, val) => {
       }
     }
   }
-  if (field === "category") { renderOverview(); return; }
+  for (const t of _meData?.todos || []) {
+    if (String(t.id) === String(todoId)) applyFieldLocal(t, field, val);
+  }
+  if (field === "category") { renderOverview(); renderMyStuff(); return; }
   renderDesignerGrid(_designerData);
   renderOverview();
+  renderMyStuff();
   await loadCalendar();
   updateLastUpdated();
 };
@@ -1068,6 +1072,116 @@ function renderAttention(stats) {
   return panel("Past Due", pastDueRows, "Nothing past due.")
        + panel("At Risk", atRiskRows, "Nothing at risk in the next two days.")
        + panel("Needs a Decision", decisionRows, "No pending decisions.");
+}
+
+// ---------------------------------------------------------------------------
+// My Stuff — Richard's own todos, same anatomy as a designer page:
+// personal pulse + editable table, then Past Due / At Risk / Needs a Decision
+// ---------------------------------------------------------------------------
+
+let _meData = null;
+
+async function loadMyStuff() {
+  const data = await fetchWithTimeout("/api/me").then(r => r.json()).catch(() => null);
+  if (!data || data.warming) return; // loadAll re-runs when the refresh lands
+  _meData = data;
+  renderMyStuff();
+}
+
+function renderMyStuff() {
+  const root = document.getElementById("my-stuff-root");
+  if (!root) return;
+  if (!_meData) {
+    root.innerHTML = `<div class="loading-card">Fetching your tasks from Basecamp — may take up to 60s on first load…</div>`;
+    return;
+  }
+  const d = _meData;
+  const { weekly_est, cap, pct, pto_days } = calcCapacity(d.todos, d.pto, 0);
+  const free = Math.round((cap - weekly_est) * 10) / 10;
+  const active = (d.todos || []).filter(t => !t.is_complete && !t.is_misc);
+
+  root.innerHTML = `
+    <div class="pulse-panel">
+      <div class="my-pulse">
+        <div class="avatar" style="background:${d.color}">${initialsOf(d.name)}</div>
+        <div class="my-pulse-info">
+          <div class="pulse-name">${esc(d.name)}</div>
+          <div class="my-pulse-sub">${active.length} active task${active.length === 1 ? "" : "s"} this week${pto_days ? ` · ${pto_days} OOO day${pto_days > 1 ? "s" : ""}` : ""}</div>
+        </div>
+        <div class="pulse-bar-wrap my-pulse-bar">
+          <div class="cap-bar-outer"><div class="cap-bar-inner ${_barCls(pct)}" style="width:${Math.min(100, pct)}%"></div></div>
+          <span class="pulse-pct">${pct}%</span>
+        </div>
+        <div class="pulse-free ${free <= 2 ? "low" : free <= 8 ? "mid" : "ok"}">${free < 0 ? Math.abs(free) + "h over" : free + "h free"}</div>
+      </div>
+      <div class="my-table-wrap">${buildTaskTable(active, d.color)}</div>
+    </div>
+    <div class="attention-grid">${renderMyStuffAttention(active)}</div>`;
+}
+
+function renderMyStuffAttention(active) {
+  const today = localISO(new Date());
+  const soon = localISO(new Date(Date.now() + 2 * 86400000));
+  const pastDue = [], atRisk = [], decisions = [];
+
+  for (const t of active) {
+    if (t.in_revisions) { decisions.push({ t, kind: "revision" }); continue; }
+    if (t.hdd_stale) { decisions.push({ t, kind: "stale" }); continue; }
+    if (t.hdd && t.hdd < today) {
+      const days = Math.round((new Date(today) - new Date(t.hdd)) / 86400000);
+      pastDue.push({ t, days });
+    } else if (t.hdd && t.hdd <= soon && (t.progress || 0) < 50) {
+      atRisk.push({ t });
+    }
+    const stepDone = t.designer_step && t.designer_step.completed;
+    if (!stepDone && t.true_est == null && t.est > 0 && (t.logged || 0) >= t.est) {
+      decisions.push({ t, kind: "trueest" });
+    }
+    if (t.est == null) decisions.push({ t, kind: "missing", what: "EST" });
+    else if (!t.has_hdd && !t.in_revisions) decisions.push({ t, kind: "missing", what: "HDD" });
+  }
+  pastDue.sort((a, b) => b.days - a.days);
+  atRisk.sort((a, b) => a.t.hdd.localeCompare(b.t.hdd));
+
+  const row = (t, right) => {
+    const inner = `<div class="attn-text">
+        <div class="attn-client">${esc(cleanClient(t.bucket_name)) || "&nbsp;"}</div>
+        <div class="attn-title">${esc(truncate(t.title, 52))}</div>
+      </div>
+      <div class="attn-right">${right}</div>`;
+    return t.url ? `<a class="attn-row" href="${t.url}" target="_blank">${inner}</a>`
+                 : `<div class="attn-row">${inner}</div>`;
+  };
+  const capList = rows => rows.slice(0, 8).join("") +
+    (rows.length > 8 ? `<div class="attn-more">+${rows.length - 8} more</div>` : "");
+  const panel = (label, rows, empty) => `
+    <div class="attention-panel">
+      <div class="attention-head">${label}${rows.length ? ` <span class="attention-count">${rows.length}</span>` : ""}</div>
+      ${rows.length ? capList(rows) : `<div class="attention-empty">${empty}</div>`}
+    </div>`;
+
+  const pastRows = pastDue.map(({ t, days }) =>
+    row(t, `<span class="ov-pill late">${fmtDate(t.hdd)}</span><span class="attn-days">${days}d late</span>`));
+  const riskRows = atRisk.map(({ t }) =>
+    row(t, `<span class="ov-pill soon">${fmtDate(t.hdd)}</span><span class="attn-days amber">${t.progress || 0}%</span>`));
+  const decRows = decisions.map(item => {
+    const t = item.t;
+    if (item.kind === "revision") {
+      let waiting = "";
+      if (t.revisions_since) {
+        const days = Math.max(0, Math.floor((Date.now() - new Date(t.revisions_since)) / 86400000));
+        waiting = ` ${days}d`;
+      }
+      return row(t, `<span class="ov-pill revision">&#8617; waiting${waiting}</span>`);
+    }
+    if (item.kind === "stale") return row(t, `<span class="ov-pill needed">stale HDD ${fmtDate(t.hdd)} · re-set?</span>`);
+    if (item.kind === "trueest") return row(t, `<span class="ov-pill needed">+${t.over_by}h · True EST?</span>`);
+    return row(t, `<span class="ov-pill needed">needs ${item.what}</span>`);
+  });
+
+  return panel("Past Due", pastRows, "Nothing past due.")
+       + panel("At Risk", riskRows, "Nothing at risk in the next two days.")
+       + panel("Needs a Decision", decRows, "No pending decisions.");
 }
 
 // ---------------------------------------------------------------------------

@@ -23,6 +23,10 @@ DESIGNERS = [
     {"name": "Melany",   "bc_id": 46905124, "eh_id": 1367774,  "color": "#ef4444", "slack_id": "U07RXRYNEMQ"},
 ]
 
+# Richard's own todos — fetched through the same pipeline as designers for the
+# My Stuff tab, but kept out of designers_out so team analytics stay clean
+ME = {"name": "Richard", "bc_id": 49482127, "eh_id": 1415584, "color": "#6366f1"}
+
 WEEKLY_CAP = 32.5  # 6.5h/day × 5 days (1.5h/day reserved for misc/admin)
 WORK_HOURS = 6.5
 STALE_HDD_DAYS = 14  # comment-sourced HDDs older than this are abandoned, not late
@@ -172,6 +176,115 @@ async def _refresh_all():
         _refresh_running = False
 
 
+async def _fetch_person(d: dict, overrides: dict, week_end: str) -> dict:
+    """Fetch and enrich one person's assigned todos. Used for every designer
+    and for Richard's My Stuff view — one pipeline, so the numbers never drift."""
+    todos = await asyncio.wait_for(bc.get_designer_todos(d["bc_id"]), timeout=60.0)
+    # Fetch Everhour time for all todos concurrently (max 3 at once)
+    eh_sem = asyncio.Semaphore(3)
+    async def _eh(tid):
+        async with eh_sem:
+            try:
+                return await asyncio.wait_for(eh.get_time_logged(tid), timeout=6.0)
+            except Exception:
+                return {"logged": 0.0, "estimate": None}
+    eh_data_list = await asyncio.gather(*[_eh(t["id"]) for t in todos]) if eh.EH_KEY else [{"logged": 0.0, "estimate": None}] * len(todos)
+
+    enriched = []
+    for t, eh_data in zip(todos, eh_data_list):
+        ov = overrides.get(str(t["id"]), {})
+        # Step due_on is authoritative — always wins over SQLite overrides and comment-parsed HDD
+        designer_step = t.get("designer_step")
+        step_due = designer_step.get("due_on") if designer_step else None
+        # Priority: step due_on → manual override → comment/title HDD → todo due_on
+        hdd    = step_due or ov.get("hdd") or t.get("hdd")
+        hdd_src = "step" if step_due else ("override" if ov.get("hdd") else t.get("hdd_source"))
+        # A comment deadline weeks in the past is abandoned, not late —
+        # surface it as a decision to re-set, never as days-late pressure
+        stale_cutoff = (date.today() - timedelta(days=STALE_HDD_DAYS)).isoformat()
+        hdd_stale = bool(hdd) and hdd_src == "comment" and hdd < stale_cutoff
+        pdd    = ov.get("pdd")   or t.get("pdd")
+        # EST priority: manual override > Everhour estimate > comment/title-parsed
+        # When Everhour's estimate is per-user, that breakdown is authoritative:
+        # a designer absent from it has no estimate — never inherit the task
+        # total, which may belong to another assignee (e.g. a web dev)
+        eh_uid = str(d.get("eh_id") or "")
+        if eh_data.get("estimate_type") == "users":
+            eh_est = eh_data.get("user_estimates", {}).get(eh_uid) if eh_uid else None
+        else:
+            eh_est = eh_data.get("estimate")
+        # Everhour outranks the local override: dashboard EST edits are
+        # written into Everhour, so a local copy is only a fallback for
+        # tasks Everhour doesn't know — a stale one must not shadow a
+        # later correction made in Everhour itself
+        if eh_est is not None:
+            est = eh_est
+        elif "est" in ov:
+            est = float(ov["est"])
+        else:
+            est = t.get("est")
+
+        # Logged: manual override > per-user Everhour logged. The per-user
+        # breakdown is authoritative whenever anyone has logged time — a
+        # designer absent from it logged 0, not the task total. Total is
+        # the fallback only when no breakdown exists (or no eh_id).
+        user_logged = eh_data.get("user_logged", {})
+        if eh_uid and (user_logged or not eh_data.get("logged")):
+            user_log = user_logged.get(eh_uid, 0.0)
+        else:
+            user_log = eh_data.get("logged", 0.0)
+        logged = float(ov["logged"]) if "logged" in ov else user_log
+
+        revs = 0
+        # true_est: manual corrected estimate for capacity math only —
+        # never written to Everhour, so EST-vs-actual analytics stay honest
+        true_est = float(ov["true_est"]) if "true_est" in ov else None
+        eff_est = true_est if true_est is not None else (est or 0)
+        # Floor: an estimated task's footprint is never less than hours already logged
+        total = max(eff_est, logged) if eff_est > 0 else 0
+        over_by = round(max(0, logged - eff_est), 2) if eff_est > 0 else 0
+
+        # Progress: 100% if designer's step is complete, else hours-based
+        step_complete = designer_step.get("completed", False) if designer_step else False
+        if step_complete:
+            progress = 100
+        else:
+            progress = min(100, round((logged / total * 100) if total > 0 else 0))
+
+        # has_hdd: True only when HDD comes from a real source (step, override, comment)
+        has_hdd = bool(step_due or ov.get("hdd"))
+        # Category: manual override > auto-detected
+        category = ov.get("category") or t.get("category", "Misc.")
+
+        enriched.append({
+            **t,
+            "hdd": hdd, "hdd_stale": hdd_stale,
+            "pdd": pdd, "est": est, "true_est": true_est, "revs": revs,
+            "total_hours": total,
+            "logged": logged, "progress": progress,
+            "over_by": over_by,
+            "has_hdd": has_hdd,
+            "category": category,
+            "is_misc": t.get("is_misc", False),
+            "is_complete": t.get("is_complete", False),
+            "overrides": list(ov.keys()),
+        })
+    # Weekly est: sum tasks due within this week
+    weekly_est = sum(
+        max(0, t.get("total_hours", 0) - t.get("logged", 0))
+        for t in enriched
+        if t.get("hdd") and t["hdd"] <= week_end
+        and not t.get("is_complete")
+        and not t.get("is_misc")
+        and not t.get("in_revisions")
+        and not t.get("hdd_stale"))
+    capacity_pct = min(100, round(weekly_est / WEEKLY_CAP * 100))
+    return {**d, "todos": enriched,
+            "weekly_est": round(weekly_est, 1),
+            "weekly_cap": WEEKLY_CAP,
+            "capacity_pct": capacity_pct}
+
+
 async def _do_refresh():
     today = date.today()
     week_start = (today - timedelta(days=today.weekday())).isoformat()
@@ -195,111 +308,9 @@ async def _do_refresh():
     for d in DESIGNERS:
         print(f"[refresh] fetching {d['name']}...")
         try:
-            todos = await asyncio.wait_for(bc.get_designer_todos(d["bc_id"]), timeout=60.0)
-            # Fetch Everhour time for all todos concurrently (max 3 at once)
-            eh_sem = asyncio.Semaphore(3)
-            async def _eh(tid):
-                async with eh_sem:
-                    try:
-                        return await asyncio.wait_for(eh.get_time_logged(tid), timeout=6.0)
-                    except Exception:
-                        return {"logged": 0.0, "estimate": None}
-            eh_data_list = await asyncio.gather(*[_eh(t["id"]) for t in todos]) if eh.EH_KEY else [{"logged": 0.0, "estimate": None}] * len(todos)
-
-            enriched = []
-            for t, eh_data in zip(todos, eh_data_list):
-                ov = overrides.get(str(t["id"]), {})
-                # Step due_on is authoritative — always wins over SQLite overrides and comment-parsed HDD
-                designer_step = t.get("designer_step")
-                step_due = designer_step.get("due_on") if designer_step else None
-                # Priority: step due_on → manual override → comment/title HDD → todo due_on
-                hdd    = step_due or ov.get("hdd") or t.get("hdd")
-                hdd_src = "step" if step_due else ("override" if ov.get("hdd") else t.get("hdd_source"))
-                # A comment deadline weeks in the past is abandoned, not late —
-                # surface it as a decision to re-set, never as days-late pressure
-                stale_cutoff = (date.today() - timedelta(days=STALE_HDD_DAYS)).isoformat()
-                hdd_stale = bool(hdd) and hdd_src == "comment" and hdd < stale_cutoff
-                pdd    = ov.get("pdd")   or t.get("pdd")
-                # EST priority: manual override > Everhour estimate > comment/title-parsed
-                # When Everhour's estimate is per-user, that breakdown is authoritative:
-                # a designer absent from it has no estimate — never inherit the task
-                # total, which may belong to another assignee (e.g. a web dev)
-                eh_uid = str(d.get("eh_id") or "")
-                if eh_data.get("estimate_type") == "users":
-                    eh_est = eh_data.get("user_estimates", {}).get(eh_uid) if eh_uid else None
-                else:
-                    eh_est = eh_data.get("estimate")
-                # Everhour outranks the local override: dashboard EST edits are
-                # written into Everhour, so a local copy is only a fallback for
-                # tasks Everhour doesn't know — a stale one must not shadow a
-                # later correction made in Everhour itself
-                if eh_est is not None:
-                    est = eh_est
-                elif "est" in ov:
-                    est = float(ov["est"])
-                else:
-                    est = t.get("est")
-
-                # Logged: manual override > per-user Everhour logged. The per-user
-                # breakdown is authoritative whenever anyone has logged time — a
-                # designer absent from it logged 0, not the task total. Total is
-                # the fallback only when no breakdown exists (or no eh_id).
-                user_logged = eh_data.get("user_logged", {})
-                if eh_uid and (user_logged or not eh_data.get("logged")):
-                    user_log = user_logged.get(eh_uid, 0.0)
-                else:
-                    user_log = eh_data.get("logged", 0.0)
-                logged = float(ov["logged"]) if "logged" in ov else user_log
-
-                revs = 0
-                # true_est: manual corrected estimate for capacity math only —
-                # never written to Everhour, so EST-vs-actual analytics stay honest
-                true_est = float(ov["true_est"]) if "true_est" in ov else None
-                eff_est = true_est if true_est is not None else (est or 0)
-                # Floor: an estimated task's footprint is never less than hours already logged
-                total = max(eff_est, logged) if eff_est > 0 else 0
-                over_by = round(max(0, logged - eff_est), 2) if eff_est > 0 else 0
-
-                # Progress: 100% if designer's step is complete, else hours-based
-                step_complete = designer_step.get("completed", False) if designer_step else False
-                if step_complete:
-                    progress = 100
-                else:
-                    progress = min(100, round((logged / total * 100) if total > 0 else 0))
-
-                # has_hdd: True only when HDD comes from a real source (step, override, comment)
-                has_hdd = bool(step_due or ov.get("hdd"))
-                # Category: manual override > auto-detected
-                category = ov.get("category") or t.get("category", "Misc.")
-
-                enriched.append({
-                    **t,
-                    "hdd": hdd, "hdd_stale": hdd_stale,
-                    "pdd": pdd, "est": est, "true_est": true_est, "revs": revs,
-                    "total_hours": total,
-                    "logged": logged, "progress": progress,
-                    "over_by": over_by,
-                    "has_hdd": has_hdd,
-                    "category": category,
-                    "is_misc": t.get("is_misc", False),
-                    "is_complete": t.get("is_complete", False),
-                    "overrides": list(ov.keys()),
-                })
-            # Weekly est: sum tasks due within this week
-            weekly_est = sum(
-                max(0, t.get("total_hours", 0) - t.get("logged", 0))
-                for t in enriched
-                if t.get("hdd") and t["hdd"] <= week_end
-                and not t.get("is_complete")
-                and not t.get("is_misc")
-                and not t.get("in_revisions")
-                and not t.get("hdd_stale"))
-            capacity_pct = min(100, round(weekly_est / WEEKLY_CAP * 100))
-            designers_out.append({**d, "todos": enriched,
-                                   "weekly_est": round(weekly_est, 1),
-                                   "weekly_cap": WEEKLY_CAP,
-                                   "capacity_pct": capacity_pct})
-            print(f"[refresh] {d['name']}: {len(enriched)} todos")
+            person = await _fetch_person(d, overrides, week_end)
+            designers_out.append(person)
+            print(f"[refresh] {d['name']}: {len(person['todos'])} todos")
         except asyncio.TimeoutError:
             print(f"[refresh] {d['name']} timed out")
             designers_out.append({**d, "todos": [], "weekly_est": 0,
@@ -309,12 +320,22 @@ async def _do_refresh():
             designers_out.append({**d, "todos": [], "weekly_est": 0,
                                    "weekly_cap": WEEKLY_CAP, "capacity_pct": 0})
 
+    # Richard's own todos — same pipeline, never in designers_out
+    print("[refresh] fetching Richard (My Stuff)...")
+    try:
+        me_out = await _fetch_person(ME, overrides, week_end)
+        print(f"[refresh] Richard: {len(me_out['todos'])} todos")
+    except Exception as e:
+        print(f"[refresh] Richard error: {type(e).__name__}: {e}")
+        me_out = _cached_data.get("me") or {**ME, "todos": [], "weekly_est": 0,
+                                            "weekly_cap": WEEKLY_CAP, "capacity_pct": 0}
+
     def _is_dr_internal(bucket_name: str) -> bool:
         bn = (bucket_name or "").lower()
         return "digital resource" in bn or "dr team" in bn
 
     # Sort: client work first → due_on → has_hdd → hdd value
-    for d in designers_out:
+    for d in designers_out + [me_out]:
         d["todos"].sort(key=lambda t: (
             1 if _is_dr_internal(t.get("bucket_name", "")) else 0,
             t.get("due_on") or "9999-99-99",
@@ -331,6 +352,7 @@ async def _do_refresh():
 
     _cached_data["unassigned"] = unassigned
     _cached_data["designers"] = designers_out
+    _cached_data["me"] = me_out
     _cached_data["last_updated"] = refresh_ts
     print(f"[refresh] done — {len(unassigned)} unassigned, {len(designers_out)} designers")
 
@@ -437,18 +459,8 @@ async def designer_page(token: str):
     return FileResponse("static/designer.html")
 
 
-@app.get("/api/my/{token}")
-async def api_my(token: str):
-    # Invalid token is a hard 404; a valid token with a cold cache (fresh
-    # deploy) gets a warming signal so the page can wait and retry
-    if not store.resolve_designer_token(token):
-        return Response(status_code=404)
-    if _cache_is_stale() and not _refresh_running:
-        asyncio.create_task(_refresh_all())
-    d = _designer_for_token(token)
-    if not d:
-        return {"warming": True}
-    pto = store.get_all_pto().get(str(d["bc_id"]), [])
+def _public_todos(d: dict) -> list:
+    """Client-safe todo projection shared by the designer page and My Stuff."""
     todos = []
     for t in d.get("todos", []):
         todos.append({
@@ -466,6 +478,36 @@ async def api_my(token: str):
             "step_complete": bool((t.get("designer_step") or {}).get("completed")),
             "designer_step": {"completed": bool((t.get("designer_step") or {}).get("completed"))} if t.get("designer_step") else None,
         })
+    return todos
+
+
+@app.get("/api/me")
+async def api_me():
+    """Richard's own assigned todos — feeds the My Stuff tab on the main dashboard."""
+    if _cache_is_stale() and not _refresh_running:
+        asyncio.create_task(_refresh_all())
+    me = _cached_data.get("me")
+    if not me:
+        return {"warming": True}
+    pto = store.get_all_pto().get(str(ME["bc_id"]), [])
+    return {"name": me["name"], "color": me["color"], "pto": pto,
+            "todos": _public_todos(me),
+            "last_updated": _cached_data.get("last_updated")}
+
+
+@app.get("/api/my/{token}")
+async def api_my(token: str):
+    # Invalid token is a hard 404; a valid token with a cold cache (fresh
+    # deploy) gets a warming signal so the page can wait and retry
+    if not store.resolve_designer_token(token):
+        return Response(status_code=404)
+    if _cache_is_stale() and not _refresh_running:
+        asyncio.create_task(_refresh_all())
+    d = _designer_for_token(token)
+    if not d:
+        return {"warming": True}
+    pto = store.get_all_pto().get(str(d["bc_id"]), [])
+    todos = _public_todos(d)
     today = date.today()
     week_start = (today - timedelta(days=today.weekday())).isoformat()
     msg_at = store.get_token("manager_message_at")
@@ -621,10 +663,13 @@ async def set_todo_fields(todo_id: str, request: Request):
     """Update todo fields — HDD writes to Basecamp step, EST writes to Everhour."""
     body = await request.json()
 
-    # Find the todo and its designer in the cache
+    # Find the todo and its person in the cache — designers plus Richard (My Stuff)
     cached_todo = None
     cached_designer = None
-    for d in _cached_data.get("designers", []):
+    people = list(_cached_data.get("designers", []))
+    if _cached_data.get("me"):
+        people.append(_cached_data["me"])
+    for d in people:
         for t in d.get("todos", []):
             if str(t["id"]) == str(todo_id):
                 cached_todo = t
