@@ -1246,6 +1246,85 @@ let _analyticsData = null;
 let _analyticsSection = "capacity";
 let _capacityData = null;
 
+// Analytics filters — apply to Completions / Weekly Capacity / Queue /
+// Categories. Capacity has its own controls and ignores these.
+const _anFilters = { designer: "", category: "", client: "", status: "", month: "", year: "", from: "", to: "" };
+const _AN_MONTHS = ["January","February","March","April","May","June",
+                    "July","August","September","October","November","December"];
+
+function _anFilterActive() { return Object.values(_anFilters).some(v => v !== ""); }
+
+// Completion day = when the dashboard detected the task as done
+function _completionDay(c) {
+  return c.recorded_at ? localISO(new Date(c.recorded_at * 1000)) : (c.week_start || "");
+}
+
+function _anDateMatch(iso) {
+  const f = _anFilters;
+  if (!iso) return !f.month && !f.year && !f.from && !f.to;
+  if (f.year  && iso.slice(0, 4) !== f.year)  return false;
+  if (f.month && iso.slice(5, 7) !== f.month) return false;
+  if (f.from  && iso < f.from) return false;
+  if (f.to    && iso > f.to)   return false;
+  return true;
+}
+
+function _filteredCompletions() {
+  const f = _anFilters;
+  return (_analyticsData?.completions || []).filter(c =>
+    (!f.designer || c.designer_name === f.designer) &&
+    (!f.category || c.category === f.category) &&
+    (!f.client   || c.client_name === f.client) &&
+    (!f.status   || (f.status === "late") === !!c.was_hdd_miss) &&
+    _anDateMatch(_completionDay(c))
+  );
+}
+
+function renderAnalyticsFilters() {
+  const bar = document.getElementById("analytics-filters");
+  if (!bar || !_analyticsData) return;
+  const comps = _analyticsData.completions || [];
+  const uniq = arr => [...new Set(arr.filter(Boolean))].sort();
+
+  const sel = (key, label, opts) => `
+    <label class="an-filter"><span>${label}</span>
+      <select class="cal-filter-select" data-anfilter="${key}">
+        <option value="">All</option>
+        ${opts.map(o => {
+          const v = String(o.v ?? o), t = String(o.t ?? o);
+          return `<option value="${esc(v)}"${v === _anFilters[key] ? " selected" : ""}>${esc(t)}</option>`;
+        }).join("")}
+      </select>
+    </label>`;
+
+  bar.innerHTML = `
+    ${sel("designer", "Designer", uniq(comps.map(c => c.designer_name)))}
+    ${sel("category", "Category", uniq(comps.map(c => c.category)))}
+    ${sel("client",   "Client",   uniq(comps.map(c => c.client_name)))}
+    ${sel("status",   "Status",   [{ v: "ontime", t: "On time" }, { v: "late", t: "Late" }])}
+    ${sel("month",    "Month",    _AN_MONTHS.map((m, i) => ({ v: String(i + 1).padStart(2, "0"), t: m })))}
+    ${sel("year",     "Year",     uniq(comps.map(c => _completionDay(c).slice(0, 4))))}
+    <label class="an-filter"><span>From</span>
+      <input type="date" class="cal-filter-select" data-anfilter="from" value="${_anFilters.from}"></label>
+    <label class="an-filter"><span>To</span>
+      <input type="date" class="cal-filter-select" data-anfilter="to" value="${_anFilters.to}"></label>
+    <button id="an-filter-clear" class="section-btn an-filter-clear${_anFilterActive() ? "" : " hidden"}">Clear ✕</button>
+  `;
+
+  bar.querySelectorAll("[data-anfilter]").forEach(el => {
+    el.onchange = () => {
+      _anFilters[el.dataset.anfilter] = el.value;
+      renderAnalyticsFilters();
+      renderAnalyticsSection(_analyticsSection);
+    };
+  });
+  document.getElementById("an-filter-clear").onclick = () => {
+    for (const k of Object.keys(_anFilters)) _anFilters[k] = "";
+    renderAnalyticsFilters();
+    renderAnalyticsSection(_analyticsSection);
+  };
+}
+
 // Service capacity — series colors validated against white surface
 // (dataviz palette; All is the aggregate and wears neutral ink, not a slot)
 const CAP_SERIES = [
@@ -1291,7 +1370,7 @@ async function loadAnalytics() {
   try {
     const r = await fetch("/api/analytics");
     _analyticsData = await r.json();
-    renderAnalyticsStats(_analyticsData);
+    renderAnalyticsFilters();
     renderAnalyticsSection(_analyticsSection);
     initAnalyticsSectionBtns();
   } catch (e) {
@@ -1310,11 +1389,7 @@ function initAnalyticsSectionBtns() {
   });
 }
 
-function renderAnalyticsStats(data) {
-  const completions = data.completions || [];
-  const snapshots   = data.weekly_snapshots || [];
-  const queue       = data.queue_time || [];
-
+function renderAnalyticsStats(completions, queue) {
   const total = completions.length;
   const withBoth = completions.filter(c => c.est_hours > 0 && c.logged_hours > 0);
   const avgAccuracy = withBoth.length
@@ -1334,7 +1409,7 @@ function renderAnalyticsStats(data) {
     </div>`;
 
   document.getElementById("analytics-stats").innerHTML = `
-    ${stat("Tasks Completed", total, "all time")}
+    ${stat("Tasks Completed", total, _anFilterActive() ? "filtered" : "all time")}
     ${stat("EST Accuracy", avgAccuracy !== null ? avgAccuracy + "%" : "—", "avg logged vs est")}
     ${stat("HDD Miss Rate", missRate !== null ? missRate + "%" : "—", "completed after deadline")}
     ${stat("Avg Queue Time", avgQueue !== null ? avgQueue + "h" : "—", "unassigned → claimed")}
@@ -1545,21 +1620,36 @@ function drawCapacityChart(mount, d, moLabel) {
 
 function renderAnalyticsSection(section) {
   const el = document.getElementById("analytics-content");
-  // The completions-based stat strip is noise on the capacity section
+  // The completions-based stat strip and filters are noise on the capacity section
   document.getElementById("analytics-stats")?.classList.toggle("hidden", section === "capacity");
+  document.getElementById("analytics-filters")?.classList.toggle("hidden", section === "capacity");
   if (section === "capacity") { renderCapacitySection(el); return; }
   if (!_analyticsData) return;
-  const { completions, weekly_snapshots, queue_time, category_volume } = _analyticsData;
+
+  const f = _anFilters;
+  const completions = _filteredCompletions();
+  const weekly_snapshots = (_analyticsData.weekly_snapshots || []).filter(x =>
+    (!f.designer || x.designer_name === f.designer) && _anDateMatch(x.week_start));
+  const queue_time = (_analyticsData.queue_time || []).filter(x =>
+    (!f.client || x.client_name === f.client) &&
+    _anDateMatch(x.recorded_at ? localISO(new Date(x.recorded_at * 1000)) : ""));
+  const category_volume = (_analyticsData.category_volume || []).filter(x =>
+    (!f.designer || x.designer_name === f.designer) &&
+    (!f.category || x.category === f.category) &&
+    _anDateMatch(x.week_start));
+
+  renderAnalyticsStats(completions, queue_time);
+  const empty = base => _noData(_anFilterActive() ? "Nothing matches the current filters." : base);
 
   if (section === "completions") {
-    if (!completions.length) { el.innerHTML = _noData("No completions recorded yet."); return; }
+    if (!completions.length) { el.innerHTML = empty("No completions recorded yet."); return; }
     const rows = completions.map(c => {
       const variance = (c.est_hours > 0 && c.logged_hours > 0)
         ? (c.logged_hours - c.est_hours).toFixed(1)
         : "—";
       const varCls = variance !== "—" ? (parseFloat(variance) > 0 ? "style='color:var(--danger)'" : "style='color:var(--success)'") : "";
       return `<tr>
-        <td>${fmtDate(c.week_start)}</td>
+        <td>${fmtDate(_completionDay(c))}</td>
         <td>${esc(c.designer_name)}</td>
         <td class="text-muted">${esc(truncate(c.client_name, 28))}</td>
         <td>${esc(truncate(c.title, 48))}</td>
@@ -1571,12 +1661,12 @@ function renderAnalyticsSection(section) {
       </tr>`;
     }).join("");
     el.innerHTML = `<div class="table-wrap"><table class="data-table">
-      <thead><tr><th>Week</th><th>Designer</th><th>Client</th><th>Task</th><th>Category</th><th>EST</th><th>Logged</th><th>Variance</th><th>HDD</th></tr></thead>
+      <thead><tr><th>Date</th><th>Designer</th><th>Client</th><th>Task</th><th>Category</th><th>EST</th><th>Logged</th><th>Variance</th><th>HDD</th></tr></thead>
       <tbody>${rows}</tbody>
     </table></div>`;
 
   } else if (section === "snapshots") {
-    if (!weekly_snapshots.length) { el.innerHTML = _noData("No weekly snapshots yet."); return; }
+    if (!weekly_snapshots.length) { el.innerHTML = empty("No weekly snapshots yet."); return; }
     const rows = weekly_snapshots.map(s => {
       const pct = s.capacity_pct;
       const barCls = pct >= 90 ? "bar-danger" : pct >= 70 ? "bar-warn" : "bar-ok";
@@ -1600,7 +1690,7 @@ function renderAnalyticsSection(section) {
     </table></div>`;
 
   } else if (section === "queue") {
-    if (!queue_time.length) { el.innerHTML = _noData("No queue time recorded yet."); return; }
+    if (!queue_time.length) { el.innerHTML = empty("No queue time recorded yet."); return; }
     const sorted = [...queue_time].sort((a, b) => b.hours_in_queue - a.hours_in_queue);
     const rows = sorted.map(q => `<tr>
       <td>${esc(truncate(q.title, 56))}</td>
@@ -1613,7 +1703,7 @@ function renderAnalyticsSection(section) {
     </table></div>`;
 
   } else if (section === "categories") {
-    if (!category_volume.length) { el.innerHTML = _noData("No category data yet."); return; }
+    if (!category_volume.length) { el.innerHTML = empty("No category data yet."); return; }
     const rows = category_volume.map(v => `<tr>
       <td>${fmtDate(v.week_start)}</td>
       <td>${esc(v.designer_name)}</td>
@@ -1636,3 +1726,25 @@ function _noData(msg) {
 // ---------------------------------------------------------------------------
 
 document.addEventListener("DOMContentLoaded", boot);
+
+
+// ---------------------------------------------------------------------------
+// Weekly manager message (shown on designer pages)
+// ---------------------------------------------------------------------------
+
+function toggleMM() {
+  document.getElementById("mm-editor")?.classList.toggle("hidden");
+}
+
+async function saveMM() {
+  const text = document.getElementById("mm-text").value.trim();
+  const status = document.getElementById("mm-status");
+  if (!text) { status.textContent = "Write something first."; return; }
+  const r = await fetch("/api/manager-message?pin=1868", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ text }),
+  });
+  status.textContent = r.ok ? "Posted — designers will see it for 10 days." : "Failed to post.";
+  if (r.ok) setTimeout(toggleMM, 1200);
+}

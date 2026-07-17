@@ -48,9 +48,18 @@
         <div class="pulse-panel">
           <div class="overview-panel-head">
             <h2>Team Pulse</h2>
+            <button class="btn btn-ghost btn-sm" onclick="toggleMM()" title="Posted to every designer's page for 10 days">&#9998; Weekly message</button>
             <div class="pulse-sort" id="pulse-sort">
               <button class="sort-btn active" data-sort="load" onclick="setPulseSort('load')">By load</button>
               <button class="sort-btn" data-sort="free" onclick="setPulseSort('free')">By availability</button>
+            </div>
+          </div>
+          <div id="mm-editor" class="mm-editor hidden">
+            <textarea id="mm-text" placeholder="Message of the week for the team — shows on every designer's page…"></textarea>
+            <div class="mm-editor-actions">
+              <button class="btn btn-primary btn-sm" onclick="saveMM()">Post to team</button>
+              <button class="btn btn-ghost btn-sm" onclick="toggleMM()">Cancel</button>
+              <span id="mm-status" class="cap-chart-sub"></span>
             </div>
           </div>
           <div id="pulse-rows" class="pulse-rows">
@@ -126,6 +135,7 @@
             <button class="section-btn" data-section="categories">Categories</button>
           </div>
         </div>
+        <div id="analytics-filters" class="analytics-filter-bar hidden"></div>
         <div id="analytics-stats" class="analytics-stats"></div>
         <div id="analytics-content" class="analytics-content"></div>
       </div>
