@@ -45,6 +45,28 @@ def init_db():
                 updated_at REAL DEFAULT (unixepoch()),
                 PRIMARY KEY (todo_id, field)
             );
+            CREATE TABLE IF NOT EXISTS planner_order (
+                designer_bc_id TEXT NOT NULL,
+                date TEXT NOT NULL,
+                todo_id TEXT NOT NULL,
+                position INTEGER NOT NULL,
+                PRIMARY KEY (designer_bc_id, date, todo_id)
+            );
+            CREATE TABLE IF NOT EXISTS designer_notes (
+                designer_bc_id TEXT PRIMARY KEY,
+                content TEXT NOT NULL DEFAULT '',
+                updated_at REAL DEFAULT (unixepoch())
+            );
+            CREATE TABLE IF NOT EXISTS kudos (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                designer_bc_id TEXT NOT NULL,
+                text TEXT NOT NULL,
+                author TEXT NOT NULL DEFAULT '',
+                slack_ts TEXT NOT NULL,
+                permalink TEXT DEFAULT '',
+                created_at REAL DEFAULT (unixepoch()),
+                UNIQUE (designer_bc_id, slack_ts)
+            );
             CREATE TABLE IF NOT EXISTS designer_tokens (
                 designer_bc_id TEXT PRIMARY KEY,
                 token TEXT NOT NULL UNIQUE,
@@ -415,3 +437,65 @@ def cache_get(key: str):
         if row and row["expires_at"] > time.time():
             return json.loads(row["value"])
         return None
+
+
+# ---------------------------------------------------------------------------
+# Designer page extras: planner order, notes, kudos
+# ---------------------------------------------------------------------------
+
+def set_planner_order(designer_bc_id: str, date: str, todo_ids: list):
+    with get_db() as c:
+        c.execute("DELETE FROM planner_order WHERE designer_bc_id=? AND date=?",
+                  (str(designer_bc_id), date))
+        for i, tid in enumerate(todo_ids):
+            c.execute("INSERT OR REPLACE INTO planner_order (designer_bc_id, date, todo_id, position) VALUES (?,?,?,?)",
+                      (str(designer_bc_id), date, str(tid), i))
+
+
+def get_planner_order(designer_bc_id: str) -> dict:
+    """Returns {date: [todo_id, ...]} sorted by position."""
+    with get_db() as c:
+        rows = c.execute(
+            "SELECT date, todo_id FROM planner_order WHERE designer_bc_id=? ORDER BY date, position",
+            (str(designer_bc_id),)).fetchall()
+    out = {}
+    for r in rows:
+        out.setdefault(r["date"], []).append(r["todo_id"])
+    return out
+
+
+def set_designer_note(designer_bc_id: str, content: str):
+    with get_db() as c:
+        c.execute("INSERT OR REPLACE INTO designer_notes (designer_bc_id, content, updated_at) VALUES (?,?,unixepoch())",
+                  (str(designer_bc_id), content))
+
+
+def get_designer_note(designer_bc_id: str) -> str:
+    with get_db() as c:
+        row = c.execute("SELECT content FROM designer_notes WHERE designer_bc_id=?",
+                        (str(designer_bc_id),)).fetchone()
+        return row["content"] if row else ""
+
+
+def add_kudos(designer_bc_id: str, text: str, author: str, slack_ts: str, permalink: str = "") -> bool:
+    with get_db() as c:
+        cur = c.execute(
+            "INSERT OR IGNORE INTO kudos (designer_bc_id, text, author, slack_ts, permalink) VALUES (?,?,?,?,?)",
+            (str(designer_bc_id), text, author, slack_ts, permalink))
+        return cur.rowcount > 0
+
+
+def get_kudos(designer_bc_id: str, limit: int = 20) -> list:
+    with get_db() as c:
+        rows = c.execute(
+            "SELECT text, author, slack_ts, permalink FROM kudos WHERE designer_bc_id=? ORDER BY slack_ts DESC LIMIT ?",
+            (str(designer_bc_id), limit)).fetchall()
+    return [dict(r) for r in rows]
+
+
+def count_completions_since(designer_bc_id: str, week_start: str) -> int:
+    with get_db() as c:
+        row = c.execute(
+            "SELECT COUNT(*) AS n FROM analytics_completions WHERE designer_bc_id=? AND week_start>=?",
+            (str(designer_bc_id), week_start)).fetchone()
+        return row["n"] if row else 0

@@ -68,13 +68,30 @@ function renderMe() {
   const barCls = pct < 60 ? "low" : pct < 85 ? "mid" : "high";
   const active = (d.todos || []).filter(t => !t.is_complete && !t.is_misc);
 
+  const kudos = d.kudos || [];
+  const ticker = kudos.length ? `
+    <div class="kudos-ticker" id="kudos-ticker">
+      <span class="kudos-label">&#127881; Kudos</span>
+      <a class="kudos-msg" id="kudos-msg" target="_blank" href="${esc(kudos[0].permalink || "#")}"></a>
+      <span class="kudos-count">${kudos.length} shout-out${kudos.length === 1 ? "" : "s"}</span>
+    </div>` : "";
+  const mm = d.manager_message;
+  const mmBanner = mm ? `
+    <div class="mm-banner">
+      <div class="mm-head">Message of the week &middot; Richard &middot; ${new Date(mm.at * 1000).toLocaleDateString("en-US", { month: "short", day: "numeric" })}</div>
+      <div class="mm-text">${esc(mm.text)}</div>
+    </div>` : "";
+  const shipped = d.shipped_week ? ` &middot; ${d.shipped_week} shipped this week` : "";
+
   root.innerHTML = `
+    ${ticker}
+    ${mmBanner}
     <div class="pulse-panel">
       <div class="my-pulse">
         <div class="avatar" style="background:${d.color}">${initialsOf(d.name)}</div>
         <div class="my-pulse-info">
           <div class="pulse-name">${esc(d.name)}</div>
-          <div class="my-pulse-sub">${active.length} active task${active.length === 1 ? "" : "s"} this week${pto_days ? ` · ${pto_days} OOO day${pto_days > 1 ? "s" : ""}` : ""}</div>
+          <div class="my-pulse-sub">${active.length} active task${active.length === 1 ? "" : "s"} this week${pto_days ? ` · ${pto_days} OOO day${pto_days > 1 ? "s" : ""}` : ""}${shipped}</div>
         </div>
         <div class="pulse-bar-wrap my-pulse-bar">
           <div class="cap-bar-outer"><div class="cap-bar-inner ${barCls}" style="width:${Math.min(100, pct)}%"></div></div>
@@ -89,9 +106,58 @@ function renderMe() {
       <div class="cap-chart-sub" style="margin-bottom:12px">Drag a task onto a day to schedule it — the due date updates in Basecamp.</div>
       <div class="my-planner" id="my-planner"></div>
     </div>
-    <div class="attention-grid" id="my-attention"></div>`;
+    <div class="attention-grid" id="my-attention"></div>
+    <div class="pulse-panel">
+      <div class="cap-chart-title" style="margin-bottom:4px">Notepad</div>
+      <div class="cap-chart-sub" style="margin-bottom:10px">Yours alone — saves as you type.</div>
+      <textarea id="my-notes" class="my-notes" placeholder="Scratch space: links, to-dos, reminders…">${esc(d.notes || "")}</textarea>
+      <div class="my-notes-status" id="my-notes-status"></div>
+    </div>`;
   renderMyPlanner();
   renderMyAttention(active, d.color);
+  initNotes();
+  initKudosTicker();
+}
+
+let _notesTimer = null;
+function initNotes() {
+  const ta = document.getElementById("my-notes");
+  if (!ta) return;
+  ta.addEventListener("input", () => {
+    _me.notes = ta.value;
+    clearTimeout(_notesTimer);
+    document.getElementById("my-notes-status").textContent = "…";
+    _notesTimer = setTimeout(async () => {
+      await fetch(`/api/my/${TOKEN}/notes`, {
+        method: "PUT",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ content: ta.value }),
+      });
+      document.getElementById("my-notes-status").textContent = "Saved";
+      setTimeout(() => { const s = document.getElementById("my-notes-status"); if (s) s.textContent = ""; }, 1500);
+    }, 800);
+  });
+}
+
+let _kudosIdx = 0, _kudosTimer = null;
+function initKudosTicker() {
+  const el = document.getElementById("kudos-msg");
+  if (!el) return;
+  const kudos = _me.kudos || [];
+  const show = i => {
+    const k = kudos[i % kudos.length];
+    el.classList.remove("show");
+    setTimeout(() => {
+      el.textContent = `"${truncate(k.text, 140)}" — ${k.author}`;
+      el.href = k.permalink || "#";
+      el.classList.add("show");
+    }, 250);
+  };
+  show(0);
+  clearInterval(_kudosTimer);
+  if (kudos.length > 1) {
+    _kudosTimer = setInterval(() => { _kudosIdx = (_kudosIdx + 1) % kudos.length; show(_kudosIdx); }, 7000);
+  }
 }
 
 function renderMyAttention(active, color) {
@@ -179,11 +245,23 @@ function renderMyPlanner() {
     else if (t.due_on && byDay[t.due_on] !== undefined) byDay[t.due_on].push(t);
     else unscheduled.push(t);
   }
+  // Apply the saved within-day order: top of the column = working on it first
+  const order = d.planner_order || {};
+  for (const dt of days) {
+    const saved = order[dt] || [];
+    byDay[dt].sort((a, b) => {
+      const ia = saved.indexOf(String(a.id)), ib = saved.indexOf(String(b.id));
+      return (ia === -1 ? 999 : ia) - (ib === -1 ? 999 : ib);
+    });
+  }
   const dayHours = list => list.reduce((s, t) => s + Math.max(0, (t.est || 0) - (t.logged || 0)), 0);
 
   const card = t => `
     <div class="planner-card" draggable="true" id="my-card-${t.id}"
-        ondragstart="myDragStart(event,'${t.id}')">
+        ondragstart="myDragStart(event,'${t.id}')"
+        ondragover="event.preventDefault()"
+        ondrop="myDropOnCard(event,'${t.id}')">
+      ${t.hdd && t.due_on && t.due_on > t.hdd ? `<div class="hdd-conflict" title="Scheduled after its hard due date — the HDD is ${fmtDate(t.hdd)}">&#9888; scheduled past HDD</div>` : ""}
       <div class="planner-card-client">${esc(cleanClient(t.bucket_name))}</div>
       <div class="planner-card-title">${esc(truncate(t.title, 52))}</div>
       <div class="planner-card-pills">
@@ -201,7 +279,7 @@ function renderMyPlanner() {
   const cols = days.map(dt => {
     const date = new Date(dt + "T12:00:00");
     const hrs = Math.round(dayHours(byDay[dt]) * 10) / 10;
-    return `<div class="planner-day-col${dt === todayStr ? " is-today" : ""}${dt < todayStr ? " is-past" : ""}" ${zone(dt)}>
+    return `<div class="planner-day-col${dt === todayStr ? " is-today" : ""}${dt < todayStr ? " is-past" : ""}" data-date="${dt}" ${zone(dt)}>
       <div class="planner-day-header">
         <div class="planner-day-name">${date.toLocaleDateString("en-US", { weekday: "short" })}</div>
         <div class="planner-day-date">${date.toLocaleDateString("en-US", { month: "short", day: "numeric" })}</div>
@@ -220,27 +298,94 @@ function renderMyPlanner() {
 
 function myDragStart(evt, id) { _dragId = id; }
 
+function _dayOf(todo) {
+  if (todo.in_revisions) return null;
+  const { start } = getWeekBounds(0);
+  const days = [];
+  for (let i = 0; i < 5; i++) {
+    const dt = new Date(start + "T12:00:00");
+    dt.setDate(dt.getDate() + i);
+    days.push(localISO(dt));
+  }
+  return days.includes(todo.due_on) ? todo.due_on : null;
+}
+
+function _columnIds(day) {
+  // Current visual order of a day column, from the rendered DOM
+  const cols = document.querySelectorAll(".my-planner .planner-day-col");
+  for (const col of cols) {
+    if (col.dataset.date === day) {
+      return [...col.querySelectorAll(".planner-card")].map(c => c.id.replace("my-card-", ""));
+    }
+  }
+  return [];
+}
+
+async function _saveOrder(day, ids) {
+  _me.planner_order = _me.planner_order || {};
+  _me.planner_order[day] = ids;
+  await fetch(`/api/my/${TOKEN}/planner-order`, {
+    method: "PUT",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ date: day, ids }),
+  });
+}
+
+async function _placeTask(id, targetDate, beforeId) {
+  const todo = (_me.todos || []).find(t => String(t.id) === String(id));
+  if (!todo || !targetDate) return;
+  const fromDay = _dayOf(todo);
+  const moved = todo.due_on !== targetDate;
+
+  // Build the target day's new order
+  const ids = _columnIds(targetDate).filter(x => x !== String(id));
+  const at = beforeId ? ids.indexOf(String(beforeId)) : -1;
+  if (at === -1) ids.push(String(id));
+  else ids.splice(at, 0, String(id));
+
+  if (moved) {
+    const prev = todo.due_on;
+    const wasRevision = todo.in_revisions;
+    const payload = { due_on: targetDate };
+    if (wasRevision) payload.hdd = targetDate; // scheduling a revision creates its Basecamp step
+    todo.due_on = targetDate;
+    if (wasRevision) { todo.hdd = targetDate; todo.in_revisions = false; todo.revisions_since = null; }
+    try {
+      const r = await fetch(`/api/my/${TOKEN}/todos/${id}/fields`, {
+        method: "PUT",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(payload),
+      });
+      if (!r.ok) throw new Error("save failed");
+    } catch {
+      todo.due_on = prev;
+      if (wasRevision) { todo.hdd = null; todo.in_revisions = true; }
+      renderMe();
+      return;
+    }
+  }
+  await _saveOrder(targetDate, ids);
+  if (moved && fromDay) await _saveOrder(fromDay, _columnIds(fromDay).filter(x => x !== String(id)));
+  renderMe();
+}
+
+async function myDropOnCard(evt, targetId) {
+  evt.preventDefault();
+  evt.stopPropagation();
+  const id = _dragId; _dragId = null;
+  if (!id || String(id) === String(targetId)) return;
+  const target = (_me.todos || []).find(t => String(t.id) === String(targetId));
+  const day = target ? _dayOf(target) : null;
+  if (!day) return; // reordering inside Unscheduled has no meaning
+  await _placeTask(id, day, String(targetId));
+}
+
 async function myDrop(evt, targetDate) {
   evt.preventDefault();
   evt.currentTarget.classList.remove("drag-over");
   const id = _dragId; _dragId = null;
   if (!id || !targetDate) return;
-  const todo = (_me.todos || []).find(t => String(t.id) === String(id));
-  if (!todo || todo.due_on === targetDate) return;
-  const prev = todo.due_on;
-  todo.due_on = targetDate;
-  renderMe();
-  try {
-    const r = await fetch(`/api/my/${TOKEN}/todos/${id}/fields`, {
-      method: "PUT",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ due_on: targetDate }),
-    });
-    if (!r.ok) throw new Error("save failed");
-  } catch {
-    todo.due_on = prev;
-    renderMe();
-  }
+  await _placeTask(id, targetDate, null);
 }
 
 if (!TOKEN) {

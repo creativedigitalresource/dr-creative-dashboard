@@ -14,13 +14,13 @@ _sse_clients: list[asyncio.Queue] = []
 _refresh_running = False
 
 DESIGNERS = [
-    {"name": "Dexter",   "bc_id": 44800252, "eh_id": 1327353,  "color": "#3b82f6"},
-    {"name": "Lezly",    "bc_id": 45896266, "eh_id": 1336550,  "color": "#8b5cf6"},
-    {"name": "Gaby",     "bc_id": 46567979, "eh_id": 1422085,  "color": "#f97316"},
-    {"name": "Odette",   "bc_id": 48051100, "eh_id": 1403017,  "color": "#eab308"},
-    {"name": "Debi",     "bc_id": 52244353, "eh_id": 1445224,  "color": "#22c55e"},
-    {"name": "Maria C",  "bc_id": 52471282, "eh_id": 1451054,  "color": "#14b8a6"},
-    {"name": "Melany",   "bc_id": 46905124, "eh_id": 1367774,  "color": "#ef4444"},
+    {"name": "Dexter",   "bc_id": 44800252, "eh_id": 1327353,  "color": "#3b82f6", "slack_id": "U01S46XJU8G"},
+    {"name": "Lezly",    "bc_id": 45896266, "eh_id": 1336550,  "color": "#8b5cf6", "slack_id": "U070TFVNNSK"},
+    {"name": "Gaby",     "bc_id": 46567979, "eh_id": 1422085,  "color": "#f97316", "slack_id": "U07JJEF0KCY"},
+    {"name": "Odette",   "bc_id": 48051100, "eh_id": 1403017,  "color": "#eab308", "slack_id": "U08LAH3CA12"},
+    {"name": "Debi",     "bc_id": 52244353, "eh_id": 1445224,  "color": "#22c55e", "slack_id": "U0B0JNXGTKQ"},
+    {"name": "Maria C",  "bc_id": 52471282, "eh_id": 1451054,  "color": "#14b8a6", "slack_id": "U0B7JK64NT1"},
+    {"name": "Melany",   "bc_id": 46905124, "eh_id": 1367774,  "color": "#ef4444", "slack_id": "U07RXRYNEMQ"},
 ]
 
 WEEKLY_CAP = 32.5  # 6.5h/day × 5 days (1.5h/day reserved for misc/admin)
@@ -466,7 +466,21 @@ async def api_my(token: str):
             "step_complete": bool((t.get("designer_step") or {}).get("completed")),
             "designer_step": {"completed": bool((t.get("designer_step") or {}).get("completed"))} if t.get("designer_step") else None,
         })
+    today = date.today()
+    week_start = (today - timedelta(days=today.weekday())).isoformat()
+    msg_at = store.get_token("manager_message_at")
+    msg = store.get_token("manager_message")
+    manager_message = None
+    if msg and msg_at:
+        age_days = (time.time() - float(msg_at)) / 86400
+        if age_days <= 10:  # stale messages read worse than none
+            manager_message = {"text": msg, "at": float(msg_at)}
     return {"name": d["name"], "color": d["color"], "pto": pto, "todos": todos,
+            "planner_order": store.get_planner_order(d["bc_id"]),
+            "notes": store.get_designer_note(d["bc_id"]),
+            "kudos": store.get_kudos(d["bc_id"]),
+            "manager_message": manager_message,
+            "shipped_week": store.count_completions_since(d["bc_id"], week_start),
             "last_updated": _cached_data.get("last_updated")}
 
 
@@ -484,6 +498,58 @@ async def api_my_set_fields(token: str, todo_id: str, request: Request):
         return Response(status_code=403)
     body = await request.json()
     return await _apply_todo_fields(str(todo_id), body, todo, d)
+
+
+@app.put("/api/my/{token}/planner-order")
+async def api_my_planner_order(token: str, request: Request):
+    d = _designer_for_token(token)
+    if not d:
+        return Response(status_code=404 if not store.resolve_designer_token(token) else 503)
+    body = await request.json()
+    day, ids = body.get("date"), body.get("ids", [])
+    if not day or not isinstance(ids, list):
+        return {"ok": False, "error": "date and ids required"}
+    store.set_planner_order(d["bc_id"], str(day), [str(i) for i in ids])
+    return {"ok": True}
+
+
+@app.put("/api/my/{token}/notes")
+async def api_my_notes(token: str, request: Request):
+    bc_id = store.resolve_designer_token(token)
+    if not bc_id:
+        return Response(status_code=404)
+    body = await request.json()
+    store.set_designer_note(bc_id, str(body.get("content", ""))[:20000])
+    return {"ok": True}
+
+
+@app.post("/api/kudos")
+async def api_add_kudos(request: Request, pin: str = ""):
+    """Fed by the daily Slack sync routine — maps mentions to designers."""
+    if pin != "1868":
+        return Response(status_code=403)
+    body = await request.json()
+    slack_map = {d.get("slack_id"): d for d in DESIGNERS if d.get("slack_id")}
+    added = 0
+    for item in body.get("items", []):
+        d = slack_map.get(item.get("slack_id"))
+        if not d:
+            continue
+        if store.add_kudos(d["bc_id"], str(item.get("text", ""))[:2000],
+                           str(item.get("author", ""))[:120],
+                           str(item.get("ts", "")), str(item.get("permalink", ""))[:400]):
+            added += 1
+    return {"ok": True, "added": added}
+
+
+@app.post("/api/manager-message")
+async def api_manager_message(request: Request, pin: str = ""):
+    if pin != "1868":
+        return Response(status_code=403)
+    body = await request.json()
+    store.set_token("manager_message", str(body.get("text", ""))[:2000])
+    store.set_token("manager_message_at", str(time.time()))
+    return {"ok": True}
 
 
 @app.get("/api/designer-links")
