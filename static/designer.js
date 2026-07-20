@@ -73,7 +73,6 @@ function renderMe() {
     <div class="kudos-ticker" id="kudos-ticker">
       <span class="kudos-label">&#127881; Kudos</span>
       <div class="kudos-wheel" id="kudos-wheel"></div>
-      <span class="kudos-count">${kudos.length} shout-out${kudos.length === 1 ? "" : "s"} &middot; 6 mo</span>
     </div>` : "";
   const mm = d.manager_message;
   const mmBanner = mm ? `
