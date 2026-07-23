@@ -458,7 +458,7 @@ def _designer_for_token(token: str):
 async def designer_page(token: str):
     if not store.resolve_designer_token(token):
         return Response(status_code=404)
-    return FileResponse("static/designer.html")
+    return FileResponse("static/designer.html", headers={"Cache-Control": "no-cache, must-revalidate"})
 
 
 def _public_todos(d: dict) -> list:
@@ -1014,10 +1014,21 @@ async def sse_stream():
 # Frontend
 # ---------------------------------------------------------------------------
 
-app.mount("/static", StaticFiles(directory="static"), name="static")
+class NoCacheStaticFiles(StaticFiles):
+    """Force revalidation on every request. Without this, browsers apply
+    heuristic caching to JS/CSS with no explicit Cache-Control header —
+    a tab left open across a deploy silently keeps running stale code
+    (this bit us: a shipped feature was invisible until a hard refresh)."""
+    def file_response(self, *args, **kwargs):
+        resp = super().file_response(*args, **kwargs)
+        resp.headers["Cache-Control"] = "no-cache, must-revalidate"
+        return resp
+
+
+app.mount("/static", NoCacheStaticFiles(directory="static"), name="static")
 
 
 @app.get("/", response_class=HTMLResponse)
 async def root():
     with open("static/index.html") as f:
-        return f.read()
+        return HTMLResponse(f.read(), headers={"Cache-Control": "no-cache, must-revalidate"})
