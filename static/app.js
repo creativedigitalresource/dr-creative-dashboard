@@ -146,10 +146,55 @@ async function fetchWithTimeout(url, opts = {}, ms = 15000) {
 }
 
 async function loadAll() {
-  await Promise.all([loadUnassigned(), loadDesigners(), loadMyStuff()]);
+  await Promise.all([loadUnassigned(), loadDesigners(), loadMyStuff(), loadEstimateGuide()]);
   await loadCalendar();
   updateLastUpdated();
   resetRefreshBtn();
+}
+
+// ---------------------------------------------------------------------------
+// Estimate Guide — company medians + Richard's per-category goals
+// ---------------------------------------------------------------------------
+
+let _estimateGuide = null;
+
+async function loadEstimateGuide() {
+  try {
+    _estimateGuide = await fetchWithTimeout("/api/estimate-guide").then(r => r.json());
+  } catch {
+    _estimateGuide = null;
+  }
+  renderEstimateGuidePanel();
+}
+
+function renderEstimateGuidePanel() {
+  const mount = document.getElementById("estimate-guide-mount");
+  if (!mount || !_estimateGuide) return;
+  const wasOpen = document.getElementById("estimate-guide-panel")?.classList.contains("open");
+  mount.innerHTML = estimateGuidePanelHTML(
+    buildEstimateGuide(_estimateGuide, { editable: true }),
+    "Company-wide medians and the goal you set per category. Designers see their own pace measured against these goals — never against each other."
+  );
+  if (wasOpen) document.getElementById("estimate-guide-panel")?.classList.add("open");
+}
+
+async function commitEstimateGoal(category, value, inputEl) {
+  const num = value === "" ? null : parseFloat(value);
+  if (num == null || isNaN(num)) return; // leave the field as typed rather than guessing
+  if (_estimateGuide[category]) {
+    _estimateGuide[category].goal = num;
+    _estimateGuide[category].goal_stored = true;
+  }
+  try {
+    await fetch("/api/estimate-goals?pin=1868", {
+      method: "PUT",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ category, goal_hours: num }),
+    });
+    if (inputEl) inputEl.value = num;
+  } catch {
+    // leave the input as typed; next load will reconcile with the server
+  }
 }
 
 async function loadUnassigned() {

@@ -62,6 +62,7 @@ function myRefresh() {
 function renderMe() {
   const d = _me;
   const root = document.getElementById("my-root");
+  const egWasOpen = document.getElementById("estimate-guide-panel")?.classList.contains("open");
   document.getElementById("my-subtitle").textContent = `My Week · ${d.name}`;
   const { weekly_est, cap, pct, pto_days } = calcCapacity(d.todos, d.pto, 0);
   const free = Math.round((cap - weekly_est) * 10) / 10;
@@ -111,7 +112,12 @@ function renderMe() {
       <div class="cap-chart-sub" style="margin-bottom:10px">Yours alone — saves as you type.</div>
       <textarea id="my-notes" class="my-notes" placeholder="Scratch space: links, to-dos, reminders…">${esc(d.notes || "")}</textarea>
       <div class="my-notes-status" id="my-notes-status"></div>
-    </div>`;
+    </div>
+    ${estimateGuidePanelHTML(
+      buildEstimateGuide(d.estimate_guide, { personal: true }),
+      "How long each type of work should take, and your own pace against it. Use this when you're self-delegating or scoping a revision."
+    )}`;
+  if (egWasOpen) document.getElementById("estimate-guide-panel")?.classList.add("open");
   renderMyPlanner();
   renderMyAttention(active, d.color);
   initNotes();

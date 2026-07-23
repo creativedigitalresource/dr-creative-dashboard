@@ -994,3 +994,44 @@ input.cal-filter-select { font-weight: 500; }
   background: var(--warning-light); border-radius: 8px;
   padding: 2px 7px; margin-bottom: 5px; display: inline-block;
 }
+
+/* Estimate Guide panel — collapsible, shared by Overview + designer page */
+.eg-panel { padding: 0; overflow: hidden; }
+.eg-head {
+  display: flex; align-items: center; justify-content: space-between; gap: 16px;
+  padding: 18px 22px; cursor: pointer; user-select: none;
+}
+.eg-head:hover { background: var(--surface2); }
+.eg-chevron { color: var(--text-muted); font-size: 14px; transition: transform .2s ease; flex-shrink: 0; }
+.eg-panel.open .eg-chevron { transform: rotate(180deg); }
+.eg-body { display: none; padding: 0 22px 20px; }
+.eg-panel.open .eg-body { display: block; }
+
+.eg-table { width: 100%; border-collapse: collapse; }
+.eg-table th {
+  font-size: 10.5px; font-weight: 700; text-transform: uppercase; letter-spacing: .06em;
+  color: var(--text-muted); text-align: left;
+  padding: 7px 12px; border-bottom: 1px solid var(--border);
+}
+.eg-table td { padding: 8px 12px; border-bottom: 1px solid var(--surface2); font-size: 13px; vertical-align: middle; }
+.eg-table tr:last-child td { border-bottom: none; }
+.eg-n { font-size: 11px; color: var(--text-muted); }
+.eg-goal-input {
+  width: 70px; padding: 4px 8px; font-size: 13px; font-family: inherit;
+  background: var(--surface2); border: 1px solid var(--border);
+  border-radius: var(--radius-sm); color: var(--text);
+}
+.eg-goal-input:focus { outline: none; border-color: var(--accent); background: var(--surface); }
+.eg-delta.ok { color: var(--success); font-weight: 600; }
+.eg-delta.over { color: #b45309; font-weight: 600; }
+.eg-link {
+  border: none; background: none; cursor: pointer;
+  font-size: 10.5px; font-weight: 700; color: var(--accent);
+  text-decoration: underline; padding: 0 0 0 6px;
+}
+.eg-link:hover { color: var(--accent-hover); }
+.eg-row-flash, tr.eg-flash { animation: eg-flash-anim 1.6s ease; }
+@keyframes eg-flash-anim {
+  0%, 100% { background: transparent; }
+  15%, 60% { background: var(--warning-light); }
+}

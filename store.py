@@ -67,6 +67,11 @@ def init_db():
                 created_at REAL DEFAULT (unixepoch()),
                 UNIQUE (designer_bc_id, slack_ts)
             );
+            CREATE TABLE IF NOT EXISTS estimate_goals (
+                category TEXT PRIMARY KEY,
+                goal_hours REAL NOT NULL,
+                updated_at REAL DEFAULT (unixepoch())
+            );
             CREATE TABLE IF NOT EXISTS designer_tokens (
                 designer_bc_id TEXT PRIMARY KEY,
                 token TEXT NOT NULL UNIQUE,
@@ -500,3 +505,22 @@ def count_completions_since(designer_bc_id: str, week_start: str) -> int:
             "SELECT COUNT(*) AS n FROM analytics_completions WHERE designer_bc_id=? AND week_start>=?",
             (str(designer_bc_id), week_start)).fetchone()
         return row["n"] if row else 0
+
+
+# ---------------------------------------------------------------------------
+# Estimate goals — Richard's per-category standard, shown against each
+# designer's own historical pace. Only Richard writes these.
+# ---------------------------------------------------------------------------
+
+def set_estimate_goal(category: str, goal_hours: float):
+    with get_db() as c:
+        c.execute(
+            "INSERT OR REPLACE INTO estimate_goals (category, goal_hours, updated_at) VALUES (?,?,unixepoch())",
+            (category, goal_hours))
+
+
+def get_estimate_goals() -> dict:
+    """Returns {category: goal_hours}."""
+    with get_db() as c:
+        rows = c.execute("SELECT category, goal_hours FROM estimate_goals").fetchall()
+    return {r["category"]: r["goal_hours"] for r in rows}

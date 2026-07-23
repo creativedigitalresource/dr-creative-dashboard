@@ -250,9 +250,15 @@ function pillHdd(t) {
   return `<span class="meta-pill ${cls} editable" onclick="editField(event,'${t.id}','hdd','date','${t.hdd || ""}')" title="Click to edit — updates Basecamp step due date">${t.hdd ? "HDD " + fmtDate(t.hdd) : "+ HDD"}</span>`;
 }
 
+function estimateGuideLink(category) {
+  if (!category) return "";
+  return `<button class="eg-link" onclick="event.stopPropagation();openEstimateGuidePanel('${esc(category)}')" title="See the estimate guide for ${esc(category)}">guide</button>`;
+}
+
 function pillEst(t) {
   const cls = (t.overrides || []).includes("est") ? "est overridden" : "est";
-  return `<span class="meta-pill ${cls} editable" onclick="editField(event,'${t.id}','est','number','${t.est ?? ""}')" title="Click to edit — updates Everhour estimate">${t.est != null ? "EST " + t.est + "h" : "+ EST"}</span>`;
+  const pill = `<span class="meta-pill ${cls} editable" onclick="editField(event,'${t.id}','est','number','${t.est ?? ""}')" title="Click to edit — updates Everhour estimate">${t.est != null ? "EST " + t.est + "h" : "+ EST"}</span>`;
+  return t.est == null ? pill + estimateGuideLink(t.category) : pill;
 }
 
 function pillTrueEst(t, isCompleted = false) {
@@ -261,7 +267,7 @@ function pillTrueEst(t, isCompleted = false) {
     return `<span class="meta-pill true-est editable" onclick="editField(event,'${t.id}','true_est','number','${t.true_est}')" title="Corrected estimate used for capacity — clear to revert to EST">TRUE ${t.true_est}h</span>`;
   }
   if (!isCompleted && !stepDone && t.est > 0 && (t.logged || 0) >= t.est) {
-    return `<span class="meta-pill true-est needed editable" onclick="editField(event,'${t.id}','true_est','number','')" title="Logged hours reached EST but the task is still active, so it counts 0 toward capacity — set a true estimate">+ True EST</span>`;
+    return `<span class="meta-pill true-est needed editable" onclick="editField(event,'${t.id}','true_est','number','')" title="Logged hours reached EST but the task is still active, so it counts 0 toward capacity — set a true estimate">+ True EST</span>` + estimateGuideLink(t.category);
   }
   return "";
 }
@@ -336,4 +342,78 @@ function buildTaskTable(todos, color) {
     <thead><tr><th>Client</th><th>Task</th><th>Date</th><th>HDD</th><th>EST</th><th>True</th><th>Logged</th><th>Category</th><th>Progress</th><th></th></tr></thead>
     <tbody>${rows}</tbody>
   </table>`;
+}
+
+/* ---- Estimate Guide — shared by the Overview panel (editable goals) and
+   the designer page (read-only goal + personal pace). ---- */
+
+function slugCat(cat) {
+  return (cat || "").toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/(^-|-$)/g, "");
+}
+
+function buildEstimateGuide(guide, opts = {}) {
+  guide = guide || {};
+  const rows = CATEGORIES.map(cat => {
+    const g = guide[cat] || {};
+    const slug = slugCat(cat);
+    let cells;
+    if (opts.personal) {
+      const pm = g.personal_median, pn = g.personal_n || 0;
+      const paceCell = pm != null
+        ? `${pm}h <span class="eg-n">(${pn} task${pn === 1 ? "" : "s"})</span>`
+        : `<span class="ov-muted">no data yet</span>`;
+      const goalCell = g.goal != null ? `${g.goal}h` : `<span class="ov-muted">not set</span>`;
+      let deltaCell = `<span class="ov-muted">&mdash;</span>`;
+      if (pm != null && g.goal != null) {
+        const diff = Math.round((pm - g.goal) * 10) / 10;
+        deltaCell = diff <= 0
+          ? `<span class="eg-delta ok">on pace</span>`
+          : `<span class="eg-delta over">+${diff}h vs goal</span>`;
+      }
+      cells = `<td>${goalCell}</td><td>${paceCell}</td><td>${deltaCell}</td>`;
+    } else {
+      const companyCell = g.company_n >= 1
+        ? `${g.company_median}h <span class="eg-n">(${g.company_n} task${g.company_n === 1 ? "" : "s"})</span>`
+        : `<span class="ov-muted">no data yet</span>`;
+      const val = g.goal != null ? g.goal : "";
+      const goalCell = `<input type="number" step="0.5" min="0" class="eg-goal-input" value="${val}"
+        placeholder="set goal"
+        onblur="commitEstimateGoal('${esc(cat)}', this.value, this)"
+        onkeydown="if(event.key==='Enter'){event.preventDefault();this.blur();}" />`;
+      cells = `<td>${companyCell}</td><td>${goalCell}</td>`;
+    }
+    return `<tr id="eg-row-${slug}"><td>${esc(cat)}</td>${cells}</tr>`;
+  }).join("");
+  const head = opts.personal
+    ? `<th>Category</th><th>Goal</th><th>Your pace</th><th>vs Goal</th>`
+    : `<th>Category</th><th>Team median</th><th>Goal</th>`;
+  return `<table class="eg-table"><thead><tr>${head}</tr></thead><tbody>${rows}</tbody></table>`;
+}
+
+function estimateGuidePanelHTML(bodyHtml, subtitle) {
+  return `<div class="pulse-panel eg-panel" id="estimate-guide-panel">
+    <div class="eg-head" onclick="toggleEstimateGuidePanel()">
+      <div>
+        <div class="cap-chart-title">Estimate Guide</div>
+        <div class="cap-chart-sub">${subtitle}</div>
+      </div>
+      <span class="eg-chevron">&#9662;</span>
+    </div>
+    <div class="eg-body" id="estimate-guide-body">${bodyHtml}</div>
+  </div>`;
+}
+
+function toggleEstimateGuidePanel() {
+  document.getElementById("estimate-guide-panel")?.classList.toggle("open");
+}
+
+function openEstimateGuidePanel(category) {
+  const panel = document.getElementById("estimate-guide-panel");
+  panel?.classList.add("open");
+  panel?.scrollIntoView({ behavior: "smooth", block: "start" });
+  const row = document.getElementById("eg-row-" + slugCat(category));
+  if (row) {
+    row.classList.add("eg-flash");
+    setTimeout(() => row.classList.remove("eg-flash"), 1600);
+  }
 }

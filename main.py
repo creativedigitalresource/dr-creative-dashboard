@@ -1,5 +1,5 @@
-import asyncio, json, os, time
-from collections import Counter
+import asyncio, json, os, time, statistics
+from collections import Counter, defaultdict
 from datetime import date, timedelta
 from contextlib import asynccontextmanager
 
@@ -8,6 +8,7 @@ from fastapi.responses import FileResponse, HTMLResponse, RedirectResponse, Stre
 from fastapi.staticfiles import StaticFiles
 
 import store, basecamp as bc, everhour as eh
+from parsers import CATEGORIES
 
 _cached_data: dict = {}
 _sse_clients: list[asyncio.Queue] = []
@@ -57,6 +58,7 @@ SERVICE_ROLLUP = {
     "Admin": "Other",
 }
 CAPACITY_HISTORY_START = (2025, 1)
+ESTIMATE_GUIDE_MIN_N = 5  # fewer samples than this = "not enough data yet"
 CACHE_TTL = 300  # 5 minutes
 
 
@@ -523,6 +525,7 @@ async def api_my(token: str):
             "kudos": store.get_kudos(d["bc_id"], since_ts=str(int(time.time() - 183 * 86400))),
             "manager_message": manager_message,
             "shipped_week": store.count_completions_since(d["bc_id"], week_start),
+            "estimate_guide": _compute_estimate_guide(d["bc_id"]),
             "last_updated": _cached_data.get("last_updated")}
 
 
@@ -592,6 +595,30 @@ async def api_manager_message(request: Request, pin: str = ""):
     store.set_token("manager_message", str(body.get("text", ""))[:2000])
     store.set_token("manager_message_at", str(time.time()))
     return {"ok": True}
+
+
+@app.get("/api/estimate-guide")
+async def api_estimate_guide():
+    """Company-wide medians + Richard's goals — no per-designer data, safe
+    for the manager Overview panel."""
+    return _compute_estimate_guide()
+
+
+@app.put("/api/estimate-goals")
+async def api_set_estimate_goal(request: Request, pin: str = ""):
+    if pin != "1868":
+        return Response(status_code=403)
+    body = await request.json()
+    category = body.get("category")
+    goal = body.get("goal_hours")
+    if category not in CATEGORIES or goal is None:
+        return {"ok": False, "error": "category and goal_hours required"}
+    try:
+        goal = float(goal)
+    except (TypeError, ValueError):
+        return {"ok": False, "error": "goal_hours must be a number"}
+    store.set_estimate_goal(category, goal)
+    return {"ok": True, "category": category, "goal": goal}
 
 
 @app.get("/api/designer-links")
@@ -785,6 +812,46 @@ async def set_start_date(todo_id: str, request: Request):
 async def manual_refresh():
     asyncio.create_task(_refresh_all())
     return {"ok": True, "refreshing": True}
+
+
+def _compute_estimate_guide(personal_bc_id: str | None = None) -> dict:
+    """Per-category estimate guide: company-wide median + Richard's goal,
+    plus one designer's own personal median when personal_bc_id is given."""
+    completions = store.get_analytics_completions()
+    by_cat = defaultdict(list)
+    personal_by_cat = defaultdict(list)
+    for c in completions:
+        hours = c.get("logged_hours")
+        if not hours or hours <= 0:
+            continue
+        cat = c.get("category") or "Misc."
+        by_cat[cat].append(hours)
+        if personal_bc_id and str(c.get("designer_bc_id")) == str(personal_bc_id):
+            personal_by_cat[cat].append(hours)
+
+    goals = store.get_estimate_goals()
+    out = {}
+    for cat in CATEGORIES:
+        vals = by_cat.get(cat, [])
+        n = len(vals)
+        company_median = round(statistics.median(vals), 1) if n else None
+        stored_goal = goals.get(cat)
+        goal_stored = stored_goal is not None
+        # No explicit goal yet: suggest the company median as a starting
+        # point once there's enough history to trust it; otherwise blank —
+        # Richard sets the standard himself for a thin-data category
+        goal = stored_goal if goal_stored else (
+            company_median if n >= ESTIMATE_GUIDE_MIN_N else None)
+        entry = {
+            "goal": goal, "goal_stored": goal_stored,
+            "company_median": company_median, "company_n": n,
+        }
+        if personal_bc_id is not None:
+            pvals = personal_by_cat.get(cat, [])
+            entry["personal_median"] = round(statistics.median(pvals), 1) if pvals else None
+            entry["personal_n"] = len(pvals)
+        out[cat] = entry
+    return out
 
 
 def _workdays_in_month(y: int, m: int, upto: date | None = None) -> int:
