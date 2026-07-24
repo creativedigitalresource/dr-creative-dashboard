@@ -360,6 +360,16 @@ def record_completion(todo_id, designer_bc_id, designer_name, title, category,
               week_start, was_hdd_miss, had_revision))
 
 
+def update_completion_logged_hours(todo_id, designer_bc_id, logged_hours) -> bool:
+    """Reconcile a historical completion's logged_hours against a fresh
+    Everhour read. Returns True if the stored value actually changed."""
+    with get_db() as c:
+        cur = c.execute(
+            "UPDATE analytics_completions SET logged_hours=? WHERE todo_id=? AND designer_bc_id=? AND logged_hours!=?",
+            (logged_hours, str(todo_id), str(designer_bc_id), logged_hours))
+        return cur.rowcount > 0
+
+
 def record_weekly_snapshot(designer_bc_id, designer_name, week_start,
                             weekly_est, weekly_cap, capacity_pct, active_todo_count):
     with get_db() as c:

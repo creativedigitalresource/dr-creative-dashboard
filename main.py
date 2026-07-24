@@ -75,7 +75,27 @@ def _is_revision(title: str, step_title: str = "") -> bool:
     return any(k in t for k in _REVISION_KEYWORDS)
 
 
-def _record_analytics(designers_out: list, unassigned: list, refresh_ts: float):
+async def _fresh_logged_hours(designer_bc_id: str, todo_id: str, fallback: float) -> float:
+    """Refetch Everhour at the moment a completion is detected, rather than
+    trusting the last tracked snapshot — that snapshot is only as fresh as
+    the previous refresh, and a designer can log real time right up until
+    they're reassigned, between refreshes. (Confirmed live: a completion
+    recorded 0.0h for a designer who Everhour showed had logged 1.18h.)"""
+    if not eh.EH_KEY:
+        return fallback
+    designer = next((d for d in DESIGNERS if str(d["bc_id"]) == str(designer_bc_id)), None)
+    if not designer or not designer.get("eh_id"):
+        return fallback
+    try:
+        fresh = await asyncio.wait_for(eh.get_time_logged(todo_id), timeout=6.0)
+        fresh_val = fresh.get("user_logged", {}).get(str(designer["eh_id"]))
+        return fresh_val if fresh_val is not None else fallback
+    except Exception as e:
+        print(f"[analytics] fresh logged-hours refetch failed for {todo_id}: {e}")
+        return fallback
+
+
+async def _record_analytics(designers_out: list, unassigned: list, refresh_ts: float):
     today = date.today()
     week = _week_start(today)
     today_str = today.isoformat()
@@ -107,6 +127,7 @@ def _record_analytics(designers_out: list, unassigned: list, refresh_ts: float):
     for key, row in store.get_all_todo_tracking().items():
         if key not in current_ids:
             hdd = row.get("hdd")
+            logged_hours = await _fresh_logged_hours(row["designer_bc_id"], row["todo_id"], row.get("logged_hours", 0))
             store.record_completion(
                 todo_id=row["todo_id"],
                 designer_bc_id=row["designer_bc_id"],
@@ -115,7 +136,7 @@ def _record_analytics(designers_out: list, unassigned: list, refresh_ts: float):
                 category=row["category"],
                 client_name=row["client_name"],
                 est_hours=row.get("est_hours"),
-                logged_hours=row.get("logged_hours", 0),
+                logged_hours=logged_hours,
                 hdd=hdd,
                 due_on=row.get("due_on"),
                 week_start=week,
@@ -123,7 +144,7 @@ def _record_analytics(designers_out: list, unassigned: list, refresh_ts: float):
                 had_revision=row.get("had_revision", 0),
             )
             store.delete_todo_tracking(row["todo_id"], row["designer_bc_id"])
-            print(f"[analytics] completion recorded: {row['designer_name']} — {row['title'][:50]}")
+            print(f"[analytics] completion recorded: {row['designer_name']} — {row['title'][:50]} ({logged_hours}h)")
 
     # Weekly snapshots and category volumes
     for d in designers_out:
@@ -348,7 +369,7 @@ async def _do_refresh():
 
     refresh_ts = time.time()
     try:
-        _record_analytics(designers_out, unassigned, refresh_ts)
+        await _record_analytics(designers_out, unassigned, refresh_ts)
     except Exception as e:
         print(f"[analytics] error: {type(e).__name__}: {e}")
 
@@ -619,6 +640,55 @@ async def api_set_estimate_goal(request: Request, pin: str = ""):
         return {"ok": False, "error": "goal_hours must be a number"}
     store.set_estimate_goal(category, goal)
     return {"ok": True, "category": category, "goal": goal}
+
+
+@app.post("/api/analytics/reconcile-logged-hours")
+async def api_reconcile_logged_hours(pin: str = ""):
+    """One-time-or-repeatable fix for historical completions whose logged_hours
+    were captured from a stale todo_tracking snapshot (see _fresh_logged_hours) —
+    re-reads Everhour's current total per (todo, designer) and corrects any
+    completion record that no longer matches. Rate-limited against Everhour."""
+    if pin != "1868":
+        return Response(status_code=403)
+    completions = store.get_analytics_completions()
+    sem = asyncio.Semaphore(3)
+    results = []
+
+    async def _check(row):
+        designer = next((d for d in DESIGNERS if str(d["bc_id"]) == str(row["designer_bc_id"])), None)
+        if not designer or not designer.get("eh_id") or not eh.EH_KEY:
+            return None
+        async with sem:
+            try:
+                fresh = await asyncio.wait_for(eh.get_time_logged(row["todo_id"]), timeout=6.0)
+            except Exception:
+                return None
+        fresh_val = fresh.get("user_logged", {}).get(str(designer["eh_id"]))
+        if fresh_val is None:
+            return None
+        old_val = row.get("logged_hours") or 0
+        if abs(fresh_val - old_val) < 0.01:
+            return None
+        changed = store.update_completion_logged_hours(row["todo_id"], row["designer_bc_id"], fresh_val)
+        if changed:
+            return {
+                "todo_id": row["todo_id"], "designer_name": row["designer_name"],
+                "category": row["category"], "title": row["title"][:60],
+                "old": old_val, "new": fresh_val,
+            }
+        return None
+
+    checked = await asyncio.gather(*[_check(r) for r in completions])
+    changes = [c for c in checked if c]
+    by_category = defaultdict(lambda: {"count": 0, "delta": 0.0})
+    for c in changes:
+        by_category[c["category"]]["count"] += 1
+        by_category[c["category"]]["delta"] += c["new"] - c["old"]
+
+    return {
+        "ok": True, "total_completions": len(completions), "updated": len(changes),
+        "by_category": dict(by_category), "changes": changes,
+    }
 
 
 @app.get("/api/designer-links")
