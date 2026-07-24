@@ -652,34 +652,44 @@ async def api_reconcile_logged_hours(pin: str = ""):
         return Response(status_code=403)
     completions = store.get_analytics_completions()
     sem = asyncio.Semaphore(3)
-    results = []
+
+    async def _fetch_with_retry(todo_id, attempts=3):
+        last_err = None
+        for i in range(attempts):
+            try:
+                return await asyncio.wait_for(eh.get_time_logged(todo_id), timeout=10.0)
+            except Exception as e:
+                last_err = e
+                if i < attempts - 1:
+                    await asyncio.sleep(0.5 * (i + 1))
+        raise last_err
 
     async def _check(row):
         designer = next((d for d in DESIGNERS if str(d["bc_id"]) == str(row["designer_bc_id"])), None)
         if not designer or not designer.get("eh_id") or not eh.EH_KEY:
-            return None
+            return {"skipped": True}
         async with sem:
             try:
-                fresh = await asyncio.wait_for(eh.get_time_logged(row["todo_id"]), timeout=6.0)
-            except Exception:
-                return None
+                fresh = await _fetch_with_retry(row["todo_id"])
+            except Exception as e:
+                return {"error": True, "todo_id": row["todo_id"], "designer_name": row["designer_name"],
+                        "category": row["category"], "reason": f"{type(e).__name__}: {e}"}
         fresh_val = fresh.get("user_logged", {}).get(str(designer["eh_id"]))
         if fresh_val is None:
-            return None
+            return {"skipped": True}
         old_val = row.get("logged_hours") or 0
         if abs(fresh_val - old_val) < 0.01:
-            return None
+            return {"unchanged": True}
         changed = store.update_completion_logged_hours(row["todo_id"], row["designer_bc_id"], fresh_val)
-        if changed:
-            return {
-                "todo_id": row["todo_id"], "designer_name": row["designer_name"],
-                "category": row["category"], "title": row["title"][:60],
-                "old": old_val, "new": fresh_val,
-            }
-        return None
+        return {
+            "updated": True, "todo_id": row["todo_id"], "designer_name": row["designer_name"],
+            "category": row["category"], "title": row["title"][:60],
+            "old": old_val, "new": fresh_val,
+        } if changed else {"unchanged": True}
 
     checked = await asyncio.gather(*[_check(r) for r in completions])
-    changes = [c for c in checked if c]
+    changes = [c for c in checked if c.get("updated")]
+    errors = [c for c in checked if c.get("error")]
     by_category = defaultdict(lambda: {"count": 0, "delta": 0.0})
     for c in changes:
         by_category[c["category"]]["count"] += 1
@@ -687,7 +697,8 @@ async def api_reconcile_logged_hours(pin: str = ""):
 
     return {
         "ok": True, "total_completions": len(completions), "updated": len(changes),
-        "by_category": dict(by_category), "changes": changes,
+        "errored": len(errors), "by_category": dict(by_category),
+        "changes": changes, "errors": errors,
     }
 
 
