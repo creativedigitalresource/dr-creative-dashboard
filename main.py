@@ -643,7 +643,7 @@ async def api_set_estimate_goal(request: Request, pin: str = ""):
 
 
 @app.post("/api/analytics/reconcile-logged-hours")
-async def api_reconcile_logged_hours(pin: str = ""):
+async def api_reconcile_logged_hours(pin: str = "", debug_todo_id: str = ""):
     """One-time-or-repeatable fix for historical completions whose logged_hours
     were captured from a stale todo_tracking snapshot (see _fresh_logged_hours) —
     re-reads Everhour's current total per (todo, designer) and corrects any
@@ -651,6 +651,22 @@ async def api_reconcile_logged_hours(pin: str = ""):
     if pin != "1868":
         return Response(status_code=403)
     completions = store.get_analytics_completions()
+
+    if debug_todo_id:
+        rows = [r for r in completions if r["todo_id"] == debug_todo_id]
+        if not rows:
+            return {"ok": False, "error": "no completion row for that todo_id"}
+        row = rows[0]
+        designer = next((d for d in DESIGNERS if str(d["bc_id"]) == str(row["designer_bc_id"])), None)
+        out = {"row": row, "designer_match": designer}
+        if designer and designer.get("eh_id") and eh.EH_KEY:
+            try:
+                fresh = await asyncio.wait_for(eh.get_time_logged(debug_todo_id), timeout=10.0)
+                out["fresh_everhour_result"] = fresh
+                out["fresh_val_for_this_designer"] = fresh.get("user_logged", {}).get(str(designer["eh_id"]))
+            except Exception as e:
+                out["fetch_error"] = f"{type(e).__name__}: {e}"
+        return out
     sem = asyncio.Semaphore(3)
 
     async def _fetch_with_retry(todo_id, attempts=3):
@@ -690,6 +706,8 @@ async def api_reconcile_logged_hours(pin: str = ""):
     checked = await asyncio.gather(*[_check(r) for r in completions])
     changes = [c for c in checked if c.get("updated")]
     errors = [c for c in checked if c.get("error")]
+    unchanged = [c for c in checked if c.get("unchanged")]
+    skipped = [c for c in checked if c.get("skipped")]
     by_category = defaultdict(lambda: {"count": 0, "delta": 0.0})
     for c in changes:
         by_category[c["category"]]["count"] += 1
@@ -697,7 +715,8 @@ async def api_reconcile_logged_hours(pin: str = ""):
 
     return {
         "ok": True, "total_completions": len(completions), "updated": len(changes),
-        "errored": len(errors), "by_category": dict(by_category),
+        "errored": len(errors), "unchanged": len(unchanged), "skipped": len(skipped),
+        "by_category": dict(by_category),
         "changes": changes, "errors": errors,
     }
 
