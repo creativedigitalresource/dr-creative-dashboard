@@ -251,7 +251,7 @@ function pillHdd(t) {
 }
 
 function estimateGuideLink(category) {
-  if (!category) return "";
+  if (!category || ESTIMATE_GUIDE_EXCLUDE.has(category)) return "";
   return `<button class="eg-link" onclick="event.stopPropagation();openEstimateGuidePanel('${esc(category)}')" title="See the estimate guide for ${esc(category)}">guide</button>`;
 }
 
@@ -351,16 +351,20 @@ function slugCat(cat) {
   return (cat || "").toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/(^-|-$)/g, "");
 }
 
+// Misc. and Admin are catch-all buckets with no consistent scope, so a goal
+// for them isn't meaningful — Richard's call, keep them out of the guide
+const ESTIMATE_GUIDE_EXCLUDE = new Set(["Misc.", "Admin"]);
+
 function buildEstimateGuide(guide, opts = {}) {
   guide = guide || {};
-  const rows = CATEGORIES.map(cat => {
+  const rows = CATEGORIES.filter(cat => !ESTIMATE_GUIDE_EXCLUDE.has(cat)).map(cat => {
     const g = guide[cat] || {};
     const slug = slugCat(cat);
     let cells;
     if (opts.personal) {
-      const pm = g.personal_median, pn = g.personal_n || 0;
+      const pm = g.personal_median;
       const paceCell = pm != null
-        ? `${pm}h <span class="eg-n">(${pn} task${pn === 1 ? "" : "s"})</span>`
+        ? `${pm}h`
         : `<span class="ov-muted">no data yet</span>`;
       const goalCell = g.goal != null ? `${g.goal}h` : `<span class="ov-muted">not set</span>`;
       let deltaCell = `<span class="ov-muted">&mdash;</span>`;
