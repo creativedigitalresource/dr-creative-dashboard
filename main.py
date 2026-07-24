@@ -667,17 +667,22 @@ async def api_reconcile_logged_hours(pin: str = "", debug_todo_id: str = ""):
             except Exception as e:
                 out["fetch_error"] = f"{type(e).__name__}: {e}"
         return out
-    sem = asyncio.Semaphore(3)
+    # Confirmed live: at concurrency 3 Everhour rate-limited most of a 348-row
+    # sweep, and get_time_logged() swallows non-200s as "no data" rather than
+    # raising — 281/348 rows silently came back empty, not actually unchanged.
+    # get_time_logged_strict() raises instead, so slower + real retries here
+    # actually work.
+    sem = asyncio.Semaphore(2)
 
-    async def _fetch_with_retry(todo_id, attempts=3):
+    async def _fetch_with_retry(todo_id, attempts=4):
         last_err = None
         for i in range(attempts):
             try:
-                return await asyncio.wait_for(eh.get_time_logged(todo_id), timeout=10.0)
+                return await asyncio.wait_for(eh.get_time_logged_strict(todo_id), timeout=10.0)
             except Exception as e:
                 last_err = e
                 if i < attempts - 1:
-                    await asyncio.sleep(0.5 * (i + 1))
+                    await asyncio.sleep(1.5 * (i + 1))
         raise last_err
 
     async def _check(row):
