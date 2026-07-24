@@ -570,17 +570,16 @@ function updateSplitCapBar(d) {
 // ---------------------------------------------------------------------------
 
 function updateWeekNavUI() {
-  const prevBtn = document.getElementById("week-prev-btn");
-  const label   = document.getElementById("week-label");
-  if (prevBtn) prevBtn.disabled = (_weekOffset === 0);
-  if (label) {
-    if (_weekOffset === 0) {
-      label.textContent = "Current Week";
-    } else {
-      const { start, end } = getWeekBounds(_weekOffset);
-      const fmt = s => new Date(s + "T12:00:00").toLocaleDateString("en-US", { month: "short", day: "numeric" });
-      label.textContent = `${fmt(start)} – ${fmt(end)}`;
-    }
+  const fmt = s => new Date(s + "T12:00:00").toLocaleDateString("en-US", { month: "short", day: "numeric" });
+  const label = _weekOffset === 0 ? "Current Week"
+    : (() => { const { start, end } = getWeekBounds(_weekOffset); return `${fmt(start)} – ${fmt(end)}`; })();
+  // Designer Workload tab and Overview tab each have their own week-nav
+  // controls (distinct ids) but share the one _weekOffset — kept in sync here.
+  for (const [prevId, labelId] of [["week-prev-btn", "week-label"], ["ov-week-prev-btn", "ov-week-label"]]) {
+    const prevBtn = document.getElementById(prevId);
+    const labelEl = document.getElementById(labelId);
+    if (prevBtn) prevBtn.disabled = (_weekOffset === 0);
+    if (labelEl) labelEl.textContent = label;
   }
 }
 
@@ -600,6 +599,7 @@ function setWeekOffset(newOffset) {
   _weekOffset = newOffset;
   updateWeekNavUI();
   renderDesignerGrid(_designerData);
+  renderOverview();
   // Sync split calendar if it's open
   const splitView = document.getElementById("split-view");
   if (_splitCalendar && splitView && !splitView.classList.contains("hidden")) {
@@ -969,7 +969,10 @@ function gotoDesigner(bcId) {
 }
 
 function _overviewStats(d) {
-  const { weekly_est, cap, pct } = calcCapacity(d.todos, d.pto, 0);
+  // Capacity reflects the toggled week (same _weekOffset as Designer Workload);
+  // Past Due / Needs Attention stay anchored to today regardless of the toggle —
+  // "past due" isn't a meaningful idea for a hypothetical future/past week.
+  const { weekly_est, cap, pct } = calcCapacity(d.todos, d.pto, _weekOffset);
   const today = localISO(new Date());
   const active = (d.todos || []).filter(t => !t.is_complete && !t.is_misc);
   const pastDue = active.filter(t => !t.in_revisions && !t.hdd_stale && t.hdd && t.hdd < today);

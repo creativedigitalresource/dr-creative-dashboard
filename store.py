@@ -370,6 +370,29 @@ def update_completion_logged_hours(todo_id, designer_bc_id, logged_hours) -> boo
         return cur.rowcount > 0
 
 
+def delete_completion(todo_id, designer_bc_id) -> bool:
+    """Remove a completion that was recorded in error — e.g. the designer was
+    unassigned/reassigned but the actual deliverable wasn't finished (our
+    'unassigned = complete' heuristic can misfire on a handoff mid-project)."""
+    with get_db() as c:
+        cur = c.execute(
+            "DELETE FROM analytics_completions WHERE todo_id=? AND designer_bc_id=?",
+            (str(todo_id), str(designer_bc_id)))
+        return cur.rowcount > 0
+
+
+def update_completion_category(todo_id, designer_bc_id, category) -> bool:
+    """Correct a completion's category — the automatic title-keyword matcher
+    can mistag a task whose title mentions a category's keywords without
+    actually being that kind of work (e.g. a landing page ABOUT a branding
+    service getting tagged as Branding/Logo creative work itself)."""
+    with get_db() as c:
+        cur = c.execute(
+            "UPDATE analytics_completions SET category=? WHERE todo_id=? AND designer_bc_id=?",
+            (category, str(todo_id), str(designer_bc_id)))
+        return cur.rowcount > 0
+
+
 def record_weekly_snapshot(designer_bc_id, designer_name, week_start,
                             weekly_est, weekly_cap, capacity_pct, active_todo_count):
     with get_db() as c:

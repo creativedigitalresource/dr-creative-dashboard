@@ -696,6 +696,7 @@ input.cal-filter-select { font-weight: 500; }
   margin-bottom: 14px;
 }
 .overview-panel-head h2 { font-size: 18px; font-weight: 700; }
+.ov-head-title { display: flex; align-items: center; gap: 16px; }
 
 .pulse-sort { display: flex; gap: 2px; background: var(--surface2); border: 1px solid var(--border); border-radius: 20px; padding: 2px; }
 .sort-btn {

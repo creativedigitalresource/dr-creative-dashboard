@@ -48,7 +48,14 @@
       <div id="tab-overview" class="tab-panel active">
         <div class="pulse-panel">
           <div class="overview-panel-head">
-            <h2>Team Pulse</h2>
+            <div class="ov-head-title">
+              <h2>Team Pulse</h2>
+              <div class="week-nav">
+                <button id="ov-week-prev-btn" class="week-nav-btn" onclick="setWeekOffset(_weekOffset - 1)" disabled>&#9664;</button>
+                <span id="ov-week-label" class="week-label">Current Week</span>
+                <button id="ov-week-next-btn" class="week-nav-btn" onclick="setWeekOffset(_weekOffset + 1)">&#9654;</button>
+              </div>
+            </div>
             <button class="btn btn-ghost btn-sm" onclick="toggleMM()" title="Posted to every designer's page for 10 days">&#9998; Weekly message</button>
             <div class="pulse-sort" id="pulse-sort">
               <button class="sort-btn active" data-sort="load" onclick="setPulseSort('load')">By load</button>

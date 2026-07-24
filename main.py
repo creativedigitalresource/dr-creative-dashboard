@@ -726,6 +726,29 @@ async def api_reconcile_logged_hours(pin: str = "", debug_todo_id: str = ""):
     }
 
 
+@app.delete("/api/analytics/completions/{todo_id}/{designer_bc_id}")
+async def api_delete_completion(todo_id: str, designer_bc_id: str, pin: str = ""):
+    """Remove a historical completion recorded in error — the designer was
+    unassigned/reassigned but the real deliverable wasn't actually finished."""
+    if pin != "1868":
+        return Response(status_code=403)
+    return {"ok": store.delete_completion(todo_id, designer_bc_id)}
+
+
+@app.put("/api/analytics/completions/{todo_id}/{designer_bc_id}/category")
+async def api_recategorize_completion(todo_id: str, designer_bc_id: str, request: Request, pin: str = ""):
+    """Fix a completion's category when the automatic title-keyword matcher
+    mistagged it (e.g. a landing page ABOUT a branding service, not actual
+    logo/branding creative work)."""
+    if pin != "1868":
+        return Response(status_code=403)
+    body = await request.json()
+    category = body.get("category")
+    if category not in CATEGORIES:
+        return {"ok": False, "error": "invalid category"}
+    return {"ok": store.update_completion_category(todo_id, designer_bc_id, category)}
+
+
 @app.get("/api/designer-links")
 async def api_designer_links(pin: str = ""):
     if pin != "1868":
