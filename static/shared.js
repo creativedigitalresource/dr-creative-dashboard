@@ -223,7 +223,17 @@ function editField(evt, todoId, field, inputType, currentValue) {
   input.focus();
   if (inputType === "date" && currentValue) input.value = currentValue;
 
+  // Native date/number inputs can fire blur more than once during a single
+  // interaction (e.g. the native date picker closing after Enter, which
+  // blurs the field, which then blurs again) — without this guard that
+  // meant the commit path could run twice for what looks like one edit,
+  // briefly rendering a stale pill alongside the new one until the next
+  // full data reload wiped it. Escape needs the same guard so a trailing
+  // blur can't still commit a value the user just cancelled.
+  let settled = false;
   const commit = async () => {
+    if (settled) return;
+    settled = true;
     const val = input.value.trim();
     if (val !== currentValue) {
       await window.__commitField(todoId, field, val);
@@ -232,11 +242,17 @@ function editField(evt, todoId, field, inputType, currentValue) {
       input.remove();
     }
   };
+  const cancel = () => {
+    if (settled) return;
+    settled = true;
+    input.insertAdjacentHTML("afterend", orig);
+    input.remove();
+  };
 
   input.addEventListener("blur", commit);
   input.addEventListener("keydown", e => {
     if (e.key === "Enter") { e.preventDefault(); input.blur(); }
-    if (e.key === "Escape") { input.insertAdjacentHTML("afterend", orig); input.remove(); }
+    if (e.key === "Escape") { cancel(); }
   });
 }
 
