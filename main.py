@@ -15,18 +15,19 @@ _sse_clients: list[asyncio.Queue] = []
 _refresh_running = False
 
 DESIGNERS = [
-    {"name": "Dexter",   "bc_id": 44800252, "eh_id": 1327353,  "color": "#3b82f6", "slack_id": "U01S46XJU8G"},
-    {"name": "Lezly",    "bc_id": 45896266, "eh_id": 1336550,  "color": "#8b5cf6", "slack_id": "U070TFVNNSK"},
-    {"name": "Gaby",     "bc_id": 46567979, "eh_id": 1422085,  "color": "#f97316", "slack_id": "U07JJEF0KCY"},
-    {"name": "Odette",   "bc_id": 48051100, "eh_id": 1403017,  "color": "#eab308", "slack_id": "U08LAH3CA12"},
-    {"name": "Debi",     "bc_id": 52244353, "eh_id": 1445224,  "color": "#22c55e", "slack_id": "U0B0JNXGTKQ"},
-    {"name": "Maria C",  "bc_id": 52471282, "eh_id": 1451054,  "color": "#14b8a6", "slack_id": "U0B7JK64NT1"},
-    {"name": "Melany",   "bc_id": 46905124, "eh_id": 1367774,  "color": "#ef4444", "slack_id": "U07RXRYNEMQ"},
+    {"name": "Dexter",   "bc_id": 44800252, "eh_id": 1327353,  "color": "#3b82f6", "slack_id": "U01S46XJU8G", "avatar": "/static/img/avatars/44800252.jpg"},
+    {"name": "Lezly",    "bc_id": 45896266, "eh_id": 1336550,  "color": "#8b5cf6", "slack_id": "U070TFVNNSK", "avatar": "/static/img/avatars/45896266.jpg"},
+    {"name": "Gaby",     "bc_id": 46567979, "eh_id": 1422085,  "color": "#f97316", "slack_id": "U07JJEF0KCY", "avatar": "/static/img/avatars/46567979.jpg"},
+    {"name": "Odette",   "bc_id": 48051100, "eh_id": 1403017,  "color": "#eab308", "slack_id": "U08LAH3CA12", "avatar": "/static/img/avatars/48051100.jpg"},
+    {"name": "Debi",     "bc_id": 52244353, "eh_id": 1445224,  "color": "#22c55e", "slack_id": "U0B0JNXGTKQ", "avatar": "/static/img/avatars/52244353.jpg"},
+    {"name": "Maria C",  "bc_id": 52471282, "eh_id": 1451054,  "color": "#14b8a6", "slack_id": "U0B7JK64NT1", "avatar": "/static/img/avatars/52471282.jpg"},
+    {"name": "Melany",   "bc_id": 46905124, "eh_id": 1367774,  "color": "#ef4444", "slack_id": "U07RXRYNEMQ", "avatar": "/static/img/avatars/46905124.jpg"},
 ]
 
 # Richard's own todos — fetched through the same pipeline as designers for the
 # My Stuff tab, but kept out of designers_out so team analytics stay clean
-ME = {"name": "Richard", "bc_id": 49482127, "eh_id": 1415584, "color": "#6366f1"}
+ME = {"name": "Richard", "bc_id": 49482127, "eh_id": 1415584, "color": "#6366f1",
+      "avatar": "/static/img/avatars/49482127.jpg"}
 
 WEEKLY_CAP = 32.5  # 6.5h/day × 5 days (1.5h/day reserved for misc/admin)
 WORK_HOURS = 6.5
@@ -513,7 +514,7 @@ async def api_me():
     if not me:
         return {"warming": True}
     pto = store.get_all_pto().get(str(ME["bc_id"]), [])
-    return {"name": me["name"], "color": me["color"], "pto": pto,
+    return {"name": me["name"], "color": me["color"], "avatar": me.get("avatar"), "pto": pto,
             "todos": _public_todos(me),
             "last_updated": _cached_data.get("last_updated")}
 
@@ -540,7 +541,7 @@ async def api_my(token: str):
         age_days = (time.time() - float(msg_at)) / 86400
         if age_days <= 10:  # stale messages read worse than none
             manager_message = {"text": msg, "at": float(msg_at)}
-    return {"name": d["name"], "color": d["color"], "pto": pto, "todos": todos,
+    return {"name": d["name"], "color": d["color"], "avatar": d.get("avatar"), "pto": pto, "todos": todos,
             "planner_order": store.get_planner_order(d["bc_id"]),
             "notes": store.get_designer_note(d["bc_id"]),
             "kudos": store.get_kudos(d["bc_id"], since_ts=str(int(time.time() - 183 * 86400))),

@@ -144,6 +144,17 @@ function initialsOf(name) {
   return name.split(/\s+/).filter(Boolean).map(w => w[0]).join("").slice(0, 2).toUpperCase();
 }
 
+// Real headshot when we have one (d.avatar, a local /static/img/avatars path),
+// falling back to the colored-letter circle for anyone without a photo on file.
+function avatarHTML(d, opts = {}) {
+  const cls = (opts.cls || "avatar") + (opts.mini ? " mini" : "");
+  const titleAttr = opts.title ? ` title="${esc(opts.title)}"` : "";
+  if (d.avatar) {
+    return `<img class="${cls}" src="${d.avatar}" alt="${esc(d.name)}"${titleAttr} />`;
+  }
+  return `<div class="${cls}" style="background:${d.color}"${titleAttr}>${initialsOf(d.name)}</div>`;
+}
+
 function cleanClient(bucketName) {
   return (bucketName || "")
     .replace(/\s*\(\d+\+?\)\([A-Z]+\)\s*$/, "")

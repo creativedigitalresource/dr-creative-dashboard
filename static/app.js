@@ -610,7 +610,6 @@ function setWeekOffset(newOffset) {
 function renderDesignerCard(d, showCompleted = false) {
   const { weekly_est, cap, pct, pto_days, scheduledIds } = calcCapacity(d.todos, d.pto, _weekOffset);
   const barCls = pct < 60 ? "low" : pct < 85 ? "mid" : "high";
-  const initials = d.name.split(" ").map(n => n[0]).join("").slice(0, 2).toUpperCase();
   const ptoBadge = pto_days > 0
     ? `<span class="pto-badge">${pto_days} OOO day${pto_days > 1 ? "s" : ""} this wk</span>`
     : "";
@@ -652,7 +651,7 @@ function renderDesignerCard(d, showCompleted = false) {
   <div class="designer-card">
     <div class="designer-card-header">
       <div class="designer-name-wrap">
-        <div class="designer-avatar" style="background:${d.color}">${initials}</div>
+        ${avatarHTML(d, { cls: "designer-avatar" })}
         <div>
           <div class="designer-name" style="display:flex;align-items:center;gap:8px">
             ${esc(d.name)}
@@ -1004,7 +1003,7 @@ function renderPulseItem(d, s) {
   return `
   <div class="pulse-item${expanded ? " open" : ""}">
     <div class="pulse-row" onclick="togglePulseRow('${d.bc_id}')">
-      <div class="avatar" style="background:${d.color}">${initialsOf(d.name)}</div>
+      ${avatarHTML(d)}
       <div class="pulse-name">${esc(d.name)}</div>
       <div class="pulse-bar-wrap">
         <div class="cap-bar-outer"><div class="cap-bar-inner ${_barCls(s.pct)}" style="width:${Math.min(100, s.pct)}%"></div></div>
@@ -1059,7 +1058,7 @@ function renderAttention(stats) {
   pastDue.sort((a, b) => b.days - a.days);
   atRisk.sort((a, b) => a.t.hdd.localeCompare(b.t.hdd));
 
-  const mini = d => `<div class="avatar mini" style="background:${d.color}" title="${esc(d.name)}">${initialsOf(d.name)}</div>`;
+  const mini = d => avatarHTML(d, { mini: true, title: d.name });
   const taskRow = (d, t, right) => {
     const inner = `${mini(d)}
       <div class="attn-text">
@@ -1151,7 +1150,7 @@ function renderMyStuff() {
   root.innerHTML = `
     <div class="pulse-panel">
       <div class="my-pulse">
-        <div class="avatar" style="background:${d.color}">${initialsOf(d.name)}</div>
+        ${avatarHTML(d)}
         <div class="my-pulse-info">
           <div class="pulse-name">${esc(d.name)}</div>
           <div class="my-pulse-sub">${active.length} active task${active.length === 1 ? "" : "s"} this week${pto_days ? ` · ${pto_days} OOO day${pto_days > 1 ? "s" : ""}` : ""}</div>

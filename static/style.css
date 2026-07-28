@@ -241,6 +241,7 @@ body { min-height: 100vh; }
   display: flex; align-items: center; justify-content: center;
   font-weight: 800; font-size: 14px; color: #fff;
   flex-shrink: 0;
+  object-fit: cover;
   box-shadow: 0 3px 8px rgba(0,0,0,0.15);
 }
 .designer-name { font-weight: 700; font-size: 15px; color: var(--text); display: flex; align-items: center; gap: 8px; }
@@ -769,6 +770,7 @@ input.cal-filter-select { font-weight: 500; }
   width: 34px; height: 34px; border-radius: 50%;
   display: flex; align-items: center; justify-content: center;
   font-size: 12px; font-weight: 700; color: #fff; flex-shrink: 0;
+  object-fit: cover; /* real headshots (<img class="avatar">) crop to the circle */
 }
 .avatar.mini { width: 26px; height: 26px; font-size: 10px; }
 

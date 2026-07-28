@@ -88,7 +88,7 @@ function renderMe() {
     ${mmBanner}
     <div class="pulse-panel">
       <div class="my-pulse">
-        <div class="avatar" style="background:${d.color}">${initialsOf(d.name)}</div>
+        ${avatarHTML(d)}
         <div class="my-pulse-info">
           <div class="pulse-name">${esc(d.name)}</div>
           <div class="my-pulse-sub">${active.length} active task${active.length === 1 ? "" : "s"} this week${pto_days ? ` · ${pto_days} OOO day${pto_days > 1 ? "s" : ""}` : ""}${shipped}</div>
