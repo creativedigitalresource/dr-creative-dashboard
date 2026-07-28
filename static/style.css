@@ -531,6 +531,10 @@ body { min-height: 100vh; }
 /* ---- PIN Gate ---- */
 .pin-gate {
   position: fixed; inset: 0; z-index: 9999;
+  /* Opaque on purpose: the PIN gate is a client-side overlay only — the
+     dashboard underneath is already rendered in the DOM — so it must
+     fully hide live task data, not just visually soften it. */
+  background: var(--bg);
   display: flex; align-items: center; justify-content: center;
 }
 .pin-card {
