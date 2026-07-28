@@ -326,11 +326,12 @@ body { min-height: 100vh; }
   white-space: nowrap;
 }
 .meta-pill.date-pill { color: var(--text-muted); background: var(--surface2); border-color: var(--border); font-weight: 700; }
-.meta-pill.hdd { color: #ea580c; background: #fff7ed; border-color: #fed7aa; }
+.meta-pill.hdd { color: var(--dr-orange); background: var(--accent-light); border-color: #fbd0a0; }
 .meta-pill.hdd.stale { color: #b45309; background: var(--warning-light); border-color: #fcd34d; border-style: dashed; }
 .meta-pill.pdd { color: var(--dr-blue); background: #eaf7fc; border-color: #a9dff2; }
 .meta-pill.est { color: #7c3aed; background: #f5f3ff; border-color: #ddd6fe; }
-.meta-pill.true-est { color: #0d9488; background: #f0fdfa; border-color: #99f6e4; }
+/* Navy-on-lime per brand contrast rule — raw lime text reads poorly at pill size */
+.meta-pill.true-est { color: var(--dr-navy); background: #fbfce9; border-color: #eef2a7; }
 .meta-pill.true-est.needed { color: #b45309; background: #fffbeb; border-color: #fcd34d; border-style: dashed; }
 .meta-pill.revision-hdd { color: #a21caf; background: #fdf4ff; border-color: #f0abfc; border-style: dashed; }
 .meta-pill.editable { cursor: pointer; }
@@ -358,7 +359,7 @@ body { min-height: 100vh; }
 }
 .progress-bar-inner {
   height: 100%; border-radius: 10px;
-  background: linear-gradient(90deg, var(--accent), #60a5fa);
+  background: linear-gradient(90deg, var(--accent), var(--dr-blue));
   transition: width 0.4s ease;
 }
 .progress-label { font-size: 11px; color: var(--text-muted); font-weight: 500; white-space: nowrap; }
@@ -869,7 +870,7 @@ input.cal-filter-select { font-weight: 500; }
   background: var(--surface2); color: var(--text-muted);
 }
 .ov-pill.late { background: var(--danger-light); color: var(--danger); }
-.ov-pill.true-est { background: #f0fdfa; color: #0d9488; }
+.ov-pill.true-est { background: #fbfce9; color: var(--dr-navy); }
 .ov-pill.soon { background: var(--warning-light); color: #b45309; }
 .ov-pill.revision { background: #fdf4ff; color: #a21caf; }
 .ov-pill.needed { background: var(--warning-light); color: #b45309; border: 1px dashed #fcd34d; }

@@ -15,11 +15,11 @@ _sse_clients: list[asyncio.Queue] = []
 _refresh_running = False
 
 DESIGNERS = [
-    {"name": "Dexter",   "bc_id": 44800252, "eh_id": 1327353,  "color": "#3b82f6", "slack_id": "U01S46XJU8G", "avatar": "/static/img/avatars/44800252.jpg"},
-    {"name": "Lezly",    "bc_id": 45896266, "eh_id": 1336550,  "color": "#8b5cf6", "slack_id": "U070TFVNNSK", "avatar": "/static/img/avatars/45896266.jpg"},
-    {"name": "Gaby",     "bc_id": 46567979, "eh_id": 1422085,  "color": "#f97316", "slack_id": "U07JJEF0KCY", "avatar": "/static/img/avatars/46567979.jpg"},
+    {"name": "Dexter",   "bc_id": 44800252, "eh_id": 1327353,  "color": "#7dcbed", "slack_id": "U01S46XJU8G", "avatar": "/static/img/avatars/44800252.jpg"},
+    {"name": "Lezly",    "bc_id": 45896266, "eh_id": 1336550,  "color": "#26a9e1", "slack_id": "U070TFVNNSK", "avatar": "/static/img/avatars/45896266.jpg"},
+    {"name": "Gaby",     "bc_id": 46567979, "eh_id": 1422085,  "color": "#f6931e", "slack_id": "U07JJEF0KCY", "avatar": "/static/img/avatars/46567979.jpg"},
     {"name": "Odette",   "bc_id": 48051100, "eh_id": 1403017,  "color": "#eab308", "slack_id": "U08LAH3CA12", "avatar": "/static/img/avatars/48051100.jpg"},
-    {"name": "Debi",     "bc_id": 52244353, "eh_id": 1445224,  "color": "#22c55e", "slack_id": "U0B0JNXGTKQ", "avatar": "/static/img/avatars/52244353.jpg"},
+    {"name": "Debi",     "bc_id": 52244353, "eh_id": 1445224,  "color": "#d5de23", "slack_id": "U0B0JNXGTKQ", "avatar": "/static/img/avatars/52244353.jpg"},
     {"name": "Maria C",  "bc_id": 52471282, "eh_id": 1451054,  "color": "#14b8a6", "slack_id": "U0B7JK64NT1", "avatar": "/static/img/avatars/52471282.jpg"},
     {"name": "Melany",   "bc_id": 46905124, "eh_id": 1367774,  "color": "#ef4444", "slack_id": "U07RXRYNEMQ", "avatar": "/static/img/avatars/46905124.jpg"},
 ]

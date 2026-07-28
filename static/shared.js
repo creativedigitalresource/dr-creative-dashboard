@@ -152,7 +152,11 @@ function avatarHTML(d, opts = {}) {
   if (d.avatar) {
     return `<img class="${cls}" src="${d.avatar}" alt="${esc(d.name)}"${titleAttr} />`;
   }
-  return `<div class="${cls}" style="background:${d.color}"${titleAttr}>${initialsOf(d.name)}</div>`;
+  // Brand contrast rule: navy text on lime, white everywhere else — the
+  // fallback letter circle only shows for a designer with no photo on file,
+  // but a lime-colored designer would otherwise get illegible white-on-lime.
+  const textColor = d.color && d.color.toLowerCase() === "#d5de23" ? "var(--dr-navy)" : "#fff";
+  return `<div class="${cls}" style="background:${d.color};color:${textColor}"${titleAttr}>${initialsOf(d.name)}</div>`;
 }
 
 function cleanClient(bucketName) {
