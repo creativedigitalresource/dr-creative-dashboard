@@ -85,6 +85,13 @@ def init_db():
                 created_at REAL DEFAULT (unixepoch()),
                 UNIQUE(designer_bc_id, date)
             );
+            CREATE TABLE IF NOT EXISTS spotlight (
+                designer_bc_id TEXT NOT NULL,
+                todo_id TEXT NOT NULL,
+                position INTEGER NOT NULL DEFAULT 0,
+                created_at REAL DEFAULT (unixepoch()),
+                PRIMARY KEY (designer_bc_id, todo_id)
+            );
 
             -- Operational: active todo state, persists across server restarts
             CREATE TABLE IF NOT EXISTS todo_tracking (
@@ -557,3 +564,43 @@ def get_estimate_goals() -> dict:
     with get_db() as c:
         rows = c.execute("SELECT category, goal_hours FROM estimate_goals").fetchall()
     return {r["category"]: r["goal_hours"] for r in rows}
+
+
+# ---------------------------------------------------------------------------
+# Spotlight — each designer (and Richard, for My Stuff) can pin up to 4 of
+# their own tasks to a dedicated section at the top of their page.
+# ---------------------------------------------------------------------------
+
+SPOTLIGHT_MAX = 4
+
+
+def set_spotlight(designer_bc_id: str, todo_id: str, on: bool) -> dict:
+    with get_db() as c:
+        if on:
+            exists = c.execute(
+                "SELECT 1 FROM spotlight WHERE designer_bc_id=? AND todo_id=?",
+                (str(designer_bc_id), str(todo_id))).fetchone()
+            if not exists:
+                n = c.execute(
+                    "SELECT COUNT(*) AS n FROM spotlight WHERE designer_bc_id=?",
+                    (str(designer_bc_id),)).fetchone()["n"]
+                if n >= SPOTLIGHT_MAX:
+                    return {"ok": False, "error": f"You can only spotlight up to {SPOTLIGHT_MAX} tasks at a time."}
+                pos = c.execute(
+                    "SELECT COALESCE(MAX(position), -1) + 1 AS p FROM spotlight WHERE designer_bc_id=?",
+                    (str(designer_bc_id),)).fetchone()["p"]
+                c.execute(
+                    "INSERT INTO spotlight (designer_bc_id, todo_id, position) VALUES (?,?,?)",
+                    (str(designer_bc_id), str(todo_id), pos))
+        else:
+            c.execute("DELETE FROM spotlight WHERE designer_bc_id=? AND todo_id=?",
+                      (str(designer_bc_id), str(todo_id)))
+    return {"ok": True}
+
+
+def get_spotlight_ids(designer_bc_id: str) -> list:
+    with get_db() as c:
+        rows = c.execute(
+            "SELECT todo_id FROM spotlight WHERE designer_bc_id=? ORDER BY position",
+            (str(designer_bc_id),)).fetchall()
+    return [r["todo_id"] for r in rows]

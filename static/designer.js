@@ -22,8 +22,26 @@ window.__commitField = async (todoId, field, val) => {
   renderMe();
 };
 
+// Designer commit hook for the shared spotlight star (shared.js toggleSpotlight)
+window.__commitSpotlight = async (todoId, on) => {
+  const res = await fetch(`/api/my/${TOKEN}/todos/${todoId}/spotlight`, {
+    method: "PUT",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ on }),
+  }).then(r => r.json()).catch(() => null);
+  if (res && res.ok === false) return; // at cap — star is disabled client-side already, this is just a race guard
+  const t = (_me?.todos || []).find(x => String(x.id) === String(todoId));
+  if (t) t.is_spotlighted = on;
+  renderMe();
+};
+
 let _me = null;
 let _dragId = null;
+let _mySort = "default";
+function setMySort(key) {
+  _mySort = key;
+  renderMe();
+}
 
 async function loadMe() {
   const r = await fetch(`/api/my/${TOKEN}`);
@@ -82,10 +100,13 @@ function renderMe() {
       <div class="mm-text">${esc(mm.text)}</div>
     </div>` : "";
   const shipped = d.shipped_week ? ` &middot; ${d.shipped_week} shipped this week` : "";
+  const spotlightCount = active.filter(t => t.is_spotlighted).length;
+  const sorted = sortTodos(active, _mySort);
 
   root.innerHTML = `
     ${ticker}
     ${mmBanner}
+    ${buildSpotlightSection(active, d.color)}
     <div class="pulse-panel">
       <div class="my-pulse">
         ${avatarHTML(d)}
@@ -99,7 +120,8 @@ function renderMe() {
         </div>
         <div class="pulse-free ${free <= 2 ? "low" : free <= 8 ? "mid" : "ok"}">${free < 0 ? Math.abs(free) + "h over" : free + "h free"}</div>
       </div>
-      <div class="my-table-wrap">${buildTaskTable(active, d.color)}</div>
+      <div class="my-table-head">${sortSelectHTML(_mySort, "setMySort")}</div>
+      <div class="my-table-wrap">${buildTaskTable(sorted, d.color, { spotlight: { atCap: spotlightCount >= 4 } })}</div>
     </div>
     <div class="pulse-panel">
       <div class="cap-chart-title" style="margin-bottom:4px">This Week</div>

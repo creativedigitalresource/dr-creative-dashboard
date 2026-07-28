@@ -710,51 +710,19 @@ window.__commitField = async (todoId, field, val) => {
   updateLastUpdated();
 };
 
-function renderTodoItem(t, color, isCompleted = false, pulledForward = false) {
-  const dateStr = pillDate(t);
-  const hddStr = pillHdd(t);
-  const estStr = pillEst(t);
-  const trueEstStr = pillTrueEst(t, isCompleted);
-  const progressHtml = progressBlock(t, color);
-  const catStr = selCategory(t);
-
-  // Clean client name — strip tier/AM suffixes like "(2)(BW)" or "(1+)(TS)"
-  const clientName = (t.bucket_name || "")
-    .replace(/\s*\(\d+\+?\)\([A-Z]+\)\s*$/, "")
-    .replace(/\s*\(\d+\+?\)\s*$/, "")
-    .trim();
-  const clientLabel = clientName
-    ? `<div class="todo-client">${esc(clientName)}</div>`
-    : "";
-
-  const pulledBadge = pulledForward
-    ? `<div class="pulled-forward-badge">↓ starting this week</div>`
-    : "";
-
-  let revisionBadge = "";
-  if (t.in_revisions) {
-    let waiting = "";
-    if (t.revisions_since) {
-      const days = Math.max(0, Math.floor((Date.now() - new Date(t.revisions_since)) / 86400000));
-      waiting = ` · waiting ${days}d`;
-    }
-    revisionBadge = `<div class="revision-badge" title="Designer finished their step but the task was sent back — no revision deadline set yet">↩ Revisions${waiting}</div>`;
+// Manager commit hook for the shared spotlight star (shared.js toggleSpotlight)
+window.__commitSpotlight = async (todoId, on) => {
+  const res = await fetch(`/api/todos/${todoId}/spotlight`, {
+    method: "PUT",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ on }),
+  }).then(r => r.json()).catch(() => null);
+  if (res && res.ok === false) return; // at cap — star is disabled client-side already, this is just a race guard
+  for (const t of _meData?.todos || []) {
+    if (String(t.id) === String(todoId)) t.is_spotlighted = on;
   }
-
-  return `
-  <li class="todo-item${isCompleted ? " todo-done" : ""}${pulledForward ? " pulled-forward" : ""}" id="todo-${t.id}">
-    <div class="todo-item-left">
-      ${clientLabel}
-      <div class="todo-item-title" title="${esc(t.title)}">${isCompleted ? `<s>${esc(truncate(t.title, 60))}</s>` : esc(truncate(t.title, 60))}</div>
-      <div class="todo-meta">${dateStr}${hddStr}${estStr}${trueEstStr}</div>
-      <div class="todo-category">${catStr}${pulledBadge}${revisionBadge}</div>
-      ${progressHtml}
-    </div>
-    <div class="todo-item-actions">
-      ${t.url ? `<a href="${t.url}" target="_blank" class="link-btn" title="Open in Basecamp">↗</a>` : ""}
-    </div>
-  </li>`;
-}
+  renderMyStuff();
+};
 
 // ---------------------------------------------------------------------------
 // Calendar scheduling
@@ -1135,6 +1103,12 @@ async function loadMyStuff() {
   renderMyStuff();
 }
 
+let _myStuffSort = "default";
+function setMyStuffSort(key) {
+  _myStuffSort = key;
+  renderMyStuff();
+}
+
 function renderMyStuff() {
   const root = document.getElementById("my-stuff-root");
   if (!root) return;
@@ -1146,8 +1120,11 @@ function renderMyStuff() {
   const { weekly_est, cap, pct, pto_days } = calcCapacity(d.todos, d.pto, 0);
   const free = Math.round((cap - weekly_est) * 10) / 10;
   const active = (d.todos || []).filter(t => !t.is_complete && !t.is_misc);
+  const spotlightCount = active.filter(t => t.is_spotlighted).length;
+  const sorted = sortTodos(active, _myStuffSort);
 
   root.innerHTML = `
+    ${buildSpotlightSection(active, d.color)}
     <div class="pulse-panel">
       <div class="my-pulse">
         ${avatarHTML(d)}
@@ -1161,7 +1138,8 @@ function renderMyStuff() {
         </div>
         <div class="pulse-free ${free <= 2 ? "low" : free <= 8 ? "mid" : "ok"}">${free < 0 ? Math.abs(free) + "h over" : free + "h free"}</div>
       </div>
-      <div class="my-table-wrap">${buildTaskTable(active, d.color)}</div>
+      <div class="my-table-head">${sortSelectHTML(_myStuffSort, "setMyStuffSort")}</div>
+      <div class="my-table-wrap">${buildTaskTable(sorted, d.color, { spotlight: { atCap: spotlightCount >= 4 } })}</div>
     </div>
     <div class="attention-grid">${renderMyStuffAttention(active)}</div>`;
 }

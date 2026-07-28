@@ -8,7 +8,7 @@ from fastapi.responses import FileResponse, HTMLResponse, RedirectResponse, Stre
 from fastapi.staticfiles import StaticFiles
 
 import store, basecamp as bc, everhour as eh
-from parsers import CATEGORIES
+from parsers import CATEGORIES, CATEGORY_TIMELINE
 
 _cached_data: dict = {}
 _sse_clients: list[asyncio.Queue] = []
@@ -485,6 +485,7 @@ async def designer_page(token: str):
 
 def _public_todos(d: dict) -> list:
     """Client-safe todo projection shared by the designer page and My Stuff."""
+    spotlight_ids = set(store.get_spotlight_ids(d["bc_id"]))
     todos = []
     for t in d.get("todos", []):
         todos.append({
@@ -501,6 +502,7 @@ def _public_todos(d: dict) -> list:
             "is_complete": t.get("is_complete", False), "is_misc": t.get("is_misc", False),
             "step_complete": bool((t.get("designer_step") or {}).get("completed")),
             "designer_step": {"completed": bool((t.get("designer_step") or {}).get("completed"))} if t.get("designer_step") else None,
+            "is_spotlighted": str(t["id"]) in spotlight_ids,
         })
     return todos
 
@@ -565,6 +567,17 @@ async def api_my_set_fields(token: str, todo_id: str, request: Request):
         return Response(status_code=403)
     body = await request.json()
     return await _apply_todo_fields(str(todo_id), body, todo, d)
+
+
+@app.put("/api/my/{token}/todos/{todo_id}/spotlight")
+async def api_my_set_spotlight(token: str, todo_id: str, request: Request):
+    d = _designer_for_token(token)
+    if not d:
+        return Response(status_code=404 if not store.resolve_designer_token(token) else 503)
+    if not any(str(t["id"]) == str(todo_id) for t in d.get("todos", [])):
+        return Response(status_code=403)
+    body = await request.json()
+    return store.set_spotlight(str(d["bc_id"]), str(todo_id), bool(body.get("on")))
 
 
 @app.put("/api/my/{token}/planner-order")
@@ -835,6 +848,18 @@ async def set_todo_fields(todo_id: str, request: Request):
     return await _apply_todo_fields(todo_id, body, cached_todo, cached_designer)
 
 
+@app.put("/api/todos/{todo_id}/spotlight")
+async def set_todo_spotlight(todo_id: str, request: Request):
+    """Toggle spotlight on Richard's own My Stuff todos (same cache lookup
+    as set_todo_fields, but only 'me' has a spotlight list here — other
+    designers' spotlights are only ever touched via their own token page)."""
+    body = await request.json()
+    me = _cached_data.get("me")
+    if not me or not any(str(t["id"]) == str(todo_id) for t in me.get("todos", [])):
+        return Response(status_code=404)
+    return store.set_spotlight(str(me["bc_id"]), str(todo_id), bool(body.get("on")))
+
+
 async def _apply_todo_fields(todo_id: str, body: dict, cached_todo, cached_designer):
     """Shared field-update core used by the manager and designer endpoints."""
     allowed = {"hdd", "est", "true_est", "due_on", "logged", "category"}
@@ -974,6 +999,7 @@ def _compute_estimate_guide(personal_bc_id: str | None = None) -> dict:
         entry = {
             "goal": goal, "goal_stored": goal_stored,
             "company_median": company_median, "company_n": n,
+            "timeline": CATEGORY_TIMELINE.get(cat),
         }
         if personal_bc_id is not None:
             pvals = personal_by_cat.get(cat, [])

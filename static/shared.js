@@ -344,8 +344,10 @@ function progressCellCompact(t, color) {
 
 /* ---- Editable task table — the Overview expanded row and the designer
    page render exactly this ---- */
-function buildTaskTable(todos, color) {
+function buildTaskTable(todos, color, opts = {}) {
   if (!todos.length) return `<div class="attention-empty">No active tasks this week.</div>`;
+  const showSpotlight = !!opts.spotlight;
+  const atCap = opts.spotlight && opts.spotlight.atCap;
   const rows = todos.map(t => {
     let revNote = "";
     if (t.in_revisions && t.revisions_since) {
@@ -353,6 +355,7 @@ function buildTaskTable(todos, color) {
       revNote = `<div class="ov-revnote">&#8617; back for revisions · waiting ${days}d</div>`;
     }
     return `<tr class="ov-task-row">
+      ${showSpotlight ? `<td>${spotlightStarHTML(t, atCap)}</td>` : ""}
       <td class="ov-client">${esc(cleanClient(t.bucket_name)) || "&mdash;"}</td>
       <td class="ov-title" title="${esc(t.title)}">${esc(truncate(t.title, 52))}${revNote}</td>
       <td>${pillDate(t)}</td>
@@ -366,9 +369,121 @@ function buildTaskTable(todos, color) {
     </tr>`;
   }).join("");
   return `<table class="ov-table">
-    <thead><tr><th>Client</th><th>Task</th><th>Date</th><th>HDD</th><th>EST</th><th>True</th><th>Logged</th><th>Category</th><th>Progress</th><th></th></tr></thead>
+    <thead><tr>${showSpotlight ? "<th></th>" : ""}<th>Client</th><th>Task</th><th>Date</th><th>HDD</th><th>EST</th><th>True</th><th>Logged</th><th>Category</th><th>Progress</th><th></th></tr></thead>
     <tbody>${rows}</tbody>
   </table>`;
+}
+
+/* ---- Task card, shared by Designer Workload cards and the Spotlight
+   section (spotlightOpts = null hides the star entirely) ---- */
+function renderTodoItem(t, color, isCompleted = false, pulledForward = false, spotlightOpts = null) {
+  const dateStr = pillDate(t);
+  const hddStr = pillHdd(t);
+  const estStr = pillEst(t);
+  const trueEstStr = pillTrueEst(t, isCompleted);
+  const progressHtml = progressBlock(t, color);
+  const catStr = selCategory(t);
+
+  const clientName = cleanClient(t.bucket_name);
+  const clientLabel = clientName
+    ? `<div class="todo-client">${esc(clientName)}</div>`
+    : "";
+
+  const pulledBadge = pulledForward
+    ? `<div class="pulled-forward-badge">↓ starting this week</div>`
+    : "";
+
+  let revisionBadge = "";
+  if (t.in_revisions) {
+    let waiting = "";
+    if (t.revisions_since) {
+      const days = Math.max(0, Math.floor((Date.now() - new Date(t.revisions_since)) / 86400000));
+      waiting = ` · waiting ${days}d`;
+    }
+    revisionBadge = `<div class="revision-badge" title="Designer finished their step but the task was sent back — no revision deadline set yet">↩ Revisions${waiting}</div>`;
+  }
+
+  const spotlightBtn = spotlightOpts ? spotlightStarHTML(t, spotlightOpts.atCap) : "";
+
+  return `
+  <li class="todo-item${isCompleted ? " todo-done" : ""}${pulledForward ? " pulled-forward" : ""}" id="todo-${t.id}">
+    <div class="todo-item-left">
+      ${clientLabel}
+      <div class="todo-item-title" title="${esc(t.title)}">${isCompleted ? `<s>${esc(truncate(t.title, 60))}</s>` : esc(truncate(t.title, 60))}</div>
+      <div class="todo-meta">${dateStr}${hddStr}${estStr}${trueEstStr}</div>
+      <div class="todo-category">${catStr}${pulledBadge}${revisionBadge}</div>
+      ${progressHtml}
+    </div>
+    <div class="todo-item-actions">
+      ${spotlightBtn}
+      ${t.url ? `<a href="${t.url}" target="_blank" class="link-btn" title="Open in Basecamp">↗</a>` : ""}
+    </div>
+  </li>`;
+}
+
+/* ---- Spotlight — up to 4 tasks a designer (or Richard, for My Stuff) can
+   pin to the top of their own page. Toggled via a star on each task; the
+   page defines window.__commitSpotlight(todoId, on) the same way it
+   defines window.__commitField. ---- */
+const SPOTLIGHT_MAX = 4;
+
+function spotlightStarHTML(t, atCap) {
+  const disabled = !t.is_spotlighted && atCap;
+  const title = t.is_spotlighted
+    ? "Remove from Spotlight"
+    : (disabled ? `Spotlight is full (${SPOTLIGHT_MAX}/${SPOTLIGHT_MAX}) — remove one first` : "Add to Spotlight");
+  return `<button class="spotlight-star${t.is_spotlighted ? " on" : ""}"${disabled ? " disabled" : ""}
+    onclick="event.stopPropagation();toggleSpotlight('${t.id}', ${!t.is_spotlighted})" title="${title}">${t.is_spotlighted ? "★" : "☆"}</button>`;
+}
+
+function toggleSpotlight(todoId, on) {
+  window.__commitSpotlight(todoId, on);
+}
+
+function buildSpotlightSection(todos, color) {
+  const spotlighted = todos.filter(t => t.is_spotlighted && !t.is_complete);
+  if (!spotlighted.length) return "";
+  const items = spotlighted.map(t => renderTodoItem(t, color, false, false, { atCap: false })).join("");
+  return `<div class="pulse-panel spotlight-panel">
+    <div class="spotlight-head">
+      <div class="spotlight-title">★ Spotlight</div>
+      <div class="spotlight-count">${spotlighted.length}/${SPOTLIGHT_MAX}</div>
+    </div>
+    <ul class="designer-todos spotlight-list">${items}</ul>
+  </div>`;
+}
+
+/* ---- Sort — client-side only, mirrors the existing By-load/By-availability
+   toggle pattern (session state, no persistence). ---- */
+const SORT_OPTIONS = [
+  { key: "default",  label: "Default order" },
+  { key: "client",   label: "Client" },
+  { key: "date",     label: "Due Date" },
+  { key: "hdd",      label: "HDD" },
+  { key: "progress", label: "Progress" },
+  { key: "category", label: "Category" },
+  { key: "logged",   label: "Logged Hours" },
+];
+
+function sortTodos(todos, key) {
+  const arr = [...todos];
+  const byStr = (a, b) => (a || "").localeCompare(b || "");
+  switch (key) {
+    case "client":   return arr.sort((a, b) => byStr(cleanClient(a.bucket_name), cleanClient(b.bucket_name)));
+    case "date":     return arr.sort((a, b) => byStr(a.due_on || "9999-99-99", b.due_on || "9999-99-99"));
+    case "hdd":      return arr.sort((a, b) => byStr(a.hdd || "9999-99-99", b.hdd || "9999-99-99"));
+    case "progress": return arr.sort((a, b) => (b.progress || 0) - (a.progress || 0));
+    case "category": return arr.sort((a, b) => byStr(a.category, b.category));
+    case "logged":   return arr.sort((a, b) => (b.logged || 0) - (a.logged || 0));
+    default:         return arr;
+  }
+}
+
+function sortSelectHTML(currentKey, onChangeFnName) {
+  const opts = SORT_OPTIONS.map(o =>
+    `<option value="${o.key}"${o.key === currentKey ? " selected" : ""}>${o.label}</option>`
+  ).join("");
+  return `<select class="cal-filter-select sort-select" onchange="${onChangeFnName}(this.value)" title="Sort tasks">${opts}</select>`;
 }
 
 /* ---- Estimate Guide — shared by the Overview panel (editable goals) and
@@ -387,6 +502,7 @@ function buildEstimateGuide(guide, opts = {}) {
   const rows = CATEGORIES.filter(cat => !ESTIMATE_GUIDE_EXCLUDE.has(cat)).map(cat => {
     const g = guide[cat] || {};
     const slug = slugCat(cat);
+    const timelineCell = `<td class="eg-timeline">${g.timeline ? esc(g.timeline) : `<span class="ov-muted">&mdash;</span>`}</td>`;
     let cells;
     if (opts.personal) {
       const pm = g.personal_median;
@@ -401,7 +517,7 @@ function buildEstimateGuide(guide, opts = {}) {
           ? `<span class="eg-delta ok">on pace</span>`
           : `<span class="eg-delta over">+${diff}h vs goal</span>`;
       }
-      cells = `<td>${goalCell}</td><td>${paceCell}</td><td>${deltaCell}</td>`;
+      cells = `<td>${goalCell}</td><td>${paceCell}</td><td>${deltaCell}</td>${timelineCell}`;
     } else {
       const companyCell = g.company_n >= 1
         ? `${g.company_median}h <span class="eg-n">(${g.company_n} task${g.company_n === 1 ? "" : "s"})</span>`
@@ -411,13 +527,13 @@ function buildEstimateGuide(guide, opts = {}) {
         placeholder="set goal"
         onblur="commitEstimateGoal('${esc(cat)}', this.value, this)"
         onkeydown="if(event.key==='Enter'){event.preventDefault();this.blur();}" />`;
-      cells = `<td>${companyCell}</td><td>${goalCell}</td>`;
+      cells = `<td>${companyCell}</td><td>${goalCell}</td>${timelineCell}`;
     }
     return `<tr id="eg-row-${slug}"><td>${esc(cat)}</td>${cells}</tr>`;
   }).join("");
   const head = opts.personal
-    ? `<th>Category</th><th>Goal</th><th>Your pace</th><th>vs Goal</th>`
-    : `<th>Category</th><th>Team median</th><th>Goal</th>`;
+    ? `<th>Category</th><th>Goal</th><th>Your pace</th><th>vs Goal</th><th>Timeline</th>`
+    : `<th>Category</th><th>Team median</th><th>Goal</th><th>Timeline</th>`;
   return `<table class="eg-table"><thead><tr>${head}</tr></thead><tbody>${rows}</tbody></table>`;
 }
 

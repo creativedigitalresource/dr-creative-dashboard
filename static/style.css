@@ -1129,6 +1129,42 @@ input.cal-filter-select { font-weight: 500; }
   0%, 100% { background: transparent; }
   15%, 60% { background: var(--warning-light); }
 }
+.eg-timeline { white-space: nowrap; color: var(--text-muted); font-weight: 500; }
+
+/* ============================================================
+   Spotlight — up to 4 pinned tasks at the top of a designer's own page
+   (My Week / My Stuff). Reuses .pulse-panel for the glass shell and
+   .designer-todos/.todo-item for each card, same visual language as
+   Designer Workload, just re-homed to a designer's own page.
+   ============================================================ */
+.spotlight-panel { padding-bottom: 6px; }
+.spotlight-head {
+  display: flex; align-items: center; justify-content: space-between;
+  margin-bottom: 6px;
+}
+.spotlight-title {
+  font-size: 15px; font-weight: 700; color: var(--text);
+  display: flex; align-items: center; gap: 6px;
+}
+.spotlight-count {
+  font-size: 11px; font-weight: 700; color: var(--text-muted);
+  background: var(--surface2); border-radius: 10px; padding: 1px 9px;
+}
+.spotlight-list .todo-item { padding-left: 4px; padding-right: 4px; }
+.spotlight-list .todo-item:last-child { border-bottom: none; }
+
+.spotlight-star {
+  border: none; background: none; cursor: pointer;
+  font-size: 17px; line-height: 1; padding: 2px;
+  color: var(--border); transition: color .15s, transform .15s;
+}
+.spotlight-star:hover:not(:disabled) { color: var(--accent); transform: scale(1.15); }
+.spotlight-star.on { color: var(--accent); }
+.spotlight-star:disabled { cursor: default; opacity: .4; }
+
+/* Sort control above the editable task table (My Week / My Stuff) */
+.my-table-head { display: flex; justify-content: flex-end; margin: 14px 0 -6px; }
+.sort-select { min-width: 150px; }
 
 /* ============================================================
    Mobile (phones) — additive overrides only.
