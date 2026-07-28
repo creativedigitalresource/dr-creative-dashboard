@@ -775,6 +775,7 @@ input.cal-filter-select { font-weight: 500; }
 
 .overview-panel-head {
   display: flex; align-items: center; justify-content: space-between;
+  flex-wrap: wrap; row-gap: 10px;
   margin-bottom: 14px;
 }
 .overview-panel-head h2 { font-size: 18px; font-weight: 700; }
@@ -953,6 +954,7 @@ input.cal-filter-select { font-weight: 500; }
 .cap-tip-hrs { color: var(--text-muted); font-size: 11px; width: 44px; text-align: right; font-variant-numeric: tabular-nums; }
 
 .cap-tables { display: grid; grid-template-columns: 1fr 1fr; gap: 20px; align-items: start; }
+.cap-table-block { overflow-x: auto; }
 .cap-table-block .cap-chart-title { margin-bottom: 8px; }
 .cap-table td, .cap-table th { font-variant-numeric: tabular-nums; white-space: nowrap; }
 .cap-mtd {
@@ -1096,7 +1098,7 @@ input.cal-filter-select { font-weight: 500; }
 .eg-head:hover { background: var(--surface2); }
 .eg-chevron { color: var(--text-muted); font-size: 14px; transition: transform .2s ease; flex-shrink: 0; }
 .eg-panel.open .eg-chevron { transform: rotate(180deg); }
-.eg-body { display: none; padding: 0 22px 20px; }
+.eg-body { display: none; padding: 0 22px 20px; overflow-x: auto; }
 .eg-panel.open .eg-body { display: block; }
 
 .eg-table { width: 100%; border-collapse: collapse; }
@@ -1126,4 +1128,108 @@ input.cal-filter-select { font-weight: 500; }
 @keyframes eg-flash-anim {
   0%, 100% { background: transparent; }
   15%, 60% { background: var(--warning-light); }
+}
+
+/* ============================================================
+   Mobile (phones) — additive overrides only.
+   Every rule above stays exactly as-is for desktop; everything
+   here just wins at narrow widths via the media query, so nothing
+   about the existing layout changes above ~640px wide.
+   ============================================================ */
+@media (max-width: 640px) {
+  /* Lighter blur on phones — several stacked backdrop-filters at
+     full blur radius is a real GPU/battery cost on mobile Safari. */
+  :root {
+    --glass-blur: blur(14px) saturate(150%);
+  }
+  .blob { filter: blur(60px); }
+
+  /* Header */
+  .app-header { padding: 10px 14px; }
+  .logo-img { height: 24px; }
+  .header-subtitle { display: none; }
+  .header-right { gap: 8px; }
+  .est-clock, .last-updated { display: none; }
+
+  /* Tabs — horizontal scroll instead of crushing every label */
+  .tab-nav {
+    padding: 8px 14px 0;
+    gap: 2px;
+    overflow-x: auto;
+    -webkit-overflow-scrolling: touch;
+    scrollbar-width: none;
+  }
+  .tab-nav::-webkit-scrollbar { display: none; }
+  .tab-btn { padding: 8px 14px; font-size: 12.5px; white-space: nowrap; flex-shrink: 0; }
+
+  /* Tab content — reclaim the wide desktop side padding */
+  .tab-panel, .my-page { padding: 14px 14px 28px; }
+  .panel-header { margin-bottom: 16px; }
+  .panel-header h2 { font-size: 16px; }
+
+  /* Team Pulse panel + rows — stack into readable lines instead of
+     a 7-column grid that has no room to breathe on a phone screen */
+  .pulse-panel { padding: 16px 14px; }
+  .pulse-row {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    row-gap: 6px;
+    column-gap: 10px;
+    padding: 12px 6px;
+  }
+  .pulse-row .avatar { order: 1; }
+  .pulse-row .pulse-name { order: 2; flex: 1 1 auto; min-width: 0; font-size: 14px; }
+  .pulse-row .pulse-chevron { order: 3; flex: 0 0 auto; }
+  /* .pulse-bar-wrap / .pulse-overdue-cell are `display:none` at <=860px
+     (pre-existing breakpoint, still in effect for the 641-860px tablet
+     range) — both media queries match on a phone too, so re-declare
+     display here to win that property back for the stacked phone layout. */
+  .pulse-row .pulse-bar-wrap { order: 4; flex: 1 1 100%; display: flex; }
+  .pulse-row .pulse-tasks { order: 5; }
+  .pulse-row .pulse-overdue-cell { order: 6; display: inline-block; }
+  .pulse-row .pulse-free { order: 7; flex: 1 1 auto; text-align: right; }
+  .pulse-detail { padding: 2px 6px 14px; }
+
+  /* Needs Attention panels */
+  .attention-panel { padding: 14px 16px; }
+
+  /* Designer Workload cards — one per row, full width */
+  .designer-grid { grid-template-columns: 1fr; gap: 14px; }
+  .designer-card-header { flex-wrap: wrap; row-gap: 10px; }
+  .designer-cap-wrap { flex: 1 1 100%; align-items: flex-start; }
+  .designer-card-header .cap-bar-outer { width: 100%; }
+
+  /* To Delegate table — full redesign is future work; scroll fallback
+     already exists via .table-wrap, just trim the outer padding */
+  .table-wrap { border-radius: var(--radius-sm); }
+
+  /* Modal + PIN + login cards — fixed desktop widths overflow a phone */
+  .modal-box { width: calc(100% - 32px); padding: 22px; }
+  .login-card { padding: 32px 24px; }
+  .pin-card { padding: 36px 24px; }
+
+  /* Analytics / capacity panels */
+  .cap-chart-panel, .cap-sim, .analytics-stat-card { padding: 14px 16px; }
+
+  /* My Week / My Stuff day planner — two cramped columns is worse
+     than one readable one on a phone-width screen */
+  .my-planner { grid-template-columns: 1fr; }
+
+  /* Split view is a drag-and-drop power feature that doesn't work
+     with touch — hide the toggle and fall back to the normal grid */
+  #split-btn { display: none !important; }
+  .split-view { grid-template-columns: 1fr; height: auto; }
+
+  /* FullCalendar chrome */
+  .fc-toolbar { flex-direction: column; gap: 8px; }
+  .fc-toolbar-title { font-size: 15px !important; }
+  .fc-button { padding: 5px 9px !important; font-size: 12px !important; }
+  .fc-event { font-size: 10.5px !important; }
+}
+
+@media (max-width: 400px) {
+  .pin-card { padding: 32px 18px; }
+  .pin-inputs { gap: 8px; }
+  .pin-digit { width: 44px; height: 54px; font-size: 20px; }
 }
