@@ -1103,9 +1103,11 @@ async function loadMyStuff() {
   renderMyStuff();
 }
 
-let _myStuffSort = "default";
+let _myStuffSort = { key: null, dir: "asc" };
 function setMyStuffSort(key) {
-  _myStuffSort = key;
+  _myStuffSort = _myStuffSort.key === key
+    ? { key, dir: _myStuffSort.dir === "asc" ? "desc" : "asc" }
+    : { key, dir: "asc" };
   renderMyStuff();
 }
 
@@ -1121,7 +1123,7 @@ function renderMyStuff() {
   const free = Math.round((cap - weekly_est) * 10) / 10;
   const active = (d.todos || []).filter(t => !t.is_complete && !t.is_misc);
   const spotlightCount = active.filter(t => t.is_spotlighted).length;
-  const sorted = sortTodos(active, _myStuffSort);
+  const sorted = sortTodos(active, _myStuffSort.key, _myStuffSort.dir);
 
   root.innerHTML = `
     ${buildSpotlightSection(active, d.color)}
@@ -1138,8 +1140,11 @@ function renderMyStuff() {
         </div>
         <div class="pulse-free ${free <= 2 ? "low" : free <= 8 ? "mid" : "ok"}">${free < 0 ? Math.abs(free) + "h over" : free + "h free"}</div>
       </div>
-      <div class="my-table-head">${sortSelectHTML(_myStuffSort, "setMyStuffSort")}</div>
-      <div class="my-table-wrap">${buildTaskTable(sorted, d.color, { spotlight: { atCap: spotlightCount >= 4 } })}</div>
+      <div class="my-table-wrap">${buildTaskTable(sorted, d.color, {
+        spotlight: { atCap: spotlightCount >= 4 },
+        sort: _myStuffSort.key ? _myStuffSort : null,
+        sortFn: "setMyStuffSort",
+      })}</div>
     </div>
     <div class="attention-grid">${renderMyStuffAttention(active)}</div>`;
 }

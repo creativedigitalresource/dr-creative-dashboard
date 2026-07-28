@@ -37,9 +37,11 @@ window.__commitSpotlight = async (todoId, on) => {
 
 let _me = null;
 let _dragId = null;
-let _mySort = "default";
+let _mySort = { key: null, dir: "asc" };
 function setMySort(key) {
-  _mySort = key;
+  _mySort = _mySort.key === key
+    ? { key, dir: _mySort.dir === "asc" ? "desc" : "asc" }
+    : { key, dir: "asc" };
   renderMe();
 }
 
@@ -101,7 +103,7 @@ function renderMe() {
     </div>` : "";
   const shipped = d.shipped_week ? ` &middot; ${d.shipped_week} shipped this week` : "";
   const spotlightCount = active.filter(t => t.is_spotlighted).length;
-  const sorted = sortTodos(active, _mySort);
+  const sorted = sortTodos(active, _mySort.key, _mySort.dir);
 
   root.innerHTML = `
     ${ticker}
@@ -120,8 +122,11 @@ function renderMe() {
         </div>
         <div class="pulse-free ${free <= 2 ? "low" : free <= 8 ? "mid" : "ok"}">${free < 0 ? Math.abs(free) + "h over" : free + "h free"}</div>
       </div>
-      <div class="my-table-head">${sortSelectHTML(_mySort, "setMySort")}</div>
-      <div class="my-table-wrap">${buildTaskTable(sorted, d.color, { spotlight: { atCap: spotlightCount >= 4 } })}</div>
+      <div class="my-table-wrap">${buildTaskTable(sorted, d.color, {
+        spotlight: { atCap: spotlightCount >= 4 },
+        sort: _mySort.key ? _mySort : null,
+        sortFn: "setMySort",
+      })}</div>
     </div>
     <div class="pulse-panel">
       <div class="cap-chart-title" style="margin-bottom:4px">This Week</div>

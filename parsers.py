@@ -71,11 +71,14 @@ CATEGORY_TIMELINE = {
     "Branding/Logo - Creation/Edits": "1-2 days",   # Logo Phase 1/2 1-2d, Phase 3 1d
     "Print - Collateral/Packaging": "1-2 days",     # Brochure 2d, Flyer/Rack Card 1-2d
     "Web - Sites/Applications/UI": "1-2 days",      # Homepage + Internal Page, both 1-2d
+    "Web - Maintenance": "1-2 days",                # Richard's call — smaller scope than net-new
     "Email - Campaigns/Signatures": "2 days",
     "LP - New": "2 days",
+    "LP - Maintenance": "1-2 days",                 # Richard's call — smaller scope than net-new
     "Digital - Banner/Display Ads": "1-3 days",     # 1st set 2-3d, additional sets 1-2d
     "Multi - Photo/Video/Edits": "3-5 days",        # Photo/Video Edits 3-5d, Video Reel 3-4d
     "SM - templates/graphics/reels": "2 days",      # Social Media Posts
+    # IPM - Campaigns/Reports intentionally left unset — no reference yet
 }
 
 

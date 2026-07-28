@@ -847,6 +847,10 @@ input.cal-filter-select { font-weight: 500; }
   color: var(--text-muted); text-align: left;
   padding: 7px 10px; border-bottom: 1px solid var(--border);
 }
+.ov-table th.sortable { cursor: pointer; user-select: none; transition: color .15s; white-space: nowrap; }
+.ov-table th.sortable:hover { color: var(--text); }
+.ov-table th.sortable.active { color: var(--accent); }
+.sort-arrow { font-size: 9px; margin-left: 2px; letter-spacing: 0; }
 .ov-task-row td { padding: 8px 10px; border-bottom: 1px solid var(--surface2); vertical-align: middle; }
 .ov-task-row:last-child td { border-bottom: none; }
 .ov-client { font-size: 11px; font-weight: 600; text-transform: uppercase; letter-spacing: .04em; color: var(--text-muted); white-space: nowrap; }
@@ -1155,16 +1159,13 @@ input.cal-filter-select { font-weight: 500; }
 
 .spotlight-star {
   border: none; background: none; cursor: pointer;
-  font-size: 17px; line-height: 1; padding: 2px;
-  color: var(--border); transition: color .15s, transform .15s;
+  padding: 2px; line-height: 0;
+  opacity: .55; transition: opacity .15s, transform .15s;
 }
-.spotlight-star:hover:not(:disabled) { color: var(--accent); transform: scale(1.15); }
-.spotlight-star.on { color: var(--accent); }
-.spotlight-star:disabled { cursor: default; opacity: .4; }
-
-/* Sort control above the editable task table (My Week / My Stuff) */
-.my-table-head { display: flex; justify-content: flex-end; margin: 14px 0 -6px; }
-.sort-select { min-width: 150px; }
+.spotlight-star:hover:not(:disabled) { opacity: .85; transform: scale(1.12); }
+.spotlight-star.on { opacity: 1; }
+.spotlight-star:disabled { cursor: default; opacity: .25; }
+.spotlight-bulb { width: 20px; height: 20px; display: block; }
 
 /* ============================================================
    Mobile (phones) — additive overrides only.

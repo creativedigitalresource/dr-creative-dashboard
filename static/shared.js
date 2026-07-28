@@ -348,6 +348,9 @@ function buildTaskTable(todos, color, opts = {}) {
   if (!todos.length) return `<div class="attention-empty">No active tasks this week.</div>`;
   const showSpotlight = !!opts.spotlight;
   const atCap = opts.spotlight && opts.spotlight.atCap;
+  const sort = opts.sort || null;
+  const sortFn = opts.sortFn || "";
+  const th = (label, key) => sortableTh(label, key, sort, sortFn);
   const rows = todos.map(t => {
     let revNote = "";
     if (t.in_revisions && t.revisions_since) {
@@ -369,7 +372,7 @@ function buildTaskTable(todos, color, opts = {}) {
     </tr>`;
   }).join("");
   return `<table class="ov-table">
-    <thead><tr>${showSpotlight ? "<th></th>" : ""}<th>Client</th><th>Task</th><th>Date</th><th>HDD</th><th>EST</th><th>True</th><th>Logged</th><th>Category</th><th>Progress</th><th></th></tr></thead>
+    <thead><tr>${showSpotlight ? "<th></th>" : ""}${th("Client", "client")}${th("Task", "task")}${th("Date", "date")}${th("HDD", "hdd")}${th("EST", "est")}${th("True", "true_est")}${th("Logged", "logged")}${th("Category", "category")}${th("Progress", "progress")}<th></th></tr></thead>
     <tbody>${rows}</tbody>
   </table>`;
 }
@@ -432,8 +435,9 @@ function spotlightStarHTML(t, atCap) {
   const title = t.is_spotlighted
     ? "Remove from Spotlight"
     : (disabled ? `Spotlight is full (${SPOTLIGHT_MAX}/${SPOTLIGHT_MAX}) — remove one first` : "Add to Spotlight");
+  const icon = t.is_spotlighted ? "/static/img/icons/lightbulb-on.png" : "/static/img/icons/lightbulb-off.png";
   return `<button class="spotlight-star${t.is_spotlighted ? " on" : ""}"${disabled ? " disabled" : ""}
-    onclick="event.stopPropagation();toggleSpotlight('${t.id}', ${!t.is_spotlighted})" title="${title}">${t.is_spotlighted ? "★" : "☆"}</button>`;
+    onclick="event.stopPropagation();toggleSpotlight('${t.id}', ${!t.is_spotlighted})" title="${title}"><img src="${icon}" class="spotlight-bulb" alt="" /></button>`;
 }
 
 function toggleSpotlight(todoId, on) {
@@ -454,36 +458,38 @@ function buildSpotlightSection(todos, color) {
 }
 
 /* ---- Sort — client-side only, mirrors the existing By-load/By-availability
-   toggle pattern (session state, no persistence). ---- */
-const SORT_OPTIONS = [
-  { key: "default",  label: "Default order" },
-  { key: "client",   label: "Client" },
-  { key: "date",     label: "Due Date" },
-  { key: "hdd",      label: "HDD" },
-  { key: "progress", label: "Progress" },
-  { key: "category", label: "Category" },
-  { key: "logged",   label: "Logged Hours" },
-];
-
-function sortTodos(todos, key) {
+   toggle pattern (session state, no persistence). Triggered by clicking a
+   column header (see sortableTh below) rather than a separate control, so
+   it works the same on mobile as the rest of the already-scrollable table. ---- */
+function sortTodos(todos, key, dir = "asc") {
+  if (!key) return [...todos];
   const arr = [...todos];
-  const byStr = (a, b) => (a || "").localeCompare(b || "");
+  const mul = dir === "asc" ? 1 : -1;
+  const byStr = (a, b) => (a || "").localeCompare(b || "") * mul;
+  const byNum = (a, b) => ((a || 0) - (b || 0)) * mul;
   switch (key) {
     case "client":   return arr.sort((a, b) => byStr(cleanClient(a.bucket_name), cleanClient(b.bucket_name)));
+    case "task":     return arr.sort((a, b) => byStr(a.title, b.title));
     case "date":     return arr.sort((a, b) => byStr(a.due_on || "9999-99-99", b.due_on || "9999-99-99"));
     case "hdd":      return arr.sort((a, b) => byStr(a.hdd || "9999-99-99", b.hdd || "9999-99-99"));
-    case "progress": return arr.sort((a, b) => (b.progress || 0) - (a.progress || 0));
+    case "est":      return arr.sort((a, b) => byNum(a.est, b.est));
+    case "true_est": return arr.sort((a, b) => byNum(a.true_est, b.true_est));
+    case "logged":   return arr.sort((a, b) => byNum(a.logged, b.logged));
     case "category": return arr.sort((a, b) => byStr(a.category, b.category));
-    case "logged":   return arr.sort((a, b) => (b.logged || 0) - (a.logged || 0));
+    case "progress": return arr.sort((a, b) => byNum(a.progress, b.progress));
     default:         return arr;
   }
 }
 
-function sortSelectHTML(currentKey, onChangeFnName) {
-  const opts = SORT_OPTIONS.map(o =>
-    `<option value="${o.key}"${o.key === currentKey ? " selected" : ""}>${o.label}</option>`
-  ).join("");
-  return `<select class="cal-filter-select sort-select" onchange="${onChangeFnName}(this.value)" title="Sort tasks">${opts}</select>`;
+// One clickable <th> — label + a direction arrow that only shows once this
+// column is the active sort. sortFnName is the page's setXSort(key) global;
+// sort (possibly null, meaning "no column picked yet") only affects which
+// header shows the active arrow, not whether headers are clickable at all.
+function sortableTh(label, key, sort, sortFnName) {
+  if (!sortFnName) return `<th>${label}</th>`;
+  const active = !!sort && sort.key === key;
+  const arrow = active ? (sort.dir === "asc" ? " ▲" : " ▼") : "";
+  return `<th class="sortable${active ? " active" : ""}" onclick="${sortFnName}('${key}')">${label}<span class="sort-arrow">${arrow}</span></th>`;
 }
 
 /* ---- Estimate Guide — shared by the Overview panel (editable goals) and
