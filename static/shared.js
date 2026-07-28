@@ -450,7 +450,7 @@ function buildSpotlightSection(todos, color) {
   const items = spotlighted.map(t => renderTodoItem(t, color, false, false, { atCap: false })).join("");
   return `<div class="pulse-panel spotlight-panel">
     <div class="spotlight-head">
-      <div class="spotlight-title">★ Spotlight</div>
+      <div class="spotlight-title"><img src="/static/img/icons/lightbulb-on.png" class="spotlight-bulb" alt="" /> Spotlight</div>
       <div class="spotlight-count">${spotlighted.length}/${SPOTLIGHT_MAX}</div>
     </div>
     <ul class="designer-todos spotlight-list">${items}</ul>
