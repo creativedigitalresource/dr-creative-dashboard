@@ -668,6 +668,7 @@ async def api_standups():
         if s:
             todos_by_id = {str(t["id"]): t for t in _public_todos(d)}
             entry["posted_at"] = s["posted_at"]
+            entry["first_posted_at"] = s["first_posted_at"]
             entry["note"] = s["note"]
             entry["tasks"] = [todos_by_id[tid] for tid in s["todo_ids"] if tid in todos_by_id]
         else:

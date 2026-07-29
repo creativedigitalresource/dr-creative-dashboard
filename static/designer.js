@@ -357,9 +357,7 @@ let _standupDraft = { open: false, note: "" };
 function renderStandupBlock(todayTasks) {
   const standup = _me.standup;
   if (!_standupDraft.open) {
-    const label = standup
-      ? `&#10003; Posted ${new Date(standup.posted_at * 1000).toLocaleTimeString("en-US", { hour: "numeric", minute: "2-digit" })}`
-      : "Post Standup";
+    const label = standup ? `&#10003; ${standupTimeLabel(standup)}` : "Post Standup";
     return `<button class="btn btn-ghost btn-sm standup-btn${standup ? " posted" : ""}" onclick="toggleStandupDraft()">${label}</button>`;
   }
   const taskRows = todayTasks.length
@@ -397,7 +395,7 @@ async function postStandup() {
     body: JSON.stringify({ note, todo_ids: ids }),
   }).then(r => r.json()).catch(() => null);
   if (!res || res.ok === false) return;
-  _me.standup = { note, todo_ids: ids.map(String), posted_at: res.posted_at };
+  _me.standup = { note, todo_ids: ids.map(String), posted_at: res.posted_at, first_posted_at: res.first_posted_at };
   _standupDraft.open = false;
   renderMyPlanner();
 }

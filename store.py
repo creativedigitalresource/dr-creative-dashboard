@@ -98,6 +98,7 @@ def init_db():
                 note TEXT NOT NULL DEFAULT '',
                 todo_ids TEXT NOT NULL DEFAULT '[]',
                 posted_at REAL NOT NULL DEFAULT (unixepoch()),
+                first_posted_at REAL NOT NULL DEFAULT (unixepoch()),
                 PRIMARY KEY (designer_bc_id, date)
             );
 
@@ -183,6 +184,16 @@ def init_db():
                 PRIMARY KEY (designer_bc_id, week_start, category)
             );
         """)
+        # Migration: first_posted_at was added after standups shipped, so an
+        # already-deployed DB has the table without it. Nullable add + backfill
+        # from posted_at (best available guess at the original post time for
+        # rows that predate this column) avoids any ADD COLUMN NOT NULL
+        # default-expression version quirks.
+        try:
+            c.execute("ALTER TABLE standups ADD COLUMN first_posted_at REAL")
+        except sqlite3.OperationalError:
+            pass  # column already exists
+        c.execute("UPDATE standups SET first_posted_at = posted_at WHERE first_posted_at IS NULL")
 
 
 def set_token(key: str, value: str):
@@ -621,21 +632,30 @@ def get_spotlight_ids(designer_bc_id: str) -> list:
 # ---------------------------------------------------------------------------
 
 def set_standup(designer_bc_id: str, day: str, note: str, todo_ids: list) -> dict:
+    """Upsert, not replace — a repost updates note/todo_ids/posted_at but
+    leaves first_posted_at untouched, so Richard can see when it was first
+    posted vs. last updated."""
     with get_db() as c:
-        c.execute(
-            "INSERT OR REPLACE INTO standups (designer_bc_id, date, note, todo_ids, posted_at) VALUES (?,?,?,?,unixepoch())",
-            (str(designer_bc_id), day, note, json.dumps([str(i) for i in todo_ids])))
+        c.execute("""
+            INSERT INTO standups (designer_bc_id, date, note, todo_ids, posted_at, first_posted_at)
+            VALUES (?, ?, ?, ?, unixepoch(), unixepoch())
+            ON CONFLICT(designer_bc_id, date) DO UPDATE SET
+                note = excluded.note,
+                todo_ids = excluded.todo_ids,
+                posted_at = unixepoch()
+        """, (str(designer_bc_id), day, note, json.dumps([str(i) for i in todo_ids])))
         row = c.execute(
-            "SELECT posted_at FROM standups WHERE designer_bc_id=? AND date=?",
+            "SELECT posted_at, first_posted_at FROM standups WHERE designer_bc_id=? AND date=?",
             (str(designer_bc_id), day)).fetchone()
-    return {"ok": True, "posted_at": row["posted_at"]}
+    return {"ok": True, "posted_at": row["posted_at"], "first_posted_at": row["first_posted_at"]}
 
 
 def get_standup(designer_bc_id: str, day: str) -> dict | None:
     with get_db() as c:
         row = c.execute(
-            "SELECT note, todo_ids, posted_at FROM standups WHERE designer_bc_id=? AND date=?",
+            "SELECT note, todo_ids, posted_at, first_posted_at FROM standups WHERE designer_bc_id=? AND date=?",
             (str(designer_bc_id), day)).fetchone()
     if not row:
         return None
-    return {"note": row["note"], "todo_ids": json.loads(row["todo_ids"]), "posted_at": row["posted_at"]}
+    return {"note": row["note"], "todo_ids": json.loads(row["todo_ids"]),
+            "posted_at": row["posted_at"], "first_posted_at": row["first_posted_at"]}

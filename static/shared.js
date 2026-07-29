@@ -130,6 +130,16 @@ function formatDue(iso) {
   return d.toLocaleDateString("en-US", { month: "short", day: "numeric" });
 }
 
+// Shared by the My Week standup button and the manager's Standups tab —
+// shows an "updated" qualifier only once a repost has actually happened.
+function standupTimeLabel(standup) {
+  const fmt = ts => new Date(ts * 1000).toLocaleTimeString("en-US", { hour: "numeric", minute: "2-digit" });
+  const posted = fmt(standup.posted_at);
+  return (standup.first_posted_at && standup.posted_at !== standup.first_posted_at)
+    ? `Posted ${fmt(standup.first_posted_at)} &middot; updated ${posted}`
+    : `Posted ${posted}`;
+}
+
 function dueCls(iso) {
   if (!iso) return "";
   const today = new Date(); today.setHours(0,0,0,0);

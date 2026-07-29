@@ -1265,14 +1265,13 @@ function renderStandups(data) {
     : `<div class="standup-task-empty">No tasks scheduled today.</div>`;
 
   const postedCard = d => {
-    const time = new Date(d.posted_at * 1000).toLocaleTimeString("en-US", { hour: "numeric", minute: "2-digit" });
     const totalHrs = Math.round((d.tasks || []).reduce((s, t) => s + (t.est || 0), 0) * 10) / 10;
     return `<div class="standup-card">
       <div class="standup-card-head">
         ${avatarHTML(d, { cls: "designer-avatar" })}
         <div class="standup-card-info">
           <div class="designer-name">${esc(d.name)}</div>
-          <div class="standup-card-time">Posted ${time} &middot; ${totalHrs}h planned</div>
+          <div class="standup-card-time">${standupTimeLabel(d)} &middot; ${totalHrs}h planned</div>
         </div>
       </div>
       ${d.note ? `<div class="standup-card-note">&ldquo;${esc(d.note)}&rdquo;</div>` : ""}
