@@ -550,6 +550,7 @@ async def api_my(token: str):
             "manager_message": manager_message,
             "shipped_week": store.count_completions_since(d["bc_id"], week_start),
             "estimate_guide": _compute_estimate_guide(d["bc_id"]),
+            "standup": store.get_standup(d["bc_id"], today.isoformat()),
             "last_updated": _cached_data.get("last_updated")}
 
 
@@ -578,6 +579,20 @@ async def api_my_set_spotlight(token: str, todo_id: str, request: Request):
         return Response(status_code=403)
     body = await request.json()
     return store.set_spotlight(str(d["bc_id"]), str(todo_id), bool(body.get("on")))
+
+
+@app.put("/api/my/{token}/standup")
+async def api_my_set_standup(token: str, request: Request):
+    """Post (or re-post) today's standup — only today's date is ever
+    writable here; the designer can't backdate or future-date a post."""
+    d = _designer_for_token(token)
+    if not d:
+        return Response(status_code=404 if not store.resolve_designer_token(token) else 503)
+    body = await request.json()
+    note = str(body.get("note", ""))[:2000]
+    valid_ids = {str(t["id"]) for t in d.get("todos", [])}
+    todo_ids = [str(i) for i in body.get("todo_ids", []) if str(i) in valid_ids]
+    return store.set_standup(str(d["bc_id"]), date.today().isoformat(), note, todo_ids)
 
 
 @app.put("/api/my/{token}/planner-order")
@@ -637,6 +652,28 @@ async def api_estimate_guide():
     """Company-wide medians + Richard's goals — no per-designer data, safe
     for the manager Overview panel."""
     return _compute_estimate_guide()
+
+
+@app.get("/api/standups")
+async def api_standups():
+    """Today's posted standups across the team, for the manager Standups tab.
+    Tasks are re-hydrated from live todo data (not frozen at post time) so
+    hours/progress stay current; a task removed from the board since the
+    post was made just quietly drops out of the list."""
+    today = date.today().isoformat()
+    out = []
+    for d in _cached_data.get("designers", []):
+        s = store.get_standup(str(d["bc_id"]), today)
+        entry = {"bc_id": d["bc_id"], "name": d["name"], "color": d["color"], "avatar": d.get("avatar")}
+        if s:
+            todos_by_id = {str(t["id"]): t for t in _public_todos(d)}
+            entry["posted_at"] = s["posted_at"]
+            entry["note"] = s["note"]
+            entry["tasks"] = [todos_by_id[tid] for tid in s["todo_ids"] if tid in todos_by_id]
+        else:
+            entry["posted_at"] = None
+        out.append(entry)
+    return out
 
 
 @app.put("/api/estimate-goals")

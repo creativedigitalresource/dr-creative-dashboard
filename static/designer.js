@@ -339,6 +339,7 @@ function renderMyPlanner() {
         <div class="planner-day-date">${date.toLocaleDateString("en-US", { month: "short", day: "numeric" })}</div>
         <div class="my-day-hours">${hrs}h</div>
       </div>
+      ${dt === todayStr ? renderStandupBlock(byDay[dt]) : ""}
       ${byDay[dt].map(card).join("") || `<div class="planner-drop-hint">Drop here</div>`}
     </div>`;
   }).join("");
@@ -348,6 +349,57 @@ function renderMyPlanner() {
       <div class="planner-day-header"><div class="planner-day-name">Unscheduled</div></div>
       ${unscheduled.map(card).join("") || `<div class="planner-drop-hint">Nothing waiting</div>`}
     </div>${cols}`;
+}
+
+/* ---- Standup — post today's plan from the day column, re-postable ---- */
+let _standupDraft = { open: false, note: "" };
+
+function renderStandupBlock(todayTasks) {
+  const standup = _me.standup;
+  if (!_standupDraft.open) {
+    const label = standup
+      ? `&#10003; Posted ${new Date(standup.posted_at * 1000).toLocaleTimeString("en-US", { hour: "numeric", minute: "2-digit" })}`
+      : "Post Standup";
+    return `<button class="btn btn-ghost btn-sm standup-btn${standup ? " posted" : ""}" onclick="toggleStandupDraft()">${label}</button>`;
+  }
+  const taskRows = todayTasks.length
+    ? todayTasks.map(t => `<div class="standup-task">
+        <span class="standup-task-title">${esc(truncate(t.title, 44))}</span>
+        <span class="standup-task-hrs">${t.est != null ? t.est + "h" : "&mdash;"}</span>
+      </div>`).join("")
+    : `<div class="standup-task-empty">Nothing scheduled today yet — drag a task in first, or post anyway.</div>`;
+  return `<div class="standup-draft">
+    <div class="standup-draft-label">Today's Standup</div>
+    ${taskRows}
+    <textarea class="standup-note" placeholder="Optional note — blocked, light day, etc." oninput="_standupDraft.note=this.value">${esc(_standupDraft.note)}</textarea>
+    <div class="standup-draft-actions">
+      <button class="btn btn-primary btn-sm" onclick="postStandup()">Post</button>
+      <button class="btn btn-ghost btn-sm" onclick="toggleStandupDraft()">Cancel</button>
+    </div>
+  </div>`;
+}
+
+function toggleStandupDraft() {
+  _standupDraft.open = !_standupDraft.open;
+  if (_standupDraft.open) _standupDraft.note = _me.standup?.note || "";
+  renderMyPlanner();
+  if (_standupDraft.open) setTimeout(() => document.querySelector(".standup-note")?.focus(), 30);
+}
+
+async function postStandup() {
+  const todayStr = localISO(new Date());
+  const active = (_me.todos || []).filter(t => !t.is_complete && !t.is_misc);
+  const ids = active.filter(t => !t.in_revisions && t.due_on === todayStr).map(t => t.id);
+  const note = _standupDraft.note || "";
+  const res = await fetch(`/api/my/${TOKEN}/standup`, {
+    method: "PUT",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ note, todo_ids: ids }),
+  }).then(r => r.json()).catch(() => null);
+  if (!res || res.ok === false) return;
+  _me.standup = { note, todo_ids: ids.map(String), posted_at: res.posted_at };
+  _standupDraft.open = false;
+  renderMyPlanner();
 }
 
 function myDragStart(evt, id) { _dragId = id; }

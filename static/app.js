@@ -1232,8 +1232,65 @@ function initTabs() {
       if (tab === "analytics") {
         loadAnalytics();
       }
+      if (tab === "standups") {
+        loadStandups();
+      }
     });
   });
+}
+
+// ---------------------------------------------------------------------------
+// Standups — today's posted plans, pulled from each designer's My Week page
+// ---------------------------------------------------------------------------
+
+async function loadStandups() {
+  const root = document.getElementById("standups-root");
+  const data = await fetchWithTimeout("/api/standups").then(r => r.json()).catch(() => null);
+  if (!data) { root.innerHTML = `<div class="loading-card">Couldn't load standups.</div>`; return; }
+  renderStandups(data);
+}
+
+function renderStandups(data) {
+  const root = document.getElementById("standups-root");
+  if (!data.length) { root.innerHTML = `<div class="loading-card">No designers yet.</div>`; return; }
+
+  const posted = data.filter(d => d.posted_at).sort((a, b) => b.posted_at - a.posted_at);
+  const waiting = data.filter(d => !d.posted_at).sort((a, b) => a.name.localeCompare(b.name));
+
+  const taskRows = tasks => (tasks || []).length
+    ? tasks.map(t => `<div class="standup-task">
+        <span class="standup-task-title">${esc(truncate(t.title, 50))}</span>
+        <span class="standup-task-hrs">${t.est != null ? t.est + "h" : "&mdash;"}</span>
+      </div>`).join("")
+    : `<div class="standup-task-empty">No tasks scheduled today.</div>`;
+
+  const postedCard = d => {
+    const time = new Date(d.posted_at * 1000).toLocaleTimeString("en-US", { hour: "numeric", minute: "2-digit" });
+    const totalHrs = Math.round((d.tasks || []).reduce((s, t) => s + (t.est || 0), 0) * 10) / 10;
+    return `<div class="standup-card">
+      <div class="standup-card-head">
+        ${avatarHTML(d, { cls: "designer-avatar" })}
+        <div class="standup-card-info">
+          <div class="designer-name">${esc(d.name)}</div>
+          <div class="standup-card-time">Posted ${time} &middot; ${totalHrs}h planned</div>
+        </div>
+      </div>
+      ${d.note ? `<div class="standup-card-note">&ldquo;${esc(d.note)}&rdquo;</div>` : ""}
+      <div class="standup-card-tasks">${taskRows(d.tasks)}</div>
+    </div>`;
+  };
+
+  const waitingCard = d => `<div class="standup-card waiting">
+    <div class="standup-card-head">
+      ${avatarHTML(d, { cls: "designer-avatar" })}
+      <div class="standup-card-info">
+        <div class="designer-name">${esc(d.name)}</div>
+        <div class="standup-card-time">Hasn&rsquo;t posted yet</div>
+      </div>
+    </div>
+  </div>`;
+
+  root.innerHTML = posted.map(postedCard).join("") + waiting.map(waitingCard).join("");
 }
 
 // ---------------------------------------------------------------------------

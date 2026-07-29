@@ -92,6 +92,14 @@ def init_db():
                 created_at REAL DEFAULT (unixepoch()),
                 PRIMARY KEY (designer_bc_id, todo_id)
             );
+            CREATE TABLE IF NOT EXISTS standups (
+                designer_bc_id TEXT NOT NULL,
+                date TEXT NOT NULL,
+                note TEXT NOT NULL DEFAULT '',
+                todo_ids TEXT NOT NULL DEFAULT '[]',
+                posted_at REAL NOT NULL DEFAULT (unixepoch()),
+                PRIMARY KEY (designer_bc_id, date)
+            );
 
             -- Operational: active todo state, persists across server restarts
             CREATE TABLE IF NOT EXISTS todo_tracking (
@@ -604,3 +612,30 @@ def get_spotlight_ids(designer_bc_id: str) -> list:
             "SELECT todo_id FROM spotlight WHERE designer_bc_id=? ORDER BY position",
             (str(designer_bc_id),)).fetchall()
     return [r["todo_id"] for r in rows]
+
+
+# ---------------------------------------------------------------------------
+# Standups — a designer's daily "what I'm working on today" post, built from
+# their own My Week planner. Re-postable: posting again the same day replaces
+# the note/task list and bumps posted_at, rather than creating a new entry.
+# ---------------------------------------------------------------------------
+
+def set_standup(designer_bc_id: str, day: str, note: str, todo_ids: list) -> dict:
+    with get_db() as c:
+        c.execute(
+            "INSERT OR REPLACE INTO standups (designer_bc_id, date, note, todo_ids, posted_at) VALUES (?,?,?,?,unixepoch())",
+            (str(designer_bc_id), day, note, json.dumps([str(i) for i in todo_ids])))
+        row = c.execute(
+            "SELECT posted_at FROM standups WHERE designer_bc_id=? AND date=?",
+            (str(designer_bc_id), day)).fetchone()
+    return {"ok": True, "posted_at": row["posted_at"]}
+
+
+def get_standup(designer_bc_id: str, day: str) -> dict | None:
+    with get_db() as c:
+        row = c.execute(
+            "SELECT note, todo_ids, posted_at FROM standups WHERE designer_bc_id=? AND date=?",
+            (str(designer_bc_id), day)).fetchone()
+    if not row:
+        return None
+    return {"note": row["note"], "todo_ids": json.loads(row["todo_ids"]), "posted_at": row["posted_at"]}

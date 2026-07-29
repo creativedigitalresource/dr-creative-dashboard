@@ -1023,7 +1023,9 @@ input.cal-filter-select { font-weight: 500; }
 .my-chip.amber  { background: var(--warning-light); border-color: #fcd34d; color: #b45309; }
 .my-chip.purple { background: #fdf4ff; border-color: #f0abfc; color: #a21caf; }
 .my-chip.ok     { background: var(--success-light); border-color: #a7f3d0; color: #047857; }
-.my-planner { display: grid; grid-template-columns: repeat(6, 1fr); gap: 10px; }
+/* align-items:start so today's column can grow taller (standup draft
+   expanded) without stretching every other day's column to match */
+.my-planner { display: grid; grid-template-columns: repeat(6, 1fr); gap: 10px; align-items: start; }
 .my-unscheduled { background: var(--surface2); }
 .my-day-hours { font-size: 11px; font-weight: 700; color: var(--text-muted); margin-top: 2px; font-variant-numeric: tabular-nums; }
 @media (max-width: 980px) { .my-planner { grid-template-columns: repeat(2, 1fr); } }
@@ -1169,6 +1171,58 @@ input.cal-filter-select { font-weight: 500; }
 .spotlight-bulb { width: 20px; height: 20px; display: block; }
 
 /* ============================================================
+   Standups — daily "what I'm working on today" posts, built from
+   the My Week day-planner and surfaced on the manager's Standups tab.
+   ============================================================ */
+.standup-btn.posted { color: var(--success); border-color: #a7f3d0; background: var(--success-light); }
+.standup-btn.posted:hover { background: var(--success-light); color: var(--success); border-color: #a7f3d0; }
+
+.standup-draft {
+  margin-top: 4px; padding: 10px 12px; text-align: left;
+  background: var(--surface); border: 1.5px solid var(--accent);
+  border-radius: var(--radius-sm);
+}
+.standup-draft-label {
+  font-size: 11px; font-weight: 700; text-transform: uppercase; letter-spacing: .06em;
+  color: var(--text-muted); margin-bottom: 8px;
+}
+.standup-task, .standup-task-empty { font-size: 12px; padding: 5px 0; border-bottom: 1px dashed var(--border); }
+.standup-task { display: flex; align-items: center; justify-content: space-between; gap: 8px; }
+.standup-task:last-of-type { border-bottom: none; }
+.standup-task-title { color: var(--text); font-weight: 500; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.standup-task-hrs { color: var(--text-muted); font-weight: 600; flex-shrink: 0; }
+.standup-task-empty { color: var(--text-muted); font-style: italic; }
+.standup-note {
+  width: 100%; min-height: 56px; resize: vertical; margin-top: 8px;
+  padding: 8px 10px; font-size: 12.5px; font-family: inherit;
+  background: var(--surface2); border: 1px solid var(--border);
+  border-radius: var(--radius-sm); color: var(--text);
+}
+.standup-note:focus { outline: none; border-color: var(--accent); background: var(--surface); }
+.standup-draft-actions { display: flex; gap: 8px; margin-top: 8px; }
+
+/* Manager's Standups tab */
+.standups-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(300px, 1fr)); gap: 16px; }
+.standup-card {
+  background: var(--glass-bg); border: 1px solid var(--glass-border);
+  border-radius: var(--radius); padding: 16px 18px;
+  box-shadow: var(--shadow-sm);
+  backdrop-filter: var(--glass-blur);
+  -webkit-backdrop-filter: var(--glass-blur);
+}
+.standup-card.waiting { opacity: .55; }
+.standup-card-head { display: flex; align-items: center; gap: 12px; margin-bottom: 10px; }
+.standup-card-info { min-width: 0; }
+.standup-card-time { font-size: 11.5px; color: var(--text-muted); margin-top: 1px; }
+.standup-card-note {
+  font-size: 12.5px; font-style: italic; color: var(--text);
+  background: var(--surface2); border-radius: var(--radius-sm);
+  padding: 8px 10px; margin-bottom: 10px; line-height: 1.4;
+}
+.standup-card-tasks { display: flex; flex-direction: column; }
+.standup-card-tasks .standup-task { font-size: 12.5px; }
+
+/* ============================================================
    Mobile (phones) — additive overrides only.
    Every rule above stays exactly as-is for desktop; everything
    here just wins at narrow widths via the media query, so nothing
@@ -1235,6 +1289,9 @@ input.cal-filter-select { font-weight: 500; }
   /* Designer Workload cards — one per row, full width */
   .designer-grid { grid-template-columns: 1fr; gap: 14px; }
   .designer-card-header { flex-wrap: wrap; row-gap: 10px; }
+
+  /* Standups tab — same one-per-row treatment as Designer Workload */
+  .standups-grid { grid-template-columns: 1fr; gap: 14px; }
   .designer-cap-wrap { flex: 1 1 100%; align-items: flex-start; }
   .designer-card-header .cap-bar-outer { width: 100%; }
 
