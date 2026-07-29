@@ -361,10 +361,13 @@ function renderStandupBlock(todayTasks) {
     return `<button class="btn btn-ghost btn-sm standup-btn${standup ? " posted" : ""}" onclick="toggleStandupDraft()">${label}</button>`;
   }
   const taskRows = todayTasks.length
-    ? todayTasks.map(t => `<div class="standup-task">
+    ? todayTasks.map(t => {
+        const rem = taskRemainingHrs(t);
+        return `<div class="standup-task">
         <span class="standup-task-title">${esc(truncate(t.title, 44))}</span>
-        <span class="standup-task-hrs">${t.est != null ? t.est + "h" : "&mdash;"}</span>
-      </div>`).join("")
+        <span class="standup-task-hrs">${rem != null ? rem + "h left" : "&mdash;"}</span>
+      </div>`;
+      }).join("")
     : `<div class="standup-task-empty">Nothing scheduled today yet — drag a task in first, or post anyway.</div>`;
   return `<div class="standup-draft">
     <div class="standup-draft-label">Today's Standup</div>

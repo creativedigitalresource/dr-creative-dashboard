@@ -140,6 +140,16 @@ function standupTimeLabel(standup) {
     : `Posted ${posted}`;
 }
 
+// Remaining hours on a task today (est minus what's already logged), same
+// formula the day-planner's own dayHours() uses for the day-header total —
+// the standup should show what's left to do today, not the task's full
+// original estimate (which double-counts hours already logged elsewhere).
+// Returns null when there's no estimate at all, distinct from a real 0.
+function taskRemainingHrs(t) {
+  if (t.est == null) return null;
+  return Math.max(0, Math.round(((t.est || 0) - (t.logged || 0)) * 10) / 10);
+}
+
 function dueCls(iso) {
   if (!iso) return "";
   const today = new Date(); today.setHours(0,0,0,0);

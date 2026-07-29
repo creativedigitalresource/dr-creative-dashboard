@@ -1258,14 +1258,21 @@ function renderStandups(data) {
   const waiting = data.filter(d => !d.posted_at).sort((a, b) => a.name.localeCompare(b.name));
 
   const taskRows = tasks => (tasks || []).length
-    ? tasks.map(t => `<div class="standup-task">
-        <span class="standup-task-title">${esc(truncate(t.title, 50))}</span>
-        <span class="standup-task-hrs">${t.est != null ? t.est + "h" : "&mdash;"}</span>
-      </div>`).join("")
+    ? tasks.map(t => {
+        const rem = taskRemainingHrs(t);
+        const title = esc(truncate(t.title, 50));
+        const titleHtml = t.url
+          ? `<a href="${t.url}" target="_blank" title="Open in Basecamp">${title}</a>`
+          : title;
+        return `<div class="standup-task">
+        <span class="standup-task-title">${titleHtml}</span>
+        <span class="standup-task-hrs">${rem != null ? rem + "h left" : "&mdash;"}</span>
+      </div>`;
+      }).join("")
     : `<div class="standup-task-empty">No tasks scheduled today.</div>`;
 
   const postedCard = d => {
-    const totalHrs = Math.round((d.tasks || []).reduce((s, t) => s + (t.est || 0), 0) * 10) / 10;
+    const totalHrs = Math.round((d.tasks || []).reduce((s, t) => s + Math.max(0, (t.est || 0) - (t.logged || 0)), 0) * 10) / 10;
     return `<div class="standup-card">
       <div class="standup-card-head">
         ${avatarHTML(d, { cls: "designer-avatar" })}
