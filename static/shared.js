@@ -384,7 +384,9 @@ function buildTaskTable(todos, color, opts = {}) {
     return `<tr class="ov-task-row">
       ${showSpotlight ? `<td>${spotlightStarHTML(t, atCap)}</td>` : ""}
       <td class="ov-client">${esc(cleanClient(t.bucket_name)) || "&mdash;"}</td>
-      <td class="ov-title" title="${esc(t.title)}">${esc(truncate(t.title, 52))}${revNote}</td>
+      <td class="ov-title" title="${esc(t.title)}">${t.url
+        ? `<a href="${t.url}" target="_blank" onclick="event.stopPropagation()">${esc(truncate(t.title, 52))}</a>`
+        : esc(truncate(t.title, 52))}${revNote}</td>
       <td>${pillDate(t)}</td>
       <td>${pillHdd(t)}</td>
       <td>${pillEst(t)}</td>
