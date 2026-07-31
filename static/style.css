@@ -1289,6 +1289,82 @@ input.cal-filter-select { font-weight: 500; }
 .priority-completed-head .eg-chevron.open { transform: rotate(180deg); }
 
 /* ============================================================
+   QA Checklists
+   ============================================================ */
+.qa-grid {
+  display: grid; grid-template-columns: repeat(auto-fill, minmax(220px, 1fr)); gap: 14px;
+}
+.qa-card {
+  display: flex; flex-direction: column; gap: 6px; text-align: left;
+  background: var(--surface); border: 1px solid var(--border); border-radius: var(--radius);
+  padding: 18px 20px; cursor: pointer; font: inherit; color: inherit;
+  transition: border-color .18s ease, box-shadow .18s ease, transform .18s ease;
+}
+.qa-card:hover { border-color: var(--accent); box-shadow: var(--shadow); transform: translateY(-1px); }
+.qa-card-name { font-size: 14px; font-weight: 700; color: var(--text); }
+.qa-card-count { font-size: 12px; color: var(--text-muted); }
+
+.qa-checklist-head { display: flex; align-items: center; gap: 14px; flex-wrap: wrap; margin-bottom: 16px; }
+.qa-service-title { font-size: 17px; font-weight: 700; color: var(--text); flex: 1; min-width: 0; }
+.qa-progress { font-size: 12px; font-weight: 600; color: var(--text-muted); }
+
+.qa-item-list { list-style: none; display: flex; flex-direction: column; gap: 6px; margin-bottom: 18px; }
+.qa-item {
+  display: flex; align-items: flex-start; gap: 10px; padding: 10px 12px; border-radius: var(--radius-sm);
+  background: var(--surface); border: 1px solid var(--border); cursor: pointer;
+}
+.qa-item:hover { border-color: var(--accent); }
+.qa-item.done { background: var(--accent-light); border-color: transparent; }
+.qa-item-text { font-size: 13.5px; color: var(--text); line-height: 1.4; }
+.qa-item.done .qa-item-text { color: var(--text-muted); text-decoration: line-through; }
+
+.qa-meta-row { display: flex; gap: 10px; margin-bottom: 10px; flex-wrap: wrap; }
+.qa-meta-row .priority-input { flex: 1; min-width: 180px; }
+.qa-notes {
+  width: 100%; min-height: 70px; resize: vertical; font: inherit; font-size: 13px;
+  padding: 10px 12px; border: 1px solid var(--border); border-radius: var(--radius-sm);
+  background: var(--surface); color: var(--text); margin-bottom: 16px;
+}
+.qa-notes:focus { outline: none; border-color: var(--accent); }
+.qa-actions { display: flex; align-items: center; gap: 12px; flex-wrap: wrap; }
+
+.qa-error { margin-top: 14px; color: var(--danger); font-size: 13px; font-weight: 600; }
+.qa-cert-success {
+  margin-top: 18px; padding: 18px 20px; border-radius: var(--radius); background: var(--surface2);
+  border: 1px solid var(--border);
+}
+.qa-cert-success-title { font-size: 15px; font-weight: 700; color: var(--text); margin-bottom: 12px; }
+.qa-cert-link-row { display: flex; gap: 8px; align-items: center; margin-bottom: 8px; }
+.qa-cert-link-row .priority-input { flex: 1; font-size: 12px; }
+.qa-cert-hint { font-size: 12px; color: var(--text-muted); }
+
+/* QA certificate — public shareable page (static/qa-cert.html) */
+.qa-cert-badge {
+  text-align: center; padding: 36px 20px 28px; background: var(--surface);
+  border: 1px solid var(--border); border-radius: var(--radius); margin-bottom: 16px;
+}
+.qa-cert-badge-icon {
+  width: 56px; height: 56px; margin: 0 auto 14px; border-radius: 50%;
+  background: var(--success-light, #d1fae5); color: var(--success);
+  display: flex; align-items: center; justify-content: center; font-size: 28px; font-weight: 700;
+}
+.qa-cert-badge-title { font-size: 20px; font-weight: 800; color: var(--text); }
+.qa-cert-badge-service { font-size: 13px; color: var(--text-muted); margin-top: 4px; }
+
+.qa-cert-panel {
+  background: var(--surface); border: 1px solid var(--border); border-radius: var(--radius);
+  padding: 18px 20px; margin-bottom: 14px;
+}
+.qa-cert-panel-title { font-size: 12px; font-weight: 700; text-transform: uppercase; letter-spacing: .06em; color: var(--text-muted); margin-bottom: 10px; }
+.qa-cert-meta-row { display: flex; justify-content: space-between; gap: 12px; padding: 6px 0; font-size: 13.5px; color: var(--text); }
+.qa-cert-meta-row span { color: var(--text-muted); }
+.qa-cert-item-list { list-style: none; display: flex; flex-direction: column; gap: 8px; }
+.qa-cert-item { display: flex; align-items: flex-start; gap: 10px; font-size: 13.5px; color: var(--text); }
+.qa-cert-check { color: var(--success); font-weight: 700; flex-shrink: 0; }
+.qa-cert-notes { font-size: 13.5px; color: var(--text); white-space: pre-wrap; line-height: 1.5; }
+.qa-cert-footer { text-align: center; margin: 20px 0 40px; }
+
+/* ============================================================
    Mobile (phones) — additive overrides only.
    Every rule above stays exactly as-is for desktop; everything
    here just wins at narrow widths via the media query, so nothing

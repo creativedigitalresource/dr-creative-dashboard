@@ -192,6 +192,25 @@ def init_db():
                 recorded_at REAL DEFAULT (unixepoch()),
                 PRIMARY KEY (designer_bc_id, week_start, category)
             );
+
+            -- QA: per-service checklist templates (editable, seeded with defaults)
+            CREATE TABLE IF NOT EXISTS qa_templates (
+                service TEXT PRIMARY KEY,
+                items TEXT NOT NULL,
+                updated_at REAL DEFAULT (unixepoch())
+            );
+
+            -- QA: completed checklists, each one a shareable certificate
+            CREATE TABLE IF NOT EXISTS qa_certificates (
+                id TEXT PRIMARY KEY,
+                service TEXT NOT NULL,
+                task_title TEXT NOT NULL DEFAULT '',
+                client_name TEXT NOT NULL DEFAULT '',
+                completed_by TEXT NOT NULL DEFAULT '',
+                items TEXT NOT NULL,
+                notes TEXT NOT NULL DEFAULT '',
+                created_at REAL DEFAULT (unixepoch())
+            );
         """)
         # Migration: first_posted_at was added after standups shipped, so an
         # already-deployed DB has the table without it. Nullable add + backfill
@@ -729,3 +748,64 @@ def set_priority_todo_done(todo_id: int, done: bool) -> dict:
 def delete_priority_todo(todo_id: int):
     with get_db() as c:
         c.execute("DELETE FROM priority_todos WHERE id=?", (todo_id,))
+
+
+# ---------------------------------------------------------------------------
+# QA checklists — per-service templates and completed certificates
+# ---------------------------------------------------------------------------
+
+def seed_qa_templates(defaults: dict):
+    """Insert each default template only if that service has none yet, so
+    edits made in the dashboard are never overwritten by a redeploy."""
+    with get_db() as c:
+        for service, items in defaults.items():
+            c.execute(
+                "INSERT OR IGNORE INTO qa_templates (service, items) VALUES (?, ?)",
+                (service, json.dumps(items)))
+
+
+def get_qa_templates() -> dict:
+    """Returns {service: [item, ...]}."""
+    with get_db() as c:
+        rows = c.execute("SELECT service, items FROM qa_templates").fetchall()
+    return {r["service"]: json.loads(r["items"]) for r in rows}
+
+
+def set_qa_template(service: str, items: list):
+    with get_db() as c:
+        c.execute(
+            "INSERT OR REPLACE INTO qa_templates (service, items, updated_at) VALUES (?, ?, unixepoch())",
+            (service, json.dumps(items)))
+
+
+def create_qa_certificate(cert_id: str, service: str, task_title: str, client_name: str,
+                           completed_by: str, items: list, notes: str) -> dict:
+    with get_db() as c:
+        c.execute("""
+            INSERT INTO qa_certificates (id, service, task_title, client_name, completed_by, items, notes)
+            VALUES (?, ?, ?, ?, ?, ?, ?)
+        """, (cert_id, service, task_title, client_name, completed_by, json.dumps(items), notes))
+    return get_qa_certificate(cert_id)
+
+
+def get_qa_certificate(cert_id: str) -> dict | None:
+    with get_db() as c:
+        row = c.execute("SELECT * FROM qa_certificates WHERE id=?", (cert_id,)).fetchone()
+    if not row:
+        return None
+    d = dict(row)
+    d["items"] = json.loads(d["items"])
+    return d
+
+
+def get_recent_qa_certificates(limit: int = 30) -> list:
+    with get_db() as c:
+        rows = c.execute(
+            "SELECT * FROM qa_certificates ORDER BY created_at DESC LIMIT ?", (limit,)
+        ).fetchall()
+    out = []
+    for r in rows:
+        d = dict(r)
+        d["items"] = json.loads(d["items"])
+        out.append(d)
+    return out

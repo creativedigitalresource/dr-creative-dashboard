@@ -58,6 +58,124 @@ SERVICE_ROLLUP = {
     "Misc.": "Other",
     "Admin": "Other",
 }
+
+# QA checklist templates, one per deliverable service (mirrors CATEGORIES,
+# minus Misc./Admin which aren't QA'd). Seeded into the DB once; after that
+# the DB copy is authoritative and editable from the QA tab.
+DEFAULT_QA_TEMPLATES = {
+    "Branding/Logo - Creation/Edits": [
+        "Logo is legible and scales cleanly from favicon size to billboard size",
+        "Vector source provided (AI/EPS/SVG), no pixelation or artifacts",
+        "Files delivered in required formats (SVG, transparent PNG, PDF/EPS as applicable)",
+        "Correct color values used, matching approved brand palette / hex codes",
+        "Color and single-color (black/white) versions provided if scoped",
+        "Clear space and minimum size respected per brand rules",
+        "Wordmark spelled correctly, correct font weight/kerning",
+        "Matches approved concept/direction from client sign-off",
+        "No leftover guides, artboards, or hidden layers in the source file",
+    ],
+    "Print - Collateral/Packaging": [
+        "Correct trim size, bleed (0.125\"), and safe margins set up",
+        "Colors set to CMYK, not RGB, for the print-ready file",
+        "All images are 300dpi minimum at final size",
+        "No spelling or grammar errors in the final copy",
+        "Contact info, URLs, and QR codes verified accurate (QR tested to scan)",
+        "Fonts outlined or embedded in the final print file",
+        "Bleed/crop marks included in the press-ready export",
+        "Matches approved layout/design from client sign-off",
+        "Required legal/disclaimer text present",
+    ],
+    "Web - Sites/Applications/UI": [
+        "Matches approved mockup/wireframe (spacing, colors, typography)",
+        "Responsive check passes on desktop, tablet, and mobile breakpoints",
+        "All links, buttons, and CTAs work and point to the correct destination",
+        "Forms submit correctly and required-field validation works",
+        "No console errors in browser dev tools",
+        "Images optimized and have alt text",
+        "Cross-browser check done (Chrome + Safari minimum)",
+        "Favicon and meta title/description set correctly",
+        "No placeholder or lorem ipsum text remaining",
+    ],
+    "Web - Maintenance": [
+        "Requested change implemented exactly as described in the task",
+        "No unrelated content or styling broken by the change (spot-check nearby pages)",
+        "Change verified live on the actual URL, not just in the CMS editor",
+        "Mobile view checked after the change",
+        "Links/buttons touched by the change still work",
+        "Cache/CDN cleared if needed so the live site reflects the update",
+        "No console errors introduced",
+    ],
+    "Email - Campaigns/Signatures": [
+        "Subject line and preview text match approved copy",
+        "All links tested and pointing to correct, tracked URLs (UTMs if required)",
+        "Personalization/merge tags render correctly on a test send",
+        "Renders correctly in Gmail, Outlook, and on mobile",
+        "Images have alt text and aren't broken when images are blocked by default",
+        "Unsubscribe link and required compliance footer present",
+        "No spelling or grammar errors in subject, preheader, or body",
+        "Sender name and reply-to address correct",
+        "Test email sent and reviewed before scheduling/send",
+    ],
+    "LP - New": [
+        "Design matches the approved mockup",
+        "Headline, copy, and CTAs match the approved final copy doc",
+        "Form submits successfully and leads route to the correct destination",
+        "Thank-you page/redirect works after form submission",
+        "Mobile responsive check passes",
+        "Phone numbers, click-to-call, and tracking numbers are correct",
+        "No broken images, and page loads at a reasonable speed",
+        "Meta title/description and favicon set",
+        "Tracking pixels/analytics firing correctly",
+        "No placeholder text remaining",
+    ],
+    "LP - Maintenance": [
+        "Requested edit implemented exactly as described",
+        "Form still submits and routes to the right destination after the edit",
+        "Tracking/pixels still firing after the change",
+        "Mobile view checked after the change",
+        "No unrelated content broken by the edit",
+        "Live URL verified post-publish, not just staging/editor",
+    ],
+    "Digital - Banner/Display Ads": [
+        "Correct dimensions/specs for each requested ad size",
+        "File size within the target platform's limits",
+        "Copy matches approved final copy, no spelling errors",
+        "CTA is present and legible at the smallest required size",
+        "Brand logo and colors correct",
+        "Required legal/disclaimer text included if applicable",
+        "Static and/or animated versions delivered as scoped",
+        "Correct file format for the platform (JPG/PNG/HTML5/GIF)",
+        "Click-through URL verified correct",
+    ],
+    "Multi - Photo/Video/Edits": [
+        "Final export matches requested aspect ratio/resolution/format",
+        "Color correction/grading is consistent across clips or photos",
+        "Audio levels balanced, no clipping or background noise issues",
+        "Captions/subtitles accurate and correctly synced, if included",
+        "Branding elements (logo, lower thirds, end card) correct and on-brand",
+        "No visible watermarks, stray frames, or export artifacts",
+        "File delivered in the requested format/codec",
+        "Matches approved storyboard/direction from client sign-off",
+    ],
+    "IPM - Campaigns/Reports": [
+        "Data pulled from the correct date range and correct source/account",
+        "Numbers cross-checked against the source platform, no manual entry errors",
+        "Charts/graphs labeled correctly and match the underlying data",
+        "Client-facing language free of internal jargon and typos",
+        "Branding/template matches the current approved report format",
+        "Insights/recommendations are specific to this client's data, not generic",
+        "File/link shared in the correct, accessible format",
+    ],
+    "SM - templates/graphics/reels": [
+        "Correct dimensions/specs for the target platform (feed, story, reel)",
+        "Copy/caption matches approved content, no spelling errors",
+        "Branding (logo, colors, fonts) consistent with brand guidelines",
+        "Hashtags/mentions correct, if included in the graphic",
+        "Video/reel audio levels checked, captions accurate if included",
+        "File exported in the requested format and delivered to the correct location",
+    ],
+}
+
 CAPACITY_HISTORY_START = (2025, 1)
 ESTIMATE_GUIDE_MIN_N = 5  # fewer samples than this = "not enough data yet"
 CACHE_TTL = 300  # 5 minutes
@@ -403,6 +521,7 @@ def _cache_is_stale() -> bool:
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     store.init_db()
+    store.seed_qa_templates(DEFAULT_QA_TEMPLATES)
     print("[startup] ready")
     yield
 
@@ -714,6 +833,76 @@ async def api_set_priority_todo_done(todo_id: int, request: Request):
 async def api_delete_priority_todo(todo_id: int):
     store.delete_priority_todo(todo_id)
     return {"ok": True}
+
+
+# ---------------------------------------------------------------------------
+# QA checklists — per-service templates and completed certificates
+# ---------------------------------------------------------------------------
+
+@app.get("/api/qa/templates")
+async def api_get_qa_templates():
+    templates = store.get_qa_templates()
+    # Keep a stable, sensible order in the response (insertion order of
+    # DEFAULT_QA_TEMPLATES) rather than whatever SQLite returns.
+    ordered = {k: templates[k] for k in DEFAULT_QA_TEMPLATES if k in templates}
+    for k, v in templates.items():
+        if k not in ordered:
+            ordered[k] = v
+    return ordered
+
+
+@app.put("/api/qa/templates/{service}")
+async def api_set_qa_template(service: str, request: Request, pin: str = ""):
+    if pin != "1868":
+        return Response(status_code=403)
+    body = await request.json()
+    items = [str(i).strip() for i in body.get("items", []) if str(i).strip()]
+    if not items:
+        return {"ok": False, "error": "At least one checklist item is required"}
+    store.set_qa_template(service, items)
+    return {"ok": True, "items": items}
+
+
+@app.get("/api/qa/certificates")
+async def api_get_recent_qa_certificates(limit: int = 30):
+    return store.get_recent_qa_certificates(limit)
+
+
+@app.post("/api/qa/certificates")
+async def api_create_qa_certificate(request: Request):
+    import secrets
+    body = await request.json()
+    service = str(body.get("service", "")).strip()
+    items = body.get("items", [])
+    if not service or not isinstance(items, list) or not items:
+        return Response(status_code=400)
+    if not all(isinstance(i, dict) and i.get("checked") for i in items):
+        return {"ok": False, "error": "Every checklist item must be checked off before completing QA"}
+    cert_id = secrets.token_urlsafe(8)
+    cert = store.create_qa_certificate(
+        cert_id=cert_id,
+        service=service,
+        task_title=str(body.get("task_title", "")).strip()[:300],
+        client_name=str(body.get("client_name", "")).strip()[:200],
+        completed_by=str(body.get("completed_by", "")).strip()[:100],
+        items=[{"text": str(i.get("text", "")), "checked": True} for i in items],
+        notes=str(body.get("notes", "")).strip()[:2000],
+    )
+    return {"ok": True, "id": cert_id, "url": f"/qa/cert/{cert_id}"}
+
+
+@app.get("/api/qa/certificates/{cert_id}")
+async def api_get_qa_certificate(cert_id: str):
+    cert = store.get_qa_certificate(cert_id)
+    if not cert:
+        return Response(status_code=404)
+    return cert
+
+
+@app.get("/qa/cert/{cert_id}")
+async def qa_cert_page(cert_id: str):
+    # Public, unauthenticated — this is the shareable link posted into Basecamp.
+    return FileResponse("static/qa-cert.html", headers={"Cache-Control": "no-cache, must-revalidate"})
 
 
 @app.put("/api/estimate-goals")

@@ -51,6 +51,7 @@
         <button class="tab-btn" data-tab="analytics">Analytics</button>
         <button class="tab-btn" data-tab="mystuff">My Stuff</button>
         <button class="tab-btn" data-tab="priorities">Priorities</button>
+        <button class="tab-btn" data-tab="qa">QA Checklists</button>
       </nav>
 
       <!-- Tab 0: Overview -->
@@ -210,6 +211,17 @@
         </div>
         <div id="cal-capacity-bar" class="cal-capacity-wrap hidden"></div>
         <div id="calendar"></div>
+      </div>
+
+      <!-- Tab: QA Checklists — pick a service, check off items, get a shareable certificate -->
+      <div id="tab-qa" class="tab-panel">
+        <div class="panel-header">
+          <h2>QA Checklists</h2>
+          <span class="panel-hint">Pick the service you're QA'ing, work through the checklist, then complete it to get a shareable certificate link for the Basecamp to-do.</span>
+        </div>
+        <div id="qa-root">
+          <div class="loading-card">Loading checklists…</div>
+        </div>
       </div>
     </div>
 
