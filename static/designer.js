@@ -143,12 +143,21 @@ function renderMe() {
     ${estimateGuidePanelHTML(
       buildEstimateGuide(d.estimate_guide, { personal: true }),
       "How long each type of work should take, and your own pace against it. Use this when you're self-delegating or scoping a revision."
-    )}`;
+    )}
+    ${d.qa_enabled ? `
+    <div class="pulse-panel">
+      <div class="cap-chart-title" style="margin-bottom:4px">QA Checklist</div>
+      <div class="cap-chart-sub" style="margin-bottom:12px">Pick the service you're QA'ing, work through the checklist, then complete it to get a shareable certificate link for the Basecamp to-do.</div>
+      <div id="qa-root">
+        <div class="loading-card">Loading checklists…</div>
+      </div>
+    </div>` : ""}`;
   if (egWasOpen) document.getElementById("estimate-guide-panel")?.classList.add("open");
   renderMyPlanner();
   renderMyAttention(active, d.color);
   initNotes();
   initKudosWheel();
+  if (d.qa_enabled) renderQaMount();
 }
 
 let _notesTimer = null;

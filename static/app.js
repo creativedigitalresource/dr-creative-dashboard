@@ -132,19 +132,6 @@ function connectSSE() {
 // Data loading
 // ---------------------------------------------------------------------------
 
-async function fetchWithTimeout(url, opts = {}, ms = 15000) {
-  const ctrl = new AbortController();
-  const timer = setTimeout(() => ctrl.abort(), ms);
-  try {
-    const r = await fetch(url, { ...opts, signal: ctrl.signal });
-    clearTimeout(timer);
-    return r;
-  } catch (e) {
-    clearTimeout(timer);
-    throw e;
-  }
-}
-
 async function loadAll() {
   await Promise.all([loadUnassigned(), loadDesigners(), loadMyStuff(), loadEstimateGuide()]);
   await loadCalendar();
@@ -1239,7 +1226,7 @@ function initTabs() {
         loadPriorityTodos();
       }
       if (tab === "qa") {
-        loadQaServices();
+        renderQaMount();
       }
     });
   });
@@ -1450,153 +1437,6 @@ function renderPriorityTodos() {
         </div>
       </li>`).join("");
   }
-}
-
-// ---------------------------------------------------------------------------
-// QA Checklists — pick a service, check off items, get a shareable certificate
-// ---------------------------------------------------------------------------
-
-let _qaTemplates = {};
-let _qaService = null;
-let _qaItems = []; // [{text, checked}]
-
-async function loadQaServices() {
-  const root = document.getElementById("qa-root");
-  const data = await fetchWithTimeout("/api/qa/templates").then(r => r.json()).catch(() => null);
-  if (!data) { root.innerHTML = `<div class="loading-card">Couldn't load QA checklists.</div>`; return; }
-  _qaTemplates = data;
-  renderQaServiceGrid();
-}
-
-function renderQaServiceGrid() {
-  const root = document.getElementById("qa-root");
-  const services = Object.keys(_qaTemplates);
-  if (!services.length) { root.innerHTML = `<div class="loading-card">No QA checklists set up yet.</div>`; return; }
-  root.innerHTML = `<div class="qa-grid">` + services.map(s => `
-    <button class="qa-card" data-service="${esc(s)}">
-      <span class="qa-card-name">${esc(s)}</span>
-      <span class="qa-card-count">${_qaTemplates[s].length} checks</span>
-    </button>
-  `).join("") + `</div>`;
-  root.querySelectorAll(".qa-card").forEach(btn => {
-    btn.addEventListener("click", () => openQaChecklist(btn.dataset.service));
-  });
-}
-
-function openQaChecklist(service) {
-  _qaService = service;
-  _qaItems = (_qaTemplates[service] || []).map(text => ({ text, checked: false }));
-  renderQaChecklistView();
-}
-
-function renderQaChecklistView() {
-  const root = document.getElementById("qa-root");
-  const doneCount = _qaItems.filter(i => i.checked).length;
-  const allDone = doneCount === _qaItems.length && _qaItems.length > 0;
-  root.innerHTML = `
-    <div class="qa-checklist-head">
-      <button class="btn btn-ghost btn-sm" onclick="backToQaServices()">&larr; All services</button>
-      <h3 class="qa-service-title">${esc(_qaService)}</h3>
-      <span class="qa-progress">${doneCount} / ${_qaItems.length} checked</span>
-    </div>
-    <ul class="qa-item-list">
-      ${_qaItems.map((item, i) => `
-        <li class="qa-item ${item.checked ? "done" : ""}" onclick="toggleQaItem(${i})">
-          <span class="priority-check ${item.checked ? "checked" : ""}">${item.checked ? "&#10003;" : ""}</span>
-          <span class="qa-item-text">${esc(item.text)}</span>
-        </li>
-      `).join("")}
-    </ul>
-    <div class="qa-meta-row">
-      <input type="text" id="qa-task-title" class="priority-input" placeholder="Task / project title (optional)" />
-      <input type="text" id="qa-client-name" class="priority-input" placeholder="Client name (optional)" />
-    </div>
-    <div class="qa-meta-row">
-      <input type="text" id="qa-completed-by" class="priority-input" placeholder="Your name" />
-    </div>
-    <textarea id="qa-notes" class="qa-notes" placeholder="Notes (optional) — anything worth flagging even though everything passed"></textarea>
-    <div class="qa-actions">
-      <button class="btn btn-primary btn-lg" ${allDone ? "" : "disabled"} onclick="submitQaCertificate()">
-        Complete QA &amp; Get Certificate
-      </button>
-      <button class="btn btn-ghost btn-sm" onclick="editQaTemplate()">Edit this checklist</button>
-    </div>
-    <div id="qa-result"></div>
-  `;
-}
-
-function toggleQaItem(i) {
-  _qaItems[i].checked = !_qaItems[i].checked;
-  renderQaChecklistView();
-}
-
-function backToQaServices() {
-  _qaService = null;
-  _qaItems = [];
-  renderQaServiceGrid();
-}
-
-async function submitQaCertificate() {
-  const body = {
-    service: _qaService,
-    items: _qaItems,
-    task_title: document.getElementById("qa-task-title")?.value || "",
-    client_name: document.getElementById("qa-client-name")?.value || "",
-    completed_by: document.getElementById("qa-completed-by")?.value || "",
-    notes: document.getElementById("qa-notes")?.value || "",
-  };
-  const res = await fetch("/api/qa/certificates", {
-    method: "POST",
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify(body),
-  }).then(r => r.json()).catch(() => null);
-
-  const resultEl = document.getElementById("qa-result");
-  if (!res || res.ok === false) {
-    resultEl.innerHTML = `<div class="qa-error">${esc(res?.error || "Couldn't create the certificate. Try again.")}</div>`;
-    return;
-  }
-  const fullUrl = window.location.origin + res.url;
-  resultEl.innerHTML = `
-    <div class="qa-cert-success">
-      <div class="qa-cert-success-title">&#9989; QA certificate created</div>
-      <div class="qa-cert-link-row">
-        <input type="text" class="priority-input" id="qa-cert-link" value="${esc(fullUrl)}" readonly onclick="this.select()" />
-        <button class="btn btn-primary btn-sm" onclick="copyQaCertLink('${fullUrl}')">Copy Link</button>
-        <a class="btn btn-ghost btn-sm" href="${res.url}" target="_blank">Open</a>
-      </div>
-      <div class="qa-cert-hint">Paste this link into the Basecamp to-do as your QA sign-off.</div>
-    </div>
-  `;
-}
-
-function copyQaCertLink(url) {
-  navigator.clipboard?.writeText(url);
-  const btn = event?.target;
-  if (btn) {
-    const original = btn.textContent;
-    btn.textContent = "Copied!";
-    setTimeout(() => { btn.textContent = original; }, 1500);
-  }
-}
-
-function editQaTemplate() {
-  const pin = prompt("Enter PIN to edit this checklist:");
-  if (pin !== "1868") { if (pin !== null) alert("Incorrect PIN."); return; }
-  const current = (_qaTemplates[_qaService] || []).join("\n");
-  const updated = prompt("One checklist item per line:", current);
-  if (updated === null) return;
-  const items = updated.split("\n").map(s => s.trim()).filter(Boolean);
-  if (!items.length) { alert("Need at least one item."); return; }
-  fetch(`/api/qa/templates/${encodeURIComponent(_qaService)}?pin=1868`, {
-    method: "PUT",
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ items }),
-  }).then(r => r.json()).then(res => {
-    if (!res.ok) { alert(res.error || "Couldn't save."); return; }
-    _qaTemplates[_qaService] = items;
-    openQaChecklist(_qaService);
-  }).catch(() => alert("Couldn't save."));
 }
 
 // ---------------------------------------------------------------------------

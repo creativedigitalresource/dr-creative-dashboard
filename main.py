@@ -24,6 +24,11 @@ DESIGNERS = [
     {"name": "Melany",   "bc_id": 46905124, "eh_id": 1367774,  "color": "#ef4444", "slack_id": "U07RXRYNEMQ", "avatar": "/static/img/avatars/46905124.jpg"},
 ]
 
+# QA checklist rollout — Gaby only for now, testing before the team-wide
+# turn-on. Add more bc_ids here (or swap the membership check for "always
+# True") when Richard's ready to activate it for everyone else.
+QA_ENABLED_BC_IDS = {46567979}  # Gaby
+
 # Richard's own todos — fetched through the same pipeline as designers for the
 # My Stuff tab, but kept out of designers_out so team analytics stay clean
 ME = {"name": "Richard", "bc_id": 49482127, "eh_id": 1415584, "color": "#6366f1",
@@ -670,6 +675,7 @@ async def api_my(token: str):
             "shipped_week": store.count_completions_since(d["bc_id"], week_start),
             "estimate_guide": _compute_estimate_guide(d["bc_id"]),
             "standup": store.get_standup(d["bc_id"], today.isoformat()),
+            "qa_enabled": d["bc_id"] in QA_ENABLED_BC_IDS,
             "last_updated": _cached_data.get("last_updated")}
 
 
