@@ -827,9 +827,17 @@ async def api_set_priority_todo_order(request: Request):
 
 
 @app.put("/api/priority-todos/{todo_id}")
-async def api_set_priority_todo_done(todo_id: int, request: Request):
+async def api_update_priority_todo(todo_id: int, request: Request):
     body = await request.json()
-    row = store.set_priority_todo_done(todo_id, bool(body.get("done")))
+    if "text" in body:
+        text = str(body["text"]).strip()[:500]
+        if not text:
+            return Response(status_code=400)
+        row = store.set_priority_todo_text(todo_id, text)
+    elif "done" in body:
+        row = store.set_priority_todo_done(todo_id, bool(body["done"]))
+    else:
+        return Response(status_code=400)
     if not row:
         return Response(status_code=404)
     return row

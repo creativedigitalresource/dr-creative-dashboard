@@ -1266,7 +1266,13 @@ input.cal-filter-select { font-weight: 500; }
 .priority-check.checked { background: var(--accent); border-color: var(--accent); }
 .priority-check.checked:hover { background: var(--accent-hover); }
 
-.priority-text { flex: 1; font-size: 14px; color: var(--text); min-width: 0; word-break: break-word; }
+.priority-text { flex: 1; font-size: 14px; color: var(--text); min-width: 0; word-break: break-word; cursor: text; }
+.priority-edit-input {
+  flex: 1; min-width: 0; padding: 4px 8px; font-size: 14px; font-family: inherit;
+  background: var(--surface); border: 1.5px solid var(--accent);
+  border-radius: 6px; color: var(--text); outline: none;
+  box-shadow: 0 0 0 3px rgba(246,147,30,0.15);
+}
 .priority-item.done .priority-text { text-decoration: line-through; color: var(--text-muted); }
 
 .priority-item-actions { display: flex; align-items: center; gap: 2px; flex-shrink: 0; }

@@ -705,6 +705,15 @@ def add_priority_todo(text: str) -> dict:
     return dict(row)
 
 
+def set_priority_todo_text(todo_id: int, text: str) -> dict | None:
+    with get_db() as c:
+        c.execute("UPDATE priority_todos SET text=? WHERE id=?", (text, todo_id))
+        row = c.execute(
+            "SELECT id, text, done, position, created_at, completed_at FROM priority_todos WHERE id=?",
+            (todo_id,)).fetchone()
+    return dict(row) if row else None
+
+
 def get_priority_todos() -> dict:
     """Returns {active: [...], completed: [...]} — active ordered by
     position (drag order), completed ordered most-recently-done first."""

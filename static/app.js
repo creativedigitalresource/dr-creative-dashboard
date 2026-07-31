@@ -1415,7 +1415,7 @@ function renderPriorityTodos() {
           ondragleave="event.currentTarget.classList.remove('drag-over')"
           ondrop="priorityDrop(event, ${t.id})">
         <button class="priority-check" onclick="togglePriorityDone(${t.id}, true)" title="Mark complete"></button>
-        <span class="priority-text">${esc(t.text)}</span>
+        <span class="priority-text" ondblclick="editPriorityTodo(${t.id})" title="Double-click to edit">${esc(t.text)}</span>
         <div class="priority-item-actions">
           <button class="priority-move" onclick="movePriorityTodo(${t.id}, -1)" title="Move up"${idx === 0 ? " disabled" : ""}>&#9650;</button>
           <button class="priority-move" onclick="movePriorityTodo(${t.id}, 1)" title="Move down"${idx === _priorityActive.length - 1 ? " disabled" : ""}>&#9660;</button>
@@ -1429,14 +1429,60 @@ function renderPriorityTodos() {
   if (completedList) {
     completedList.classList.toggle("hidden", !_priorityCompletedOpen);
     completedList.innerHTML = _priorityCompleted.map(t => `
-      <li class="priority-item done">
+      <li class="priority-item done" id="priority-item-${t.id}">
         <button class="priority-check checked" onclick="togglePriorityDone(${t.id}, false)" title="Mark incomplete">&#10003;</button>
-        <span class="priority-text">${esc(t.text)}</span>
+        <span class="priority-text" ondblclick="editPriorityTodo(${t.id})" title="Double-click to edit">${esc(t.text)}</span>
         <div class="priority-item-actions">
           <button class="priority-delete" onclick="deletePriorityTodo(${t.id})" title="Delete">&times;</button>
         </div>
       </li>`).join("");
   }
+}
+
+function editPriorityTodo(id) {
+  const item = _priorityActive.find(t => t.id === id) || _priorityCompleted.find(t => t.id === id);
+  const li = document.getElementById(`priority-item-${id}`);
+  const textEl = li?.querySelector(".priority-text");
+  if (!item || !textEl) return;
+  const orig = item.text;
+
+  const input = document.createElement("input");
+  input.type = "text";
+  input.className = "priority-edit-input";
+  input.value = orig;
+  textEl.replaceWith(input);
+  input.focus();
+  input.select();
+
+  // Same idempotency guard as the shared editField() — a blur can fire
+  // more than once (e.g. Enter triggers blur, which then blurs again).
+  let settled = false;
+  const commit = async () => {
+    if (settled) return;
+    settled = true;
+    const val = input.value.trim();
+    if (val && val !== orig) {
+      item.text = val;
+      renderPriorityTodos();
+      await fetch(`/api/priority-todos/${id}`, {
+        method: "PUT",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ text: val }),
+      });
+    } else {
+      renderPriorityTodos();
+    }
+  };
+  const cancel = () => {
+    if (settled) return;
+    settled = true;
+    renderPriorityTodos();
+  };
+  input.addEventListener("blur", commit);
+  input.addEventListener("keydown", e => {
+    if (e.key === "Enter") { e.preventDefault(); input.blur(); }
+    if (e.key === "Escape") { cancel(); }
+  });
 }
 
 // ---------------------------------------------------------------------------
