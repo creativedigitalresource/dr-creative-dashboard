@@ -1235,6 +1235,9 @@ function initTabs() {
       if (tab === "standups") {
         loadStandups();
       }
+      if (tab === "priorities") {
+        loadPriorityTodos();
+      }
     });
   });
 }
@@ -1297,6 +1300,153 @@ function renderStandups(data) {
   </div>`;
 
   root.innerHTML = posted.map(postedCard).join("") + waiting.map(waitingCard).join("");
+}
+
+// ---------------------------------------------------------------------------
+// Priorities — Richard's own freeform, drag-sortable checklist
+// ---------------------------------------------------------------------------
+
+let _priorityActive = [];
+let _priorityCompleted = [];
+let _priorityCompletedOpen = false;
+let _priorityDragId = null;
+
+async function loadPriorityTodos() {
+  const data = await fetchWithTimeout("/api/priority-todos").then(r => r.json()).catch(() => null);
+  if (!data) return;
+  _priorityActive = data.active || [];
+  _priorityCompleted = data.completed || [];
+  renderPriorityTodos();
+}
+
+async function addPriorityTodo() {
+  const input = document.getElementById("priority-input");
+  const text = input.value.trim();
+  if (!text) return;
+  input.value = "";
+  const item = await fetch("/api/priority-todos", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ text }),
+  }).then(r => r.json()).catch(() => null);
+  if (!item || !item.id) return;
+  _priorityActive.push(item);
+  renderPriorityTodos();
+  input.focus();
+}
+
+async function togglePriorityDone(id, done) {
+  if (done) {
+    const idx = _priorityActive.findIndex(t => t.id === id);
+    if (idx === -1) return;
+    const [item] = _priorityActive.splice(idx, 1);
+    item.done = true;
+    _priorityCompleted.unshift(item);
+  } else {
+    const idx = _priorityCompleted.findIndex(t => t.id === id);
+    if (idx === -1) return;
+    const [item] = _priorityCompleted.splice(idx, 1);
+    item.done = false;
+    _priorityActive.push(item);
+  }
+  renderPriorityTodos();
+  await fetch(`/api/priority-todos/${id}`, {
+    method: "PUT",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ done }),
+  });
+}
+
+async function deletePriorityTodo(id) {
+  _priorityActive = _priorityActive.filter(t => t.id !== id);
+  _priorityCompleted = _priorityCompleted.filter(t => t.id !== id);
+  renderPriorityTodos();
+  await fetch(`/api/priority-todos/${id}`, { method: "DELETE" });
+}
+
+function togglePriorityCompleted() {
+  _priorityCompletedOpen = !_priorityCompletedOpen;
+  renderPriorityTodos();
+}
+
+// Touch-friendly reordering — native HTML5 drag-and-drop doesn't work on
+// mobile, so these buttons are the fallback (and work fine on desktop too).
+function movePriorityTodo(id, dir) {
+  const idx = _priorityActive.findIndex(t => t.id === id);
+  if (idx === -1) return;
+  const newIdx = idx + dir;
+  if (newIdx < 0 || newIdx >= _priorityActive.length) return;
+  const [item] = _priorityActive.splice(idx, 1);
+  _priorityActive.splice(newIdx, 0, item);
+  renderPriorityTodos();
+  savePriorityOrder();
+}
+
+function priorityDragStart(evt, id) {
+  _priorityDragId = id;
+  setTimeout(() => evt.target.classList.add("is-dragging"), 0);
+}
+
+function priorityDrop(evt, targetId) {
+  evt.preventDefault();
+  evt.currentTarget.classList.remove("drag-over");
+  const dragId = _priorityDragId; _priorityDragId = null;
+  if (dragId == null || dragId === targetId) return;
+  const fromIdx = _priorityActive.findIndex(t => t.id === dragId);
+  const toIdx = _priorityActive.findIndex(t => t.id === targetId);
+  if (fromIdx === -1 || toIdx === -1) return;
+  const [item] = _priorityActive.splice(fromIdx, 1);
+  _priorityActive.splice(toIdx, 0, item);
+  renderPriorityTodos();
+  savePriorityOrder();
+}
+
+async function savePriorityOrder() {
+  await fetch("/api/priority-todos/order", {
+    method: "PUT",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ ids: _priorityActive.map(t => t.id) }),
+  });
+}
+
+function renderPriorityTodos() {
+  const activeList = document.getElementById("priority-active-list");
+  const completedList = document.getElementById("priority-completed-list");
+  const countEl = document.getElementById("priority-completed-count");
+  const chevron = document.getElementById("priority-completed-chevron");
+  if (!activeList) return;
+
+  activeList.innerHTML = _priorityActive.length
+    ? _priorityActive.map((t, idx) => `
+      <li class="priority-item" draggable="true" id="priority-item-${t.id}"
+          ondragstart="priorityDragStart(event, ${t.id})"
+          ondragend="event.currentTarget.classList.remove('is-dragging')"
+          ondragover="event.preventDefault();event.currentTarget.classList.add('drag-over')"
+          ondragleave="event.currentTarget.classList.remove('drag-over')"
+          ondrop="priorityDrop(event, ${t.id})">
+        <button class="priority-check" onclick="togglePriorityDone(${t.id}, true)" title="Mark complete"></button>
+        <span class="priority-text">${esc(t.text)}</span>
+        <div class="priority-item-actions">
+          <button class="priority-move" onclick="movePriorityTodo(${t.id}, -1)" title="Move up"${idx === 0 ? " disabled" : ""}>&#9650;</button>
+          <button class="priority-move" onclick="movePriorityTodo(${t.id}, 1)" title="Move down"${idx === _priorityActive.length - 1 ? " disabled" : ""}>&#9660;</button>
+          <button class="priority-delete" onclick="deletePriorityTodo(${t.id})" title="Delete">&times;</button>
+        </div>
+      </li>`).join("")
+    : `<li class="priority-empty">Nothing here — add your first priority above.</li>`;
+
+  if (countEl) countEl.textContent = _priorityCompleted.length;
+  if (chevron) chevron.classList.toggle("open", _priorityCompletedOpen);
+  if (completedList) {
+    completedList.classList.toggle("hidden", !_priorityCompletedOpen);
+    completedList.innerHTML = _priorityCompleted.map(t => `
+      <li class="priority-item done">
+        <button class="priority-check checked" onclick="togglePriorityDone(${t.id}, false)" title="Mark incomplete">&#10003;</button>
+        <span class="priority-text">${esc(t.text)}</span>
+        <div class="priority-item-actions">
+          <button class="priority-delete" onclick="deletePriorityTodo(${t.id})" title="Delete">&times;</button>
+        </div>
+      </li>`).join("");
+  }
 }
 
 // ---------------------------------------------------------------------------

@@ -1227,6 +1227,68 @@ input.cal-filter-select { font-weight: 500; }
 .standup-card-tasks .standup-task { font-size: 12.5px; }
 
 /* ============================================================
+   Priorities — Richard's own freeform, drag-sortable checklist
+   ============================================================ */
+.priority-add-row { display: flex; gap: 10px; margin-bottom: 16px; }
+.priority-input {
+  flex: 1; padding: 10px 14px; font-size: 14px; font-family: inherit;
+  background: var(--surface); border: 1.5px solid var(--border);
+  border-radius: var(--radius-sm); color: var(--text);
+}
+.priority-input:focus { outline: none; border-color: var(--accent); }
+
+.priority-list { list-style: none; display: flex; flex-direction: column; gap: 8px; margin-bottom: 20px; }
+.priority-empty { color: var(--text-muted); font-size: 13px; padding: 20px; text-align: center; }
+
+.priority-item {
+  display: flex; align-items: center; gap: 12px;
+  padding: 12px 14px;
+  background: var(--glass-bg); border: 1px solid var(--glass-border);
+  border-radius: var(--radius-sm); box-shadow: var(--shadow-sm);
+  backdrop-filter: var(--glass-blur);
+  -webkit-backdrop-filter: var(--glass-blur);
+  cursor: grab;
+  transition: box-shadow .15s, opacity .15s, border-color .15s;
+}
+.priority-item:hover { box-shadow: var(--shadow); }
+.priority-item.is-dragging { opacity: .4; cursor: grabbing; }
+.priority-item.drag-over { border-color: var(--accent); }
+.priority-item.done { cursor: default; }
+
+.priority-check {
+  width: 22px; height: 22px; border-radius: 50%; flex-shrink: 0;
+  border: 2px solid var(--border); background: none; cursor: pointer;
+  padding: 0; display: flex; align-items: center; justify-content: center;
+  color: #fff; font-size: 12px; font-weight: 700;
+  transition: background .15s, border-color .15s, transform .15s;
+}
+.priority-check:hover { border-color: var(--accent); transform: scale(1.1); }
+.priority-check.checked { background: var(--accent); border-color: var(--accent); }
+.priority-check.checked:hover { background: var(--accent-hover); }
+
+.priority-text { flex: 1; font-size: 14px; color: var(--text); min-width: 0; word-break: break-word; }
+.priority-item.done .priority-text { text-decoration: line-through; color: var(--text-muted); }
+
+.priority-item-actions { display: flex; align-items: center; gap: 2px; flex-shrink: 0; }
+.priority-move, .priority-delete {
+  border: none; background: none; cursor: pointer; color: var(--text-muted);
+  padding: 4px 6px; font-size: 11px; border-radius: 6px; transition: all .1s;
+}
+.priority-move:hover:not(:disabled) { background: var(--surface2); color: var(--text); }
+.priority-move:disabled { opacity: .25; cursor: default; }
+.priority-delete { font-size: 16px; line-height: 1; }
+.priority-delete:hover { background: var(--danger-light); color: var(--danger); }
+
+.priority-completed-panel { margin-top: 4px; }
+.priority-completed-head {
+  display: flex; align-items: center; gap: 8px; cursor: pointer; user-select: none;
+  font-size: 12px; font-weight: 700; color: var(--text-muted);
+  text-transform: uppercase; letter-spacing: .06em;
+  padding: 10px 4px; border-top: 1px solid var(--border);
+}
+.priority-completed-head .eg-chevron.open { transform: rotate(180deg); }
+
+/* ============================================================
    Mobile (phones) — additive overrides only.
    Every rule above stays exactly as-is for desktop; everything
    here just wins at narrow widths via the media query, so nothing

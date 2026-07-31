@@ -101,6 +101,15 @@ def init_db():
                 first_posted_at REAL NOT NULL DEFAULT (unixepoch()),
                 PRIMARY KEY (designer_bc_id, date)
             );
+            -- Richard's own freeform priority list — not tied to Basecamp
+            CREATE TABLE IF NOT EXISTS priority_todos (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                text TEXT NOT NULL,
+                done INTEGER NOT NULL DEFAULT 0,
+                position INTEGER NOT NULL DEFAULT 0,
+                created_at REAL DEFAULT (unixepoch()),
+                completed_at REAL
+            );
 
             -- Operational: active todo state, persists across server restarts
             CREATE TABLE IF NOT EXISTS todo_tracking (
@@ -659,3 +668,64 @@ def get_standup(designer_bc_id: str, day: str) -> dict | None:
         return None
     return {"note": row["note"], "todo_ids": json.loads(row["todo_ids"]),
             "posted_at": row["posted_at"], "first_posted_at": row["first_posted_at"]}
+
+
+# ---------------------------------------------------------------------------
+# Priority to-dos — Richard's own freeform drag-sortable checklist. Single
+# list, not per-designer (this is a personal tool on the manager dashboard).
+# ---------------------------------------------------------------------------
+
+def add_priority_todo(text: str) -> dict:
+    with get_db() as c:
+        pos = c.execute("SELECT COALESCE(MAX(position), -1) + 1 AS p FROM priority_todos").fetchone()["p"]
+        cur = c.execute(
+            "INSERT INTO priority_todos (text, position) VALUES (?, ?)", (text, pos))
+        row = c.execute(
+            "SELECT id, text, done, position, created_at, completed_at FROM priority_todos WHERE id=?",
+            (cur.lastrowid,)).fetchone()
+    return dict(row)
+
+
+def get_priority_todos() -> dict:
+    """Returns {active: [...], completed: [...]} — active ordered by
+    position (drag order), completed ordered most-recently-done first."""
+    with get_db() as c:
+        active = c.execute(
+            "SELECT id, text, done, position, created_at, completed_at FROM priority_todos "
+            "WHERE done=0 ORDER BY position").fetchall()
+        completed = c.execute(
+            "SELECT id, text, done, position, created_at, completed_at FROM priority_todos "
+            "WHERE done=1 ORDER BY completed_at DESC").fetchall()
+    return {"active": [dict(r) for r in active], "completed": [dict(r) for r in completed]}
+
+
+def set_priority_todo_order(ids: list):
+    with get_db() as c:
+        for i, tid in enumerate(ids):
+            c.execute("UPDATE priority_todos SET position=? WHERE id=?", (i, int(tid)))
+
+
+def set_priority_todo_done(todo_id: int, done: bool) -> dict:
+    """Marking done just flips the flag — position stops mattering once an
+    item leaves the active list. Un-completing sends it back to the bottom
+    of the active list (a fresh position) rather than restoring its old
+    spot, since whatever was around it may have moved or been completed."""
+    with get_db() as c:
+        if done:
+            c.execute(
+                "UPDATE priority_todos SET done=1, completed_at=unixepoch() WHERE id=?",
+                (todo_id,))
+        else:
+            pos = c.execute("SELECT COALESCE(MAX(position), -1) + 1 AS p FROM priority_todos").fetchone()["p"]
+            c.execute(
+                "UPDATE priority_todos SET done=0, completed_at=NULL, position=? WHERE id=?",
+                (pos, todo_id))
+        row = c.execute(
+            "SELECT id, text, done, position, created_at, completed_at FROM priority_todos WHERE id=?",
+            (todo_id,)).fetchone()
+    return dict(row) if row else None
+
+
+def delete_priority_todo(todo_id: int):
+    with get_db() as c:
+        c.execute("DELETE FROM priority_todos WHERE id=?", (todo_id,))

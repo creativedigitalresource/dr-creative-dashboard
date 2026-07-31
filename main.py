@@ -677,6 +677,45 @@ async def api_standups():
     return out
 
 
+@app.get("/api/priority-todos")
+async def api_get_priority_todos():
+    return store.get_priority_todos()
+
+
+@app.post("/api/priority-todos")
+async def api_add_priority_todo(request: Request):
+    body = await request.json()
+    text = str(body.get("text", "")).strip()[:500]
+    if not text:
+        return Response(status_code=400)
+    return store.add_priority_todo(text)
+
+
+@app.put("/api/priority-todos/order")
+async def api_set_priority_todo_order(request: Request):
+    body = await request.json()
+    ids = body.get("ids", [])
+    if not isinstance(ids, list):
+        return {"ok": False, "error": "ids required"}
+    store.set_priority_todo_order([int(i) for i in ids])
+    return {"ok": True}
+
+
+@app.put("/api/priority-todos/{todo_id}")
+async def api_set_priority_todo_done(todo_id: int, request: Request):
+    body = await request.json()
+    row = store.set_priority_todo_done(todo_id, bool(body.get("done")))
+    if not row:
+        return Response(status_code=404)
+    return row
+
+
+@app.delete("/api/priority-todos/{todo_id}")
+async def api_delete_priority_todo(todo_id: int):
+    store.delete_priority_todo(todo_id)
+    return {"ok": True}
+
+
 @app.put("/api/estimate-goals")
 async def api_set_estimate_goal(request: Request, pin: str = ""):
     if pin != "1868":

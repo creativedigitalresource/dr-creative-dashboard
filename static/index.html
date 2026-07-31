@@ -50,6 +50,7 @@
         <button class="tab-btn" data-tab="calendar">Calendar</button>
         <button class="tab-btn" data-tab="analytics">Analytics</button>
         <button class="tab-btn" data-tab="mystuff">My Stuff</button>
+        <button class="tab-btn" data-tab="priorities">Priorities</button>
       </nav>
 
       <!-- Tab 0: Overview -->
@@ -172,6 +173,30 @@
         </div>
         <div id="standups-root" class="standups-grid">
           <div class="loading-card">Loading standups…</div>
+        </div>
+      </div>
+
+      <!-- Tab: Priorities — Richard's own freeform, drag-sortable checklist -->
+      <div id="tab-priorities" class="tab-panel">
+        <div class="panel-header">
+          <h2>Priorities</h2>
+          <span class="panel-hint">Drag to reorder — top of the list is top priority.</span>
+        </div>
+        <div class="priority-add-row">
+          <input type="text" id="priority-input" class="priority-input" placeholder="Add a priority…"
+            onkeydown="if(event.key==='Enter'){event.preventDefault();addPriorityTodo();}" />
+          <button class="btn btn-primary btn-sm" onclick="addPriorityTodo()">Add</button>
+        </div>
+        <ul id="priority-active-list" class="priority-list">
+          <li class="loading-card">Loading…</li>
+        </ul>
+        <div class="priority-completed-panel">
+          <div class="priority-completed-head" onclick="togglePriorityCompleted()">
+            <span>Completed</span>
+            <span id="priority-completed-count" class="attention-count">0</span>
+            <span class="eg-chevron" id="priority-completed-chevron">&#9662;</span>
+          </div>
+          <ul id="priority-completed-list" class="priority-list hidden"></ul>
         </div>
       </div>
 
