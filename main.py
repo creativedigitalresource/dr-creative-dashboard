@@ -34,10 +34,11 @@ QA_ENABLED_BC_IDS = {46567979}  # Gaby
 ME = {"name": "Richard", "bc_id": 49482127, "eh_id": 1415584, "color": "#6366f1",
       "avatar": "/static/img/avatars/49482127.jpg"}
 
-# Logged-time-to-Everhour sync rollout — Richard only for now, same staged
-# pattern as QA_ENABLED_BC_IDS above. Add more bc_ids here once he's
-# confirmed it's working before turning it on for the rest of the team.
-LOGGED_SYNC_BC_IDS = {ME["bc_id"]}
+# Logged-time-to-Everhour sync rollout — same staged pattern as
+# QA_ENABLED_BC_IDS above. Confirmed working for Richard; adding Maria C
+# next. Add more bc_ids here as each person's confirmed before turning it
+# on for the rest of the team.
+LOGGED_SYNC_BC_IDS = {ME["bc_id"], 52471282}  # Richard, Maria C
 
 WEEKLY_CAP = 32.5  # 6.5h/day × 5 days (1.5h/day reserved for misc/admin)
 WORK_HOURS = 6.5
