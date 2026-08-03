@@ -241,16 +241,43 @@ function applyFieldLocal(t, field, val) {
   if (!val) t.overrides = t.overrides.filter(f => f !== field);
 }
 
+// Accepts "1h", "1hr", "90m", "30min", "1h30m", "1h 30m", or a bare number
+// (hours — matches how logged/EST have always been typed, so a plain "2"
+// still means 2h). Returns decimal hours rounded to 2 places, or null if
+// the input doesn't parse as any of those.
+function parseDurationInput(str) {
+  const s = String(str || "").trim().toLowerCase().replace(/\s+/g, "");
+  if (!s) return null;
+  const round = n => Math.round(n * 100) / 100;
+
+  let m = s.match(/^(\d+\.?\d*)h(?:rs?|ours?)?(\d+\.?\d*)m(?:ins?|inutes?)?$/);
+  if (m) return round(parseFloat(m[1]) + parseFloat(m[2]) / 60);
+
+  m = s.match(/^(\d+\.?\d*)h(?:rs?|ours?)?$/);
+  if (m) return round(parseFloat(m[1]));
+
+  m = s.match(/^(\d+\.?\d*)m(?:ins?|inutes?)?$/);
+  if (m) return round(parseFloat(m[1]) / 60);
+
+  m = s.match(/^\d+\.?\d*$/);
+  if (m) return round(parseFloat(s));
+
+  return null;
+}
+
 function editField(evt, todoId, field, inputType, currentValue) {
   evt.stopPropagation();
   const pill = evt.currentTarget;
   const orig = pill.outerHTML;
 
   const input = document.createElement("input");
-  input.type = inputType;
+  input.type = inputType === "duration" ? "text" : inputType;
   input.className = "inline-field-input";
   if (inputType === "number") {
     input.step = "0.5"; input.min = "0"; input.style.width = "70px";
+  } else if (inputType === "duration") {
+    input.style.width = "90px";
+    input.placeholder = "1h, 30m…";
   } else {
     input.style.width = "110px";
   }
@@ -271,7 +298,18 @@ function editField(evt, todoId, field, inputType, currentValue) {
   const commit = async () => {
     if (settled) return;
     settled = true;
-    const val = input.value.trim();
+    const raw = input.value.trim();
+    let val = raw;
+    if (inputType === "duration") {
+      const parsed = raw === "" ? null : parseDurationInput(raw);
+      if (raw !== "" && parsed == null) {
+        // Unparseable ("abc") — don't save garbage, just revert like a no-op
+        input.insertAdjacentHTML("afterend", orig);
+        input.remove();
+        return;
+      }
+      val = parsed == null ? "" : String(parsed);
+    }
     if (val !== currentValue) {
       await window.__commitField(todoId, field, val);
     } else {
@@ -339,7 +377,7 @@ function pillTrueEst(t, isCompleted = false) {
 function pillLogged(t) {
   const logged = t.logged || 0;
   const cls = (t.overrides || []).includes("logged") ? "overridden" : "";
-  return `<span class="meta-pill ${cls} editable" onclick="editField(event,'${t.id}','logged','number','${logged}')" title="Click to log hours">${logged > 0 ? logged + "h" : "+ Log"}</span>`;
+  return `<span class="meta-pill ${cls} editable" onclick="editField(event,'${t.id}','logged','duration','${logged}')" title="Click to log time — try 1h, 30m, 1h30m, or a bare number for hours">${logged > 0 ? logged + "h" : "+ Log"}</span>`;
 }
 
 function selCategory(t) {
@@ -387,7 +425,7 @@ function buildTaskTable(todos, color, opts = {}) {
   const atCap = opts.spotlight && opts.spotlight.atCap;
   const sort = opts.sort || null;
   const sortFn = opts.sortFn || "";
-  const th = (label, key) => sortableTh(label, key, sort, sortFn);
+  const th = (label, key, tooltip) => sortableTh(label, key, sort, sortFn, tooltip);
   const rows = todos.map(t => {
     let revNote = "";
     if (t.in_revisions && t.revisions_since) {
@@ -411,7 +449,7 @@ function buildTaskTable(todos, color, opts = {}) {
     </tr>`;
   }).join("");
   return `<table class="ov-table">
-    <thead><tr>${showSpotlight ? "<th></th>" : ""}${th("Client", "client")}${th("Task", "task")}${th("Date", "date")}${th("HDD", "hdd")}${th("EST", "est")}${th("True", "true_est")}${th("Logged", "logged")}${th("Category", "category")}${th("Progress", "progress")}<th></th></tr></thead>
+    <thead><tr>${showSpotlight ? "<th></th>" : ""}${th("Client", "client")}${th("Task", "task")}${th("Date", "date")}${th("HDD", "hdd")}${th("EST", "est")}${th("True", "true_est")}${th("Logged", "logged", "Type a duration like 1h, 30m, or 1h30m — a bare number defaults to hours")}${th("Category", "category")}${th("Progress", "progress")}<th></th></tr></thead>
     <tbody>${rows}</tbody>
   </table>`;
 }
@@ -524,11 +562,12 @@ function sortTodos(todos, key, dir = "asc") {
 // column is the active sort. sortFnName is the page's setXSort(key) global;
 // sort (possibly null, meaning "no column picked yet") only affects which
 // header shows the active arrow, not whether headers are clickable at all.
-function sortableTh(label, key, sort, sortFnName) {
-  if (!sortFnName) return `<th>${label}</th>`;
+function sortableTh(label, key, sort, sortFnName, tooltip) {
+  const titleAttr = tooltip ? ` title="${esc(tooltip)}"` : "";
+  if (!sortFnName) return `<th${titleAttr}>${label}</th>`;
   const active = !!sort && sort.key === key;
   const arrow = active ? (sort.dir === "asc" ? " ▲" : " ▼") : "";
-  return `<th class="sortable${active ? " active" : ""}" onclick="${sortFnName}('${key}')">${label}<span class="sort-arrow">${arrow}</span></th>`;
+  return `<th class="sortable${active ? " active" : ""}"${titleAttr} onclick="${sortFnName}('${key}')">${label}<span class="sort-arrow">${arrow}</span></th>`;
 }
 
 /* ---- Estimate Guide — shared by the Overview panel (editable goals) and
