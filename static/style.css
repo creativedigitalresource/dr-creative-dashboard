@@ -852,6 +852,8 @@ input.cal-filter-select { font-weight: 500; }
 .ov-table th.sortable:hover { color: var(--text); }
 .ov-table th.sortable.active { color: var(--accent); }
 .sort-arrow { font-size: 9px; margin-left: 2px; letter-spacing: 0; }
+.th-info { display: inline-block; color: var(--text-muted); font-size: 12px; margin-right: 4px; cursor: help; vertical-align: middle; }
+.th-info:hover { color: var(--accent); }
 .ov-task-row td { padding: 8px 10px; border-bottom: 1px solid var(--surface2); vertical-align: middle; }
 .ov-task-row:last-child td { border-bottom: none; }
 .ov-client { font-size: 11px; font-weight: 600; text-transform: uppercase; letter-spacing: .04em; color: var(--text-muted); white-space: nowrap; }

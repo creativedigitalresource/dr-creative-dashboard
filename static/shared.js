@@ -563,11 +563,13 @@ function sortTodos(todos, key, dir = "asc") {
 // sort (possibly null, meaning "no column picked yet") only affects which
 // header shows the active arrow, not whether headers are clickable at all.
 function sortableTh(label, key, sort, sortFnName, tooltip) {
-  const titleAttr = tooltip ? ` title="${esc(tooltip)}"` : "";
-  if (!sortFnName) return `<th${titleAttr}>${label}</th>`;
+  // ⓘ sits to the left of the label so the tooltip triggers on the icon
+  // itself, not on hovering the whole (clickable, sortable) header cell.
+  const icon = tooltip ? `<span class="th-info" title="${esc(tooltip)}">&#9432;</span>` : "";
+  if (!sortFnName) return `<th>${icon}${label}</th>`;
   const active = !!sort && sort.key === key;
   const arrow = active ? (sort.dir === "asc" ? " ▲" : " ▼") : "";
-  return `<th class="sortable${active ? " active" : ""}"${titleAttr} onclick="${sortFnName}('${key}')">${label}<span class="sort-arrow">${arrow}</span></th>`;
+  return `<th class="sortable${active ? " active" : ""}" onclick="${sortFnName}('${key}')">${icon}${label}<span class="sort-arrow">${arrow}</span></th>`;
 }
 
 /* ---- Estimate Guide — shared by the Overview panel (editable goals) and
