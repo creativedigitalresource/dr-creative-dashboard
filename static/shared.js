@@ -565,7 +565,10 @@ function sortTodos(todos, key, dir = "asc") {
 function sortableTh(label, key, sort, sortFnName, tooltip) {
   // ⓘ sits to the left of the label so the tooltip triggers on the icon
   // itself, not on hovering the whole (clickable, sortable) header cell.
-  const icon = tooltip ? `<span class="th-info" title="${esc(tooltip)}">&#9432;</span>` : "";
+  // Custom-styled hover box instead of the native title tooltip.
+  const icon = tooltip
+    ? `<span class="th-info-wrap"><span class="th-info">&#9432;</span><span class="th-tooltip">${esc(tooltip)}</span></span>`
+    : "";
   if (!sortFnName) return `<th>${icon}${label}</th>`;
   const active = !!sort && sort.key === key;
   const arrow = active ? (sort.dir === "asc" ? " ▲" : " ▼") : "";
