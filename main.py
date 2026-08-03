@@ -34,6 +34,11 @@ QA_ENABLED_BC_IDS = {46567979}  # Gaby
 ME = {"name": "Richard", "bc_id": 49482127, "eh_id": 1415584, "color": "#6366f1",
       "avatar": "/static/img/avatars/49482127.jpg"}
 
+# Logged-time-to-Everhour sync rollout — Richard only for now, same staged
+# pattern as QA_ENABLED_BC_IDS above. Add more bc_ids here once he's
+# confirmed it's working before turning it on for the rest of the team.
+LOGGED_SYNC_BC_IDS = {ME["bc_id"]}
+
 WEEKLY_CAP = 32.5  # 6.5h/day × 5 days (1.5h/day reserved for misc/admin)
 WORK_HOURS = 6.5
 STALE_HDD_DAYS = 14  # comment-sourced HDDs older than this are abandoned, not late
@@ -1196,6 +1201,26 @@ async def _apply_todo_fields(todo_id: str, body: dict, cached_todo, cached_desig
             wrote = False
             if eh_id:
                 wrote = await eh.set_user_estimate(todo_id, eh_id, float(value))
+            if wrote:
+                store.delete_override(todo_id, field)
+            else:
+                store.set_override(todo_id, field, str(value))
+
+        elif (field == "logged" and value is not None and value != ""
+              and cached_designer and cached_designer.get("bc_id") in LOGGED_SYNC_BC_IDS):
+            # Same source-of-truth pattern as est: on a successful Everhour
+            # write, drop the local override so the real synced value takes
+            # over on the next refresh instead of shadowing it. The typed
+            # value is the person's new TOTAL on this task, not a delta —
+            # log_user_time() does the current-vs-new diffing against
+            # Everhour itself, since Everhour's API only adds/removes.
+            eh_id = cached_designer.get("eh_id")
+            wrote = False
+            if eh_id:
+                try:
+                    wrote = await eh.log_user_time(todo_id, eh_id, float(value))
+                except Exception as e:
+                    print(f"[logged-sync] Everhour write failed for todo {todo_id}: {type(e).__name__}: {e}")
             if wrote:
                 store.delete_override(todo_id, field)
             else:

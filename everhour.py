@@ -1,4 +1,5 @@
 import httpx, os
+from datetime import date
 
 EH_KEY = os.environ.get("EVERHOUR_API_KEY", "")
 EH_BASE = "https://api.everhour.com"
@@ -96,6 +97,52 @@ async def set_user_estimate(todo_id: str | int, eh_user_id: int, hours: float) -
         json={"type": "users", "users": {str(eh_user_id): seconds}},
     )
     return r.status_code == 200
+
+
+async def log_user_time(todo_id: str | int, eh_user_id: int, new_total_hours: float) -> bool:
+    """Set a person's total logged time on a task to new_total_hours.
+
+    Everhour's DELETE /tasks/{id}/time clears a user's ENTIRE entry for the
+    given date regardless of the "time" amount in the request body —
+    confirmed by direct testing (sent a small amount against a much larger
+    balance; the whole balance was removed). So this can't just diff the
+    task-wide total and push a delta on today's date: if the person's
+    existing time is logged on a different day, clearing "today" would
+    silently no-op on their real entry while adding a fresh one on top,
+    doubling their total instead of correcting it.
+
+    Instead: find every date this person already has time logged on this
+    task, clear each one (only operations verified to behave predictably),
+    then log a single fresh entry for the new total on today's date.
+    """
+    if not EH_KEY or not eh_user_id:
+        return False
+    current = await get_time_logged_strict(todo_id)
+    current_hours = current.get("user_logged", {}).get(str(eh_user_id), 0.0)
+    if abs(new_total_hours - current_hours) < 0.01:
+        return True  # already matches, nothing to write
+
+    r = await get_eh_http().get(f"{EH_BASE}/tasks/b3:{todo_id}/time")
+    if r.status_code != 200:
+        return False
+    existing_dates = [rec["date"] for rec in r.json() if rec.get("user") == eh_user_id and rec.get("time")]
+
+    for d in existing_dates:
+        rd = await get_eh_http().request(
+            "DELETE", f"{EH_BASE}/tasks/b3:{todo_id}/time",
+            json={"time": 1, "date": d, "user": eh_user_id},  # amount ignored by Everhour, clears the whole date
+        )
+        if rd.status_code not in (200, 201):
+            return False
+
+    if new_total_hours <= 0:
+        return True
+    seconds = round(new_total_hours * 3600)
+    rp = await get_eh_http().post(
+        f"{EH_BASE}/tasks/b3:{todo_id}/time",
+        json={"time": seconds, "date": date.today().isoformat(), "user": eh_user_id},
+    )
+    return rp.status_code in (200, 201)
 
 
 async def get_user_time_records(everhour_user_id: int, from_date: str, to_date: str) -> list:
