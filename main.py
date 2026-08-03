@@ -1217,10 +1217,22 @@ async def _apply_todo_fields(todo_id: str, body: dict, cached_todo, cached_desig
             eh_id = cached_designer.get("eh_id")
             wrote = False
             if eh_id:
-                try:
-                    wrote = await eh.log_user_time(todo_id, eh_id, float(value))
-                except Exception as e:
-                    print(f"[logged-sync] Everhour write failed for todo {todo_id}: {type(e).__name__}: {e}")
+                # Everhour rate-limits under load (already hit this exact
+                # 429 live — see commit eabe3c9) and log_user_time() always
+                # re-reads current state fresh before deciding what to
+                # write, so retrying the whole call from scratch is safe
+                # even if a prior attempt got partway through.
+                last_err = None
+                for attempt in range(3):
+                    try:
+                        wrote = await eh.log_user_time(todo_id, eh_id, float(value))
+                        break
+                    except Exception as e:
+                        last_err = e
+                        if attempt < 2:
+                            await asyncio.sleep(1.5 * (attempt + 1))
+                if not wrote and last_err:
+                    print(f"[logged-sync] Everhour write failed for todo {todo_id} after retries: {type(last_err).__name__}: {last_err}")
             if wrote:
                 store.delete_override(todo_id, field)
             else:
