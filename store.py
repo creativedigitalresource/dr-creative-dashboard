@@ -211,6 +211,16 @@ def init_db():
                 notes TEXT NOT NULL DEFAULT '',
                 created_at REAL DEFAULT (unixepoch())
             );
+
+            -- At Risk Slack nudge: one row per todo per day it was surfaced,
+            -- so the daily routine never re-pings the same task twice in a day
+            -- even if it calls the endpoint more than once.
+            CREATE TABLE IF NOT EXISTS at_risk_notified (
+                todo_id TEXT NOT NULL,
+                date TEXT NOT NULL,
+                notified_at REAL DEFAULT (unixepoch()),
+                PRIMARY KEY (todo_id, date)
+            );
         """)
         # Migration: first_posted_at was added after standups shipped, so an
         # already-deployed DB has the table without it. Nullable add + backfill
@@ -687,6 +697,24 @@ def get_standup(designer_bc_id: str, day: str) -> dict | None:
         return None
     return {"note": row["note"], "todo_ids": json.loads(row["todo_ids"]),
             "posted_at": row["posted_at"], "first_posted_at": row["first_posted_at"]}
+
+
+def claim_at_risk_notifications(todo_ids: list, day: str) -> list:
+    """Atomically filters todo_ids down to the ones not already notified
+    today, and inserts them as claimed in the same breath — so a caller
+    that fetches once and DMs each result can't double-send on a retry,
+    even if two calls land close together."""
+    with get_db() as c:
+        claimed = []
+        for tid in todo_ids:
+            try:
+                c.execute(
+                    "INSERT INTO at_risk_notified (todo_id, date) VALUES (?, ?)",
+                    (str(tid), day))
+                claimed.append(str(tid))
+            except sqlite3.IntegrityError:
+                pass  # already notified today
+    return claimed
 
 
 # ---------------------------------------------------------------------------

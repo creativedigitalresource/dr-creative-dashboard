@@ -819,6 +819,43 @@ async def api_standups():
     return out
 
 
+@app.get("/api/at-risk")
+async def api_at_risk():
+    """Server-side twin of the Overview tab's At Risk rule (shared.js
+    _overviewStats/renderAttention: due within 2 days, <50% progress,
+    not already caught by a separate 'needs a decision' bucket) — the
+    daily Slack-nudge routine can't run the browser's JS, so this mirrors
+    it in Python. Returns only items not yet notified today, and claims
+    them in the same call so a retry can't double-send.
+
+    Kept intentionally in sync by hand with shared.js rather than shared
+    code, since the two run in different languages — if the rule there
+    changes, update it here too."""
+    today = date.today().isoformat()
+    soon = (date.today() + timedelta(days=2)).isoformat()
+    candidates = []
+    for d in _cached_data.get("designers", []):
+        for t in d.get("todos", []):
+            if t.get("is_complete") or t.get("is_misc"):
+                continue
+            if t.get("in_revisions") or t.get("hdd_stale"):
+                continue
+            hdd = t.get("hdd")
+            if not hdd or hdd < today or hdd > soon:
+                continue
+            if (t.get("progress") or 0) >= 50:
+                continue
+            candidates.append({
+                "todo_id": str(t["id"]), "title": t.get("title"), "url": t.get("url"),
+                "bucket_name": t.get("bucket_name"), "hdd": hdd,
+                "est": t.get("est"), "logged": t.get("logged", 0), "progress": t.get("progress", 0),
+                "designer_bc_id": d["bc_id"], "designer_name": d["name"],
+                "designer_slack_id": d.get("slack_id"),
+            })
+    claimed = set(store.claim_at_risk_notifications([c["todo_id"] for c in candidates], today))
+    return [c for c in candidates if c["todo_id"] in claimed]
+
+
 @app.get("/api/priority-todos")
 async def api_get_priority_todos():
     return store.get_priority_todos()
