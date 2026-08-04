@@ -28,10 +28,16 @@ SKIP_KEYWORDS = [
     "maternity", "check-in", "power bi",
 ]
 
+# To Delegate should still surface the weekly overdue-check task — it's a
+# real recurring task that needs picking up, just not counted toward any
+# one designer's personal workload, so it stays hidden from individual
+# todo lists (get_designer_todos) but not from the delegation queue.
+UNASSIGNED_SKIP_KEYWORDS = [k for k in SKIP_KEYWORDS if k != "weekly overdue"]
 
-def _is_skip(title: str) -> bool:
+
+def _is_skip(title: str, keywords: list = SKIP_KEYWORDS) -> bool:
     t = title.lower()
-    return any(k in t for k in SKIP_KEYWORDS) or "🚥" in title
+    return any(k in t for k in keywords) or "🚥" in title
 
 
 def auth_url() -> str:
@@ -272,7 +278,7 @@ async def get_unassigned_todos() -> list:
     for t in todos:
         if t.get("completed"):
             continue
-        if _is_skip(t.get("content", "")):
+        if _is_skip(t.get("content", ""), UNASSIGNED_SKIP_KEYWORDS):
             continue
         bucket = t.get("bucket", {})
         result.append({
