@@ -575,6 +575,162 @@ function sortableTh(label, key, sort, sortFnName, tooltip) {
   return `<th class="sortable${active ? " active" : ""}" onclick="${sortFnName}('${key}')">${icon}${label}<span class="sort-arrow">${arrow}</span></th>`;
 }
 
+/* ---- To Delegate — shared by the manager's own tab and a delegate-enabled
+   designer's own page (both target the same #unassigned-list/#unassigned-count
+   ids, so this one implementation drives both). ---- */
+let _unassignedData = [];
+let _unassignedSort = { key: null, dir: "asc" };
+
+function setUnassignedSort(key) {
+  _unassignedSort = _unassignedSort.key === key
+    ? { key, dir: _unassignedSort.dir === "asc" ? "desc" : "asc" }
+    : { key, dir: "asc" };
+  renderUnassigned();
+}
+
+async function loadUnassigned() {
+  const todos = await fetchWithTimeout("/api/unassigned").then(r => r.json()).catch(() => []);
+  _unassignedData = todos;
+  document.getElementById("unassigned-count").textContent = todos.length || "";
+  renderUnassigned();
+}
+
+function renderUnassigned() {
+  const root = document.getElementById("unassigned-list");
+  const todos = _unassignedData;
+  if (!todos.length) {
+    root.innerHTML = `<div class="loading-cell">Fetching from Basecamp — may take up to 60s on first load…</div>`;
+    return;
+  }
+  const sorted = sortTodos(todos, _unassignedSort.key, _unassignedSort.dir);
+  const th = (label, key) => sortableTh(label, key, _unassignedSort.key ? _unassignedSort : null, "setUnassignedSort");
+  const rows = sorted.map(t => {
+    const due = t.due_on ? formatDue(t.due_on) : "";
+    const titleHtml = t.url
+      ? `<a href="${t.url}" target="_blank">${esc(t.title)}</a>`
+      : esc(t.title);
+    return `<tr>
+      <td><div class="todo-title">${titleHtml}</div></td>
+      <td>${selCategory(t)}</td>
+      <td><span class="due-date ${dueCls(t.due_on)}">${due}</span></td>
+      <td>${t.url ? `<a href="${t.url}" target="_blank" class="link-btn" title="Open in Basecamp">↗</a>` : ""}</td>
+    </tr>`;
+  }).join("");
+  root.innerHTML = `<table class="data-table">
+    <thead><tr>${th("Task", "task")}${th("Category", "category")}${th("Due Date", "date")}<th></th></tr></thead>
+    <tbody>${rows}</tbody>
+  </table>`;
+}
+
+/* ---- Standups — shared by the manager's Standups tab and a delegate-
+   enabled designer's own page (both target #standups-root). ---- */
+async function loadStandups() {
+  const root = document.getElementById("standups-root");
+  const data = await fetchWithTimeout("/api/standups").then(r => r.json()).catch(() => null);
+  if (!data) { root.innerHTML = `<div class="loading-card">Couldn't load standups.</div>`; return; }
+  renderStandups(data);
+}
+
+function renderStandups(data) {
+  const root = document.getElementById("standups-root");
+  if (!data.length) { root.innerHTML = `<div class="loading-card">No designers yet.</div>`; return; }
+
+  const posted = data.filter(d => d.posted_at).sort((a, b) => b.posted_at - a.posted_at);
+  const waiting = data.filter(d => !d.posted_at).sort((a, b) => a.name.localeCompare(b.name));
+
+  const taskRows = tasks => (tasks || []).length
+    ? tasks.map(t => {
+        const rem = taskRemainingHrs(t);
+        const title = esc(truncate(t.title, 50));
+        const titleHtml = t.url
+          ? `<a href="${t.url}" target="_blank" title="Open in Basecamp">${title}</a>`
+          : title;
+        return `<div class="standup-task">
+        <span class="standup-task-title">${titleHtml}</span>
+        <span class="standup-task-hrs">${rem != null ? rem + "h left" : "&mdash;"}</span>
+      </div>`;
+      }).join("")
+    : `<div class="standup-task-empty">No tasks scheduled today.</div>`;
+
+  const postedCard = d => {
+    const totalHrs = Math.round((d.tasks || []).reduce((s, t) => s + Math.max(0, (t.est || 0) - (t.logged || 0)), 0) * 10) / 10;
+    return `<div class="standup-card">
+      <div class="standup-card-head">
+        ${avatarHTML(d, { cls: "designer-avatar" })}
+        <div class="standup-card-info">
+          <div class="designer-name">${esc(d.name)}</div>
+          <div class="standup-card-time">${standupTimeLabel(d)} &middot; ${totalHrs}h planned</div>
+        </div>
+      </div>
+      ${d.note ? `<div class="standup-card-note">&ldquo;${esc(d.note)}&rdquo;</div>` : ""}
+      <div class="standup-card-tasks">${taskRows(d.tasks)}</div>
+    </div>`;
+  };
+
+  const waitingCard = d => `<div class="standup-card waiting">
+    <div class="standup-card-head">
+      ${avatarHTML(d, { cls: "designer-avatar" })}
+      <div class="standup-card-info">
+        <div class="designer-name">${esc(d.name)}</div>
+        <div class="standup-card-time">Hasn&rsquo;t posted yet</div>
+      </div>
+    </div>
+  </div>`;
+
+  root.innerHTML = posted.map(postedCard).join("") + waiting.map(waitingCard).join("");
+}
+
+/* ---- Read-only capacity snapshot — a simplified, non-editable version of
+   the manager's renderDesignerCard (app.js), reused by a delegate-enabled
+   designer's own Team Capacity tab. Always current week, no OOO editing,
+   no completed-task toggle — those are manager-only affordances. ---- */
+function buildCapacityCard(d) {
+  const { weekly_est, cap, pct, pto_days, scheduledIds } = calcCapacity(d.todos, d.pto, 0);
+  const barCls = pct < 60 ? "low" : pct < 85 ? "mid" : "high";
+  const ptoBadge = pto_days > 0
+    ? `<span class="pto-badge">${pto_days} OOO day${pto_days > 1 ? "s" : ""} this wk</span>`
+    : "";
+
+  const { end: wEnd } = getWeekBounds(0);
+  const weekTodos = (d.todos || []).filter(t => {
+    if (t.is_complete) return false;
+    if (!t.due_on) return true;
+    return t.due_on <= wEnd || scheduledIds.has(t.id);
+  });
+  const pulledForward = new Set(weekTodos.filter(t => {
+    const hddInWindow = t.hdd && t.hdd <= wEnd;
+    return !hddInWindow && scheduledIds.has(t.id);
+  }).map(t => t.id));
+
+  const todosHtml = weekTodos.length
+    ? `<ul class="designer-todos">${weekTodos.map(t => renderTodoItem(t, d.color, false, pulledForward.has(t.id))).join("")}</ul>`
+    : `<div class="no-todos">No active tasks</div>`;
+
+  return `
+  <div class="designer-card">
+    <div class="designer-card-header">
+      <div class="designer-name-wrap">
+        ${avatarHTML(d, { cls: "designer-avatar" })}
+        <div>
+          <div class="designer-name" style="display:flex;align-items:center;gap:8px">
+            ${esc(d.name)}
+            ${ptoBadge}
+          </div>
+          <div style="font-size:11px;color:var(--text-muted)">${d.todos ? d.todos.length : 0} task${d.todos?.length !== 1 ? "s" : ""}</div>
+        </div>
+      </div>
+      <div class="designer-cap-wrap">
+        <div class="cap-label">Remaining &middot; ${weekly_est}h / ${cap}h</div>
+        <div class="cap-bar-outer">
+          <div class="cap-bar-inner ${barCls}" style="width:${pct}%"></div>
+        </div>
+        <div style="font-size:11px;color:var(--text-muted);text-align:right">${pct}% booked</div>
+      </div>
+    </div>
+    ${todosHtml}
+  </div>`;
+}
+
 /* ---- Estimate Guide — shared by the Overview panel (editable goals) and
    the designer page (read-only goal + personal pace). ---- */
 

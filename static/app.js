@@ -184,50 +184,6 @@ async function commitEstimateGoal(category, value, inputEl) {
   }
 }
 
-let _unassignedData = [];
-let _unassignedSort = { key: null, dir: "asc" };
-
-function setUnassignedSort(key) {
-  _unassignedSort = _unassignedSort.key === key
-    ? { key, dir: _unassignedSort.dir === "asc" ? "desc" : "asc" }
-    : { key, dir: "asc" };
-  renderUnassigned();
-}
-
-async function loadUnassigned() {
-  const todos = await fetchWithTimeout("/api/unassigned").then(r => r.json()).catch(() => []);
-  _unassignedData = todos;
-  document.getElementById("unassigned-count").textContent = todos.length || "";
-  renderUnassigned();
-}
-
-function renderUnassigned() {
-  const root = document.getElementById("unassigned-list");
-  const todos = _unassignedData;
-  if (!todos.length) {
-    root.innerHTML = `<div class="loading-cell">Fetching from Basecamp — may take up to 60s on first load…</div>`;
-    return;
-  }
-  const sorted = sortTodos(todos, _unassignedSort.key, _unassignedSort.dir);
-  const th = (label, key) => sortableTh(label, key, _unassignedSort.key ? _unassignedSort : null, "setUnassignedSort");
-  const rows = sorted.map(t => {
-    const due = t.due_on ? formatDue(t.due_on) : "";
-    const titleHtml = t.url
-      ? `<a href="${t.url}" target="_blank">${esc(t.title)}</a>`
-      : esc(t.title);
-    return `<tr>
-      <td><div class="todo-title">${titleHtml}</div></td>
-      <td>${selCategory(t)}</td>
-      <td><span class="due-date ${dueCls(t.due_on)}">${due}</span></td>
-      <td>${t.url ? `<a href="${t.url}" target="_blank" class="link-btn" title="Open in Basecamp">↗</a>` : ""}</td>
-    </tr>`;
-  }).join("");
-  root.innerHTML = `<table class="data-table">
-    <thead><tr>${th("Task", "task")}${th("Category", "category")}${th("Due Date", "date")}<th></th></tr></thead>
-    <tbody>${rows}</tbody>
-  </table>`;
-}
-
 let _designerData = [];
 let _workloadFilter = "all";
 let _splitViewActive = false;
@@ -1254,66 +1210,6 @@ function initTabs() {
       }
     });
   });
-}
-
-// ---------------------------------------------------------------------------
-// Standups — today's posted plans, pulled from each designer's My Week page
-// ---------------------------------------------------------------------------
-
-async function loadStandups() {
-  const root = document.getElementById("standups-root");
-  const data = await fetchWithTimeout("/api/standups").then(r => r.json()).catch(() => null);
-  if (!data) { root.innerHTML = `<div class="loading-card">Couldn't load standups.</div>`; return; }
-  renderStandups(data);
-}
-
-function renderStandups(data) {
-  const root = document.getElementById("standups-root");
-  if (!data.length) { root.innerHTML = `<div class="loading-card">No designers yet.</div>`; return; }
-
-  const posted = data.filter(d => d.posted_at).sort((a, b) => b.posted_at - a.posted_at);
-  const waiting = data.filter(d => !d.posted_at).sort((a, b) => a.name.localeCompare(b.name));
-
-  const taskRows = tasks => (tasks || []).length
-    ? tasks.map(t => {
-        const rem = taskRemainingHrs(t);
-        const title = esc(truncate(t.title, 50));
-        const titleHtml = t.url
-          ? `<a href="${t.url}" target="_blank" title="Open in Basecamp">${title}</a>`
-          : title;
-        return `<div class="standup-task">
-        <span class="standup-task-title">${titleHtml}</span>
-        <span class="standup-task-hrs">${rem != null ? rem + "h left" : "&mdash;"}</span>
-      </div>`;
-      }).join("")
-    : `<div class="standup-task-empty">No tasks scheduled today.</div>`;
-
-  const postedCard = d => {
-    const totalHrs = Math.round((d.tasks || []).reduce((s, t) => s + Math.max(0, (t.est || 0) - (t.logged || 0)), 0) * 10) / 10;
-    return `<div class="standup-card">
-      <div class="standup-card-head">
-        ${avatarHTML(d, { cls: "designer-avatar" })}
-        <div class="standup-card-info">
-          <div class="designer-name">${esc(d.name)}</div>
-          <div class="standup-card-time">${standupTimeLabel(d)} &middot; ${totalHrs}h planned</div>
-        </div>
-      </div>
-      ${d.note ? `<div class="standup-card-note">&ldquo;${esc(d.note)}&rdquo;</div>` : ""}
-      <div class="standup-card-tasks">${taskRows(d.tasks)}</div>
-    </div>`;
-  };
-
-  const waitingCard = d => `<div class="standup-card waiting">
-    <div class="standup-card-head">
-      ${avatarHTML(d, { cls: "designer-avatar" })}
-      <div class="standup-card-info">
-        <div class="designer-name">${esc(d.name)}</div>
-        <div class="standup-card-time">Hasn&rsquo;t posted yet</div>
-      </div>
-    </div>
-  </div>`;
-
-  root.innerHTML = posted.map(postedCard).join("") + waiting.map(waitingCard).join("");
 }
 
 // ---------------------------------------------------------------------------

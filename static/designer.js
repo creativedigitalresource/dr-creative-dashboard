@@ -1,7 +1,9 @@
 /* ============================================================
    Designer view — one person's week, token-scoped.
    Sees: own capacity, own tasks, own planner, own attention items.
-   Never sees: other designers, delegation queue, analytics.
+   Never sees other designers, the delegation queue, or analytics —
+   UNLESS delegate_enabled (main.py DELEGATE_ENABLED_BC_IDS) grants
+   temporary delegation coverage: To Delegate, Team Capacity, Standups.
    ============================================================ */
 
 const TOKEN = (() => {
@@ -9,16 +11,23 @@ const TOKEN = (() => {
   return m ? m[1] : new URLSearchParams(location.search).get("token");
 })();
 
-// Designer commit hook for the shared inline editors — writes go through
-// the token-scoped endpoint, which validates the todo belongs to this designer
+// Designer commit hook for the shared inline editors. Own todos write
+// through the token-scoped endpoint (server-validates the todo belongs to
+// this designer); a delegate-enabled To Delegate edit is for a todo that
+// isn't hers, so it goes through the same open endpoint the manager
+// dashboard uses instead — the token endpoint would 403 it.
 window.__commitField = async (todoId, field, val) => {
-  fetch(`/api/my/${TOKEN}/todos/${todoId}/fields`, {
+  const own = (_me?.todos || []).find(x => String(x.id) === String(todoId));
+  const endpoint = own ? `/api/my/${TOKEN}/todos/${todoId}/fields` : `/api/todos/${todoId}/fields`;
+  fetch(endpoint, {
     method: "PUT",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify({ [field]: val || null }),
   });
-  const t = (_me?.todos || []).find(x => String(x.id) === String(todoId));
-  if (t) applyFieldLocal(t, field, val);
+  if (own) applyFieldLocal(own, field, val);
+  for (const t of _unassignedData || []) {
+    if (String(t.id) === String(todoId)) applyFieldLocal(t, field, val);
+  }
   renderMe();
 };
 
@@ -61,11 +70,36 @@ async function loadMe() {
   }
   _me = data;
   renderMe();
+  if (_me.delegate_enabled) document.getElementById("my-tab-nav").style.display = "";
   const lu = document.getElementById("last-updated");
   if (lu && _me.last_updated) {
     lu.textContent = "Updated " + new Date(_me.last_updated * 1000)
       .toLocaleTimeString("en-US", { hour: "numeric", minute: "2-digit" });
   }
+}
+
+/* ---- Delegation coverage tabs (delegate_enabled only) — To Delegate and
+   Standups reuse the exact shared.js functions the manager dashboard uses
+   (same #unassigned-list/#standups-root ids); Team Capacity is a
+   read-only capacity snapshot (shared.js buildCapacityCard). ---- */
+function switchMyTab(tab) {
+  document.querySelectorAll("#my-tab-nav .tab-btn").forEach(b => b.classList.toggle("active", b.dataset.mytab === tab));
+  document.getElementById("my-root").style.display = tab === "week" ? "" : "none";
+  ["delegate", "capacity", "standups"].forEach(t =>
+    document.getElementById(`tab-${t}`).classList.toggle("active", tab === t));
+  if (tab === "delegate") loadUnassigned();
+  if (tab === "capacity") loadMyCapacity();
+  if (tab === "standups") loadStandups();
+}
+
+async function loadMyCapacity() {
+  const grid = document.getElementById("my-capacity-grid");
+  const designers = await fetch("/api/designers").then(r => r.json()).catch(() => []);
+  if (!designers.length) {
+    grid.innerHTML = `<div class="loading-card">Fetching from Basecamp — may take up to 60s on first load…</div>`;
+    return;
+  }
+  grid.innerHTML = designers.map(buildCapacityCard).join("");
 }
 
 function myRefresh() {

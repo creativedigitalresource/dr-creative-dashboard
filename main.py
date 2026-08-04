@@ -40,6 +40,11 @@ ME = {"name": "Richard", "bc_id": 49482127, "eh_id": 1415584, "color": "#6366f1"
 # on for the rest of the team.
 LOGGED_SYNC_BC_IDS = {ME["bc_id"], 52471282}  # Richard, Maria C
 
+# Delegation coverage — lets a designer see the To Delegate queue, everyone's
+# capacity, and Standups on their own page while Richard is out. Remove a
+# bc_id here to revoke access at any time.
+DELEGATE_ENABLED_BC_IDS = {46567979}  # Gaby
+
 WEEKLY_CAP = 32.5  # 6.5h/day × 5 days (1.5h/day reserved for misc/admin)
 WORK_HOURS = 6.5
 STALE_HDD_DAYS = 14  # comment-sourced HDDs older than this are abandoned, not late
@@ -687,6 +692,7 @@ async def api_my(token: str):
             "estimate_guide": _compute_estimate_guide(d["bc_id"]),
             "standup": store.get_standup(d["bc_id"], today.isoformat()),
             "qa_enabled": d["bc_id"] in QA_ENABLED_BC_IDS,
+            "delegate_enabled": d["bc_id"] in DELEGATE_ENABLED_BC_IDS,
             "last_updated": _cached_data.get("last_updated")}
 
 

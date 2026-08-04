@@ -25,8 +25,41 @@
         <button id="refresh-btn" class="btn btn-ghost" onclick="myRefresh()">&#8635; Refresh</button>
       </div>
     </header>
+    <nav class="tab-nav" id="my-tab-nav" style="display:none">
+      <button class="tab-btn active" data-mytab="week" onclick="switchMyTab('week')">My Week</button>
+      <button class="tab-btn" data-mytab="delegate" onclick="switchMyTab('delegate')">To Delegate</button>
+      <button class="tab-btn" data-mytab="capacity" onclick="switchMyTab('capacity')">Team Capacity</button>
+      <button class="tab-btn" data-mytab="standups" onclick="switchMyTab('standups')">Standups</button>
+    </nav>
     <div class="my-page" id="my-root">
       <div class="loading-card">Loading your week…</div>
+    </div>
+    <div id="tab-delegate" class="tab-panel">
+      <div class="panel-header">
+        <h2>Tasks to Delegate</h2>
+        <span id="unassigned-count" class="badge"></span>
+      </div>
+      <div id="unassigned-list" class="table-wrap">
+        <div class="loading-cell">Loading…</div>
+      </div>
+    </div>
+    <div id="tab-capacity" class="tab-panel">
+      <div class="panel-header">
+        <h2>Team Capacity</h2>
+        <span class="panel-hint">Who has room this week, and what's already on their plate.</span>
+      </div>
+      <div class="designer-grid" id="my-capacity-grid">
+        <div class="loading-card">Loading…</div>
+      </div>
+    </div>
+    <div id="tab-standups" class="tab-panel">
+      <div class="panel-header">
+        <h2>Today's Standups</h2>
+        <span class="panel-hint">Who's already posted their plan for today.</span>
+      </div>
+      <div id="standups-root" class="standups-grid">
+        <div class="loading-card">Loading standups…</div>
+      </div>
     </div>
   </div>
   <script src="/static/shared.js"></script>
