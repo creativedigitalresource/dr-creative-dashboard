@@ -212,8 +212,11 @@ function renderUnassigned() {
   const th = (label, key) => sortableTh(label, key, _unassignedSort.key ? _unassignedSort : null, "setUnassignedSort");
   const rows = sorted.map(t => {
     const due = t.due_on ? formatDue(t.due_on) : "";
+    const titleHtml = t.url
+      ? `<a href="${t.url}" target="_blank">${esc(t.title)}</a>`
+      : esc(t.title);
     return `<tr>
-      <td><div class="todo-title">${esc(t.title)}</div></td>
+      <td><div class="todo-title">${titleHtml}</div></td>
       <td>${selCategory(t)}</td>
       <td><span class="due-date ${dueCls(t.due_on)}">${due}</span></td>
       <td>${t.url ? `<a href="${t.url}" target="_blank" class="link-btn" title="Open in Basecamp">↗</a>` : ""}</td>

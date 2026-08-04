@@ -231,8 +231,13 @@ body { min-height: 100vh; }
 }
 .data-table tr:last-child td { border-bottom: none; }
 .data-table tr:hover td { background: var(--surface2); }
+.data-table th.sortable { cursor: pointer; user-select: none; transition: color .15s; white-space: nowrap; }
+.data-table th.sortable:hover { color: var(--accent); }
+.data-table th.sortable.active { color: var(--accent); }
 .loading-cell { text-align: center; color: var(--text-muted); padding: 44px; }
 .todo-title { font-weight: 600; color: var(--text); line-height: 1.4; }
+.todo-title a { color: inherit; text-decoration: none; }
+.todo-title a:hover { color: var(--accent); text-decoration: underline; }
 .todolist-name { color: var(--text-muted); font-size: 12px; }
 .due-date { font-size: 12px; font-weight: 600; white-space: nowrap; color: var(--text-muted); }
 .due-date.overdue { color: var(--danger); }
