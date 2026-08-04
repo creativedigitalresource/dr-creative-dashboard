@@ -8,7 +8,7 @@ from fastapi.responses import FileResponse, HTMLResponse, RedirectResponse, Stre
 from fastapi.staticfiles import StaticFiles
 
 import store, basecamp as bc, everhour as eh
-from parsers import CATEGORIES, CATEGORY_TIMELINE
+from parsers import CATEGORIES, CATEGORY_TIMELINE, categorize_todo
 
 _cached_data: dict = {}
 _sse_clients: list[asyncio.Queue] = []
@@ -456,6 +456,11 @@ async def _do_refresh():
     except Exception as e:
         print(f"[refresh] unassigned error: {type(e).__name__}: {e}")
         unassigned = _cached_data.get("unassigned", [])
+
+    for t in unassigned:
+        ov = overrides.get(str(t["id"]), {})
+        t["category"] = ov.get("category") or categorize_todo(t.get("title", ""))
+        t["overrides"] = list(ov.keys())
 
     designers_out = []
     for d in DESIGNERS:
@@ -1129,6 +1134,15 @@ async def set_todo_fields(todo_id: str, request: Request):
             if str(t["id"]) == str(todo_id):
                 cached_todo = t
                 cached_designer = d
+                break
+
+    # Not assigned to anyone yet (To Delegate tab) — only category edits
+    # reach here, but still patch the live cache so it doesn't get
+    # clobbered by the auto-guessed category until the next full refresh.
+    if cached_todo is None:
+        for t in _cached_data.get("unassigned", []):
+            if str(t["id"]) == str(todo_id):
+                cached_todo = t
                 break
 
     return await _apply_todo_fields(todo_id, body, cached_todo, cached_designer)
