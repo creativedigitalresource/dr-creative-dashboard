@@ -184,15 +184,33 @@ async function commitEstimateGoal(category, value, inputEl) {
   }
 }
 
+let _unassignedData = [];
+let _unassignedSort = { key: null, dir: "asc" };
+
+function setUnassignedSort(key) {
+  _unassignedSort = _unassignedSort.key === key
+    ? { key, dir: _unassignedSort.dir === "asc" ? "desc" : "asc" }
+    : { key, dir: "asc" };
+  renderUnassigned();
+}
+
 async function loadUnassigned() {
   const todos = await fetchWithTimeout("/api/unassigned").then(r => r.json()).catch(() => []);
+  _unassignedData = todos;
   document.getElementById("unassigned-count").textContent = todos.length || "";
-  const tbody = document.getElementById("unassigned-tbody");
+  renderUnassigned();
+}
+
+function renderUnassigned() {
+  const root = document.getElementById("unassigned-list");
+  const todos = _unassignedData;
   if (!todos.length) {
-    tbody.innerHTML = `<tr><td colspan="4" class="loading-cell">Fetching from Basecamp — may take up to 60s on first load…</td></tr>`;
+    root.innerHTML = `<div class="loading-cell">Fetching from Basecamp — may take up to 60s on first load…</div>`;
     return;
   }
-  tbody.innerHTML = todos.map(t => {
+  const sorted = sortTodos(todos, _unassignedSort.key, _unassignedSort.dir);
+  const th = (label, key) => sortableTh(label, key, _unassignedSort.key ? _unassignedSort : null, "setUnassignedSort");
+  const rows = sorted.map(t => {
     const due = t.due_on ? formatDue(t.due_on) : "";
     return `<tr>
       <td><div class="todo-title">${esc(t.title)}</div></td>
@@ -201,6 +219,10 @@ async function loadUnassigned() {
       <td>${t.url ? `<a href="${t.url}" target="_blank" class="link-btn" title="Open in Basecamp">↗</a>` : ""}</td>
     </tr>`;
   }).join("");
+  root.innerHTML = `<table class="data-table">
+    <thead><tr>${th("Task", "task")}${th("Category", "category")}${th("Due Date", "date")}<th></th></tr></thead>
+    <tbody>${rows}</tbody>
+  </table>`;
 }
 
 let _designerData = [];
@@ -683,6 +705,9 @@ window.__commitField = async (todoId, field, val) => {
     }
   }
   for (const t of _meData?.todos || []) {
+    if (String(t.id) === String(todoId)) applyFieldLocal(t, field, val);
+  }
+  for (const t of _unassignedData || []) {
     if (String(t.id) === String(todoId)) applyFieldLocal(t, field, val);
   }
   if (field === "category") { renderOverview(); renderMyStuff(); return; }
