@@ -28,7 +28,7 @@
     <nav class="tab-nav" id="my-tab-nav" style="display:none">
       <button class="tab-btn active" data-mytab="week" onclick="switchMyTab('week')">My Week</button>
       <button class="tab-btn" data-mytab="delegate" onclick="switchMyTab('delegate')">To Delegate</button>
-      <button class="tab-btn" data-mytab="capacity" onclick="switchMyTab('capacity')">Team Capacity</button>
+      <button class="tab-btn" data-mytab="pulse" onclick="switchMyTab('pulse')">Team Pulse</button>
       <button class="tab-btn" data-mytab="standups" onclick="switchMyTab('standups')">Standups</button>
     </nav>
     <div class="my-page" id="my-root">
@@ -43,14 +43,22 @@
         <div class="loading-cell">Loading…</div>
       </div>
     </div>
-    <div id="tab-capacity" class="tab-panel">
-      <div class="panel-header">
-        <h2>Team Capacity</h2>
-        <span class="panel-hint">Who has room this week, and what's already on their plate.</span>
+    <div id="tab-pulse" class="tab-panel">
+      <div class="pulse-panel">
+        <div class="overview-panel-head">
+          <div class="ov-head-title">
+            <h2>Team Pulse</h2>
+          </div>
+          <div class="pulse-sort" id="my-pulse-sort">
+            <button class="sort-btn active" data-sort="load" onclick="setPulseSort('load','delegate')">By load</button>
+            <button class="sort-btn" data-sort="free" onclick="setPulseSort('free','delegate')">By availability</button>
+          </div>
+        </div>
+        <div id="my-pulse-rows" class="pulse-rows">
+          <div class="loading-card">Loading team data…</div>
+        </div>
       </div>
-      <div class="designer-grid" id="my-capacity-grid">
-        <div class="loading-card">Loading…</div>
-      </div>
+      <div class="attention-grid" id="my-attention-grid"></div>
     </div>
     <div id="tab-standups" class="tab-panel">
       <div class="panel-header">

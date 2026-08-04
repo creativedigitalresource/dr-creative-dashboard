@@ -875,185 +875,23 @@ function updateCalCapacityBar() {
 
 
 // ---------------------------------------------------------------------------
-// Overview tab — expandable Team Pulse roster + Needs Attention panel
+// Overview tab — expandable Team Pulse roster + Needs Attention panel.
+// setPulseSort/togglePulseRow/_overviewStats/_barCls/renderPulseItem/
+// renderPulseDetail/renderAttention/gotoDesigner live in shared.js — a
+// delegate-enabled designer's own Team Pulse tab reuses the exact same
+// implementation (ctx="delegate" instead of the default "manager").
 // ---------------------------------------------------------------------------
-
-let _pulseSort = "load";
-const _pulseExpanded = new Set();
-
-function setPulseSort(mode) {
-  _pulseSort = mode;
-  document.querySelectorAll("#pulse-sort .sort-btn").forEach(b =>
-    b.classList.toggle("active", b.dataset.sort === mode));
-  renderOverview();
-}
-
-function togglePulseRow(bcId) {
-  const key = String(bcId);
-  if (_pulseExpanded.has(key)) _pulseExpanded.delete(key);
-  else _pulseExpanded.add(key);
-  renderOverview();
-}
-
-function gotoDesigner(bcId) {
-  const sel = document.getElementById("workload-filter");
-  if (sel) sel.value = String(bcId);
-  document.querySelector('.tab-btn[data-tab="designers"]')?.click();
-  onWorkloadFilterChange();
-}
-
-function _overviewStats(d) {
-  // Capacity reflects the toggled week (same _weekOffset as Designer Workload);
-  // Past Due / Needs Attention stay anchored to today regardless of the toggle —
-  // "past due" isn't a meaningful idea for a hypothetical future/past week.
-  const { weekly_est, cap, pct } = calcCapacity(d.todos, d.pto, _weekOffset);
-  const today = localISO(new Date());
-  const active = (d.todos || []).filter(t => !t.is_complete && !t.is_misc);
-  const pastDue = active.filter(t => !t.in_revisions && !t.hdd_stale && t.hdd && t.hdd < today);
-  const free = Math.round((cap - weekly_est) * 10) / 10;
-  return { weekly_est, cap, pct, active, pastDue, free };
-}
-
-function _barCls(pct) { return pct < 60 ? "low" : pct < 85 ? "mid" : "high"; }
 
 function renderOverview() {
   const rowsEl = document.getElementById("pulse-rows");
   const gridEl = document.getElementById("attention-grid");
   if (!rowsEl || !gridEl || !_designerData.length) return;
 
-  const stats = _designerData.map(d => ({ d, s: _overviewStats(d) }));
-  stats.sort((a, b) => _pulseSort === "free" ? b.s.free - a.s.free : b.s.pct - a.s.pct);
+  const stats = _designerData.map(d => ({ d, s: _overviewStats(d, _weekOffset) }));
+  stats.sort((a, b) => _pulseSort.manager === "free" ? b.s.free - a.s.free : b.s.pct - a.s.pct);
 
   rowsEl.innerHTML = stats.map(({ d, s }) => renderPulseItem(d, s)).join("");
   gridEl.innerHTML = renderAttention(stats);
-}
-
-function renderPulseItem(d, s) {
-  const expanded = _pulseExpanded.has(String(d.bc_id));
-  const freeCls = s.free <= 2 ? "low" : s.free <= 8 ? "mid" : "ok";
-  const freeLabel = s.free < 0 ? `${Math.abs(s.free)}h over` : `${s.free}h free`;
-  const overdue = s.pastDue.length
-    ? `<span class="pulse-overdue">${s.pastDue.length} past due</span>`
-    : `<span class="pulse-overdue none">&mdash;</span>`;
-  return `
-  <div class="pulse-item${expanded ? " open" : ""}">
-    <div class="pulse-row" onclick="togglePulseRow('${d.bc_id}')">
-      ${avatarHTML(d)}
-      <div class="pulse-name">${esc(d.name)}</div>
-      <div class="pulse-bar-wrap">
-        <div class="cap-bar-outer"><div class="cap-bar-inner ${_barCls(s.pct)}" style="width:${Math.min(100, s.pct)}%"></div></div>
-        <span class="pulse-pct">${s.pct}%</span>
-      </div>
-      <div class="pulse-tasks">${s.active.length} task${s.active.length === 1 ? "" : "s"}</div>
-      <div class="pulse-overdue-cell">${overdue}</div>
-      <div class="pulse-free ${freeCls}">${freeLabel}</div>
-      <div class="pulse-chevron">&#9662;</div>
-    </div>
-    ${expanded ? renderPulseDetail(d, s) : ""}
-  </div>`;
-}
-
-function renderPulseDetail(d, s) {
-  if (!s.active.length) {
-    return `<div class="pulse-detail"><div class="attention-empty">No active tasks this week.</div></div>`;
-  }
-  return `<div class="pulse-detail">
-    ${buildTaskTable(s.active, d.color)}
-    <button class="btn btn-ghost btn-sm ov-edit-link" onclick="gotoDesigner('${d.bc_id}')">Open day planner &rarr;</button>
-  </div>`;
-}
-
-function renderAttention(stats) {
-  const today = localISO(new Date());
-  const soon = localISO(new Date(Date.now() + 2 * 86400000));
-  const pastDue = [], atRisk = [], decisions = [];
-
-  for (const { d, s } of stats) {
-    let missEst = 0, missHdd = 0;
-    for (const t of s.active) {
-      if (t.in_revisions) { decisions.push({ d, t, kind: "revision" }); continue; }
-      if (t.hdd_stale) { decisions.push({ d, t, kind: "stale" }); continue; }
-      if (t.est == null) missEst++;
-      if (!t.has_hdd) missHdd++;
-      if (t.hdd && t.hdd < today) {
-        const days = Math.round((new Date(today) - new Date(t.hdd)) / 86400000);
-        pastDue.push({ d, t, days });
-      } else if (t.hdd && t.hdd <= soon && (t.progress || 0) < 50) {
-        atRisk.push({ d, t });
-      }
-      // Orthogonal to lateness: an active task logged past its EST is invisible to capacity
-      const stepDone = t.designer_step && t.designer_step.completed;
-      if (!stepDone && t.true_est == null && t.est > 0 && (t.logged || 0) >= t.est) {
-        decisions.push({ d, t, kind: "trueest" });
-      }
-    }
-    if (missEst || missHdd) decisions.push({ d, kind: "missing", missEst, missHdd });
-  }
-
-  pastDue.sort((a, b) => b.days - a.days);
-  atRisk.sort((a, b) => a.t.hdd.localeCompare(b.t.hdd));
-
-  const mini = d => avatarHTML(d, { mini: true, title: d.name });
-  const taskRow = (d, t, right) => {
-    const inner = `${mini(d)}
-      <div class="attn-text">
-        <div class="attn-client">${esc(cleanClient(t.bucket_name)) || "&nbsp;"}</div>
-        <div class="attn-title">${esc(truncate(t.title, 52))}</div>
-      </div>
-      <div class="attn-right">${right}</div>`;
-    return t.url
-      ? `<a class="attn-row" href="${t.url}" target="_blank">${inner}</a>`
-      : `<div class="attn-row">${inner}</div>`;
-  };
-
-  const capList = (rows, cap = 8) => {
-    const shown = rows.slice(0, cap).join("");
-    const more = rows.length > cap ? `<div class="attn-more">+${rows.length - cap} more</div>` : "";
-    return shown + more;
-  };
-
-  const pastDueRows = pastDue.map(({ d, t, days }) =>
-    taskRow(d, t, `<span class="ov-pill late">${fmtDate(t.hdd)}</span><span class="attn-days">${days}d late</span>`));
-  const atRiskRows = atRisk.map(({ d, t }) =>
-    taskRow(d, t, `<span class="ov-pill soon">${fmtDate(t.hdd)}</span><span class="attn-days amber">${t.progress || 0}%</span>`));
-  const decisionRows = decisions.map(item => {
-    if (item.kind === "revision") {
-      const t = item.t;
-      let waiting = "";
-      if (t.revisions_since) {
-        const days = Math.max(0, Math.floor((Date.now() - new Date(t.revisions_since)) / 86400000));
-        waiting = ` ${days}d`;
-      }
-      return taskRow(item.d, t, `<span class="ov-pill revision">&#8617; waiting${waiting}</span>`);
-    }
-    if (item.kind === "stale") {
-      return taskRow(item.d, item.t, `<span class="ov-pill needed">stale HDD ${fmtDate(item.t.hdd)} · re-set?</span>`);
-    }
-    if (item.kind === "trueest") {
-      return taskRow(item.d, item.t, `<span class="ov-pill needed">+${item.t.over_by}h · True EST?</span>`);
-    }
-    const parts = [];
-    if (item.missEst) parts.push(`${item.missEst} missing EST`);
-    if (item.missHdd) parts.push(`${item.missHdd} missing HDD`);
-    return `<div class="attn-row clickable" onclick="gotoDesigner('${item.d.bc_id}')">
-      ${mini(item.d)}
-      <div class="attn-text">
-        <div class="attn-client">${esc(item.d.name)}</div>
-        <div class="attn-title">${parts.join(" · ")}</div>
-      </div>
-      <div class="attn-right"><span class="attn-days amber">fix &rarr;</span></div>
-    </div>`;
-  });
-
-  const panel = (label, rows, empty) => `
-    <div class="attention-panel">
-      <div class="attention-head">${label}${rows.length ? ` <span class="attention-count">${rows.length}</span>` : ""}</div>
-      ${rows.length ? capList(rows) : `<div class="attention-empty">${empty}</div>`}
-    </div>`;
-
-  return panel("Past Due", pastDueRows, "Nothing past due.")
-       + panel("At Risk", atRiskRows, "Nothing at risk in the next two days.")
-       + panel("Needs a Decision", decisionRows, "No pending decisions.");
 }
 
 // ---------------------------------------------------------------------------

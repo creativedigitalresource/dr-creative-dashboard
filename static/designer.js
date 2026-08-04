@@ -3,7 +3,7 @@
    Sees: own capacity, own tasks, own planner, own attention items.
    Never sees other designers, the delegation queue, or analytics —
    UNLESS delegate_enabled (main.py DELEGATE_ENABLED_BC_IDS) grants
-   temporary delegation coverage: To Delegate, Team Capacity, Standups.
+   temporary delegation coverage: To Delegate, Team Pulse, Standups.
    ============================================================ */
 
 const TOKEN = (() => {
@@ -80,26 +80,36 @@ async function loadMe() {
 
 /* ---- Delegation coverage tabs (delegate_enabled only) — To Delegate and
    Standups reuse the exact shared.js functions the manager dashboard uses
-   (same #unassigned-list/#standups-root ids); Team Capacity is a
-   read-only capacity snapshot (shared.js buildCapacityCard). ---- */
+   (same #unassigned-list/#standups-root ids); Team Pulse reuses the same
+   roster+attention renderer as the manager's Overview tab, scoped with
+   ctx="delegate" so its sort/expand state never collides with the
+   manager's own "manager"-ctx state (see shared.js). ---- */
 function switchMyTab(tab) {
   document.querySelectorAll("#my-tab-nav .tab-btn").forEach(b => b.classList.toggle("active", b.dataset.mytab === tab));
   document.getElementById("my-root").style.display = tab === "week" ? "" : "none";
-  ["delegate", "capacity", "standups"].forEach(t =>
+  ["delegate", "pulse", "standups"].forEach(t =>
     document.getElementById(`tab-${t}`).classList.toggle("active", tab === t));
   if (tab === "delegate") loadUnassigned();
-  if (tab === "capacity") loadMyCapacity();
+  if (tab === "pulse") loadMyPulse();
   if (tab === "standups") loadStandups();
 }
 
-async function loadMyCapacity() {
-  const grid = document.getElementById("my-capacity-grid");
+let _pulseDesignerData = [];
+
+async function loadMyPulse() {
   const designers = await fetch("/api/designers").then(r => r.json()).catch(() => []);
-  if (!designers.length) {
-    grid.innerHTML = `<div class="loading-card">Fetching from Basecamp — may take up to 60s on first load…</div>`;
-    return;
-  }
-  grid.innerHTML = designers.map(buildCapacityCard).join("");
+  _pulseDesignerData = designers;
+  renderMyPulse();
+}
+
+function renderMyPulse() {
+  const rowsEl = document.getElementById("my-pulse-rows");
+  const gridEl = document.getElementById("my-attention-grid");
+  if (!rowsEl || !gridEl || !_pulseDesignerData.length) return;
+  const stats = _pulseDesignerData.map(d => ({ d, s: _overviewStats(d, 0) }));
+  stats.sort((a, b) => _pulseSort.delegate === "free" ? b.s.free - a.s.free : b.s.pct - a.s.pct);
+  rowsEl.innerHTML = stats.map(({ d, s }) => renderPulseItem(d, s, "delegate")).join("");
+  gridEl.innerHTML = renderAttention(stats);
 }
 
 function myRefresh() {
