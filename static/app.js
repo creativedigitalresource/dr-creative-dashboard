@@ -908,7 +908,7 @@ async function loadMyStuff() {
   renderMyStuff();
 }
 
-let _myStuffSort = { key: null, dir: "asc" };
+let _myStuffSort = { key: "hdd", dir: "asc" };
 function setMyStuffSort(key) {
   _myStuffSort = _myStuffSort.key === key
     ? { key, dir: _myStuffSort.dir === "asc" ? "desc" : "asc" }

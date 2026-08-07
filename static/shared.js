@@ -805,7 +805,7 @@ function renderPulseItem(d, s, ctx = "manager") {
 // tab and a delegate-enabled designer's Team Pulse tab never collide.
 // sortableTh's onclick only ever passes one literal arg, so ctx can't be
 // threaded through a single function call — hence the two thin wrappers.
-const _pulseDetailSort = { manager: { key: null, dir: "asc" }, delegate: { key: null, dir: "asc" } };
+const _pulseDetailSort = { manager: { key: "hdd", dir: "asc" }, delegate: { key: "hdd", dir: "asc" } };
 
 function _setPulseDetailSort(key, ctx) {
   const cur = _pulseDetailSort[ctx];

@@ -46,7 +46,7 @@ window.__commitSpotlight = async (todoId, on) => {
 
 let _me = null;
 let _dragId = null;
-let _mySort = { key: null, dir: "asc" };
+let _mySort = { key: "hdd", dir: "asc" };
 function setMySort(key) {
   _mySort = _mySort.key === key
     ? { key, dir: _mySort.dir === "asc" ? "desc" : "asc" }
