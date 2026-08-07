@@ -423,6 +423,11 @@ async def _fetch_person(d: dict, overrides: dict, week_end: str) -> dict:
         has_hdd = bool(step_due or ov.get("hdd"))
         # Category: manual override > auto-detected
         category = ov.get("category") or t.get("category", "Misc.")
+        # Reply Needed: manual-only flag for a to-do that's really a pending
+        # reply/clarification, not new production work (e.g. an AM comment
+        # asking a designer a question rather than requesting a deliverable).
+        # Stays visible everywhere but its hours don't count toward capacity.
+        reply_needed = bool(ov.get("reply_needed"))
 
         enriched.append({
             **t,
@@ -433,6 +438,7 @@ async def _fetch_person(d: dict, overrides: dict, week_end: str) -> dict:
             "over_by": over_by,
             "has_hdd": has_hdd,
             "category": category,
+            "reply_needed": reply_needed,
             "is_misc": t.get("is_misc", False),
             "is_complete": t.get("is_complete", False),
             "overrides": list(ov.keys()),
@@ -446,7 +452,8 @@ async def _fetch_person(d: dict, overrides: dict, week_end: str) -> dict:
         if t.get("hdd") and t["hdd"] <= week_end
         and not t.get("is_complete")
         and not t.get("is_misc")
-        and not t.get("in_revisions"))
+        and not t.get("in_revisions")
+        and not t.get("reply_needed"))
     capacity_pct = min(100, round(weekly_est / WEEKLY_CAP * 100))
     return {**d, "todos": enriched,
             "weekly_est": round(weekly_est, 1),
@@ -647,6 +654,7 @@ def _public_todos(d: dict) -> list:
             "logged": t.get("logged", 0), "over_by": t.get("over_by", 0),
             "total_hours": t.get("total_hours", 0),
             "progress": t.get("progress", 0), "category": t.get("category"),
+            "reply_needed": t.get("reply_needed", False),
             "overrides": t.get("overrides", []),
             "in_revisions": t.get("in_revisions", False),
             "revisions_since": t.get("revisions_since"),
@@ -847,7 +855,7 @@ async def api_at_risk():
     candidates = []
     for d in _cached_data.get("designers", []):
         for t in d.get("todos", []):
-            if t.get("is_complete") or t.get("is_misc"):
+            if t.get("is_complete") or t.get("is_misc") or t.get("reply_needed"):
                 continue
             if t.get("in_revisions") or t.get("hdd_stale"):
                 continue
@@ -1216,7 +1224,7 @@ async def set_todo_spotlight(todo_id: str, request: Request):
 
 async def _apply_todo_fields(todo_id: str, body: dict, cached_todo, cached_designer):
     """Shared field-update core used by the manager and designer endpoints."""
-    allowed = {"hdd", "est", "true_est", "due_on", "logged", "category"}
+    allowed = {"hdd", "est", "true_est", "due_on", "logged", "category", "reply_needed"}
 
     for field, value in body.items():
         if field not in allowed:

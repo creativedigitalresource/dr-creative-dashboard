@@ -75,6 +75,7 @@ function calcCapacity(todos, pto, offset = 0) {
 
   for (const t of sorted) {
     if (t.in_revisions) continue; // unscheduled revisions: no deadline decided yet, 0 capacity
+    if (t.reply_needed) continue; // pending reply, not production — doesn't count toward capacity
     if (!t.total_hours) continue;
     const remaining = Math.max(0, t.total_hours - (t.logged || 0));
     if (remaining <= 0) continue;
@@ -224,6 +225,7 @@ function applyFieldLocal(t, field, val) {
   if (field === "true_est") t.true_est = val ? parseFloat(val) : null;
   if (field === "logged")   t.logged = val ? parseFloat(val) : 0;
   if (field === "category") t.category = val;
+  if (field === "reply_needed") t.reply_needed = !!val;
   if (field === "due_on")   t.due_on = val || null;
   if (field === "hdd") {
     t.hdd = val || null;
@@ -348,6 +350,24 @@ function pillHdd(t) {
   return `<span class="meta-pill ${cls} editable" onclick="editField(event,'${t.id}','hdd','date','${t.hdd || ""}')" title="Click to edit — updates Basecamp step due date">${t.hdd ? "HDD " + fmtDate(t.hdd) : "+ HDD"}</span>`;
 }
 
+// Reply Needed: a manual-only flag for a to-do that's really a pending
+// reply/clarification (an AM comment asking a question, not requesting a
+// deliverable) rather than new production work. Stays visible everywhere
+// — this is a toggle, not an edit — but its hours drop out of capacity
+// math (calcCapacity) once set. Always rendered so there's a way to turn
+// it ON in the first place, not just show it once already flagged.
+function replyBadgeHTML(t) {
+  const on = !!t.reply_needed;
+  const title = on
+    ? "Marked as Reply Needed — excluded from capacity. Click to unmark."
+    : "Mark as Reply Needed — flags this as a pending reply/question, not production work, and excludes it from capacity";
+  return `<button class="reply-toggle${on ? " on" : ""}" onclick="event.stopPropagation();toggleReplyNeeded('${t.id}', ${!on})" title="${title}">↩${on ? " Reply Needed" : ""}</button>`;
+}
+
+function toggleReplyNeeded(todoId, on) {
+  window.__commitField(todoId, "reply_needed", on ? "1" : "");
+}
+
 function estimateGuideLink(category) {
   if (!category || ESTIMATE_GUIDE_EXCLUDE.has(category)) return "";
   return `<button class="eg-link" onclick="event.stopPropagation();openEstimateGuidePanel('${esc(category)}')" title="See the estimate guide for ${esc(category)}">guide</button>`;
@@ -413,6 +433,21 @@ function progressCellCompact(t, color) {
   return `<div class="ov-prog"><div class="ov-prog-track"><div class="ov-prog-fill" style="width:${barPct}%;background:${color}"></div></div><span class="ov-muted">${logged}h / ${allocTotal}h</span>${overTxt}</div>`;
 }
 
+// Groups an HDD into the same three buckets Basecamp's own "My Tasks"
+// report uses (Due This Week / Due Next Week / Due Later) — only
+// meaningful when the table is actually sorted by HDD; a different sort
+// would put same-week tasks in scattered positions and the dividers
+// would be misleading, so buildTaskTable only calls this when sort.key
+// === "hdd".
+function _hddWeekLabel(hdd) {
+  if (!hdd) return "No HDD";
+  const nextMon = getWeekBounds(1).start;
+  const afterMon = getWeekBounds(2).start;
+  if (hdd < nextMon) return "Due This Week";
+  if (hdd < afterMon) return "Due Next Week";
+  return "Due Later";
+}
+
 /* ---- Editable task table — the Overview expanded row and the designer
    page render exactly this ---- */
 function buildTaskTable(todos, color, opts = {}) {
@@ -422,18 +457,29 @@ function buildTaskTable(todos, color, opts = {}) {
   const sort = opts.sort || null;
   const sortFn = opts.sortFn || "";
   const th = (label, key, tooltip) => sortableTh(label, key, sort, sortFn, tooltip);
-  const rows = todos.map(t => {
+  const groupByHdd = sort && sort.key === "hdd";
+  const colCount = showSpotlight ? 10 : 9;
+  let lastGroup = null;
+  const rowsArr = [];
+  todos.forEach(t => {
+    if (groupByHdd) {
+      const grp = _hddWeekLabel(t.hdd);
+      if (grp !== lastGroup) {
+        rowsArr.push(`<tr class="ov-week-divider"><td colspan="${colCount}">${grp}</td></tr>`);
+        lastGroup = grp;
+      }
+    }
     let revNote = "";
     if (t.in_revisions && t.revisions_since) {
       const days = Math.max(0, Math.floor((Date.now() - new Date(t.revisions_since)) / 86400000));
       revNote = `<div class="ov-revnote">&#8617; back for revisions · waiting ${days}d</div>`;
     }
-    return `<tr class="ov-task-row">
+    rowsArr.push(`<tr class="ov-task-row">
       ${showSpotlight ? `<td>${spotlightStarHTML(t, atCap)}</td>` : ""}
       <td class="ov-client">${esc(cleanClient(t.bucket_name)) || "&mdash;"}</td>
       <td class="ov-title" title="${esc(t.title)}">${t.url
         ? `<a href="${t.url}" target="_blank" onclick="event.stopPropagation()">${esc(truncate(t.title, 52))}</a>`
-        : esc(truncate(t.title, 52))}${revNote}</td>
+        : esc(truncate(t.title, 52))} ${replyBadgeHTML(t)}${revNote}</td>
       <td>${pillDate(t)}</td>
       <td>${pillHdd(t)}</td>
       <td>${pillEst(t)}</td>
@@ -442,8 +488,9 @@ function buildTaskTable(todos, color, opts = {}) {
       <td>${selCategory(t)}</td>
       <td>${progressCellCompact(t, color)}</td>
       <td>${t.url ? `<a href="${t.url}" target="_blank" class="link-btn" title="Open in Basecamp" onclick="event.stopPropagation()">&#8599;</a>` : ""}</td>
-    </tr>`;
-  }).join("");
+    </tr>`);
+  });
+  const rows = rowsArr.join("");
   return `<table class="ov-table">
     <thead><tr>${showSpotlight ? "<th></th>" : ""}${th("Client", "client")}${th("Task", "task")}${th("Date", "date")}${th("HDD", "hdd")}${th("EST", "est")}${th("True", "true_est")}${th("Logged", "logged")}${th("Category", "category")}${th("Progress", "progress")}<th></th></tr></thead>
     <tbody>${rows}</tbody>
@@ -485,7 +532,7 @@ function renderTodoItem(t, color, isCompleted = false, pulledForward = false, sp
   <li class="todo-item${isCompleted ? " todo-done" : ""}${pulledForward ? " pulled-forward" : ""}" id="todo-${t.id}">
     <div class="todo-item-left">
       ${clientLabel}
-      <div class="todo-item-title" title="${esc(t.title)}">${isCompleted ? `<s>${esc(truncate(t.title, 60))}</s>` : esc(truncate(t.title, 60))}</div>
+      <div class="todo-item-title" title="${esc(t.title)}">${isCompleted ? `<s>${esc(truncate(t.title, 60))}</s>` : esc(truncate(t.title, 60))} ${replyBadgeHTML(t)}</div>
       <div class="todo-meta">${dateStr}${hddStr}${estStr}${trueEstStr}</div>
       <div class="todo-category">${catStr}${pulledBadge}${revisionBadge}</div>
       ${progressHtml}
