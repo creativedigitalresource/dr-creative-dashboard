@@ -449,7 +449,7 @@ function buildTaskTable(todos, color, opts = {}) {
     </tr>`;
   }).join("");
   return `<table class="ov-table">
-    <thead><tr>${showSpotlight ? "<th></th>" : ""}${th("Client", "client")}${th("Task", "task")}${th("Date", "date")}${th("HDD", "hdd")}${th("EST", "est")}${th("True", "true_est")}${th("Logged", "logged", "Type a duration like 1h, 30m, or 1h30m — a bare number defaults to hours")}${th("Category", "category")}${th("Progress", "progress")}<th></th></tr></thead>
+    <thead><tr>${showSpotlight ? "<th></th>" : ""}${th("Client", "client")}${th("Task", "task")}${th("Date", "date")}${th("HDD", "hdd")}${th("EST", "est")}${th("True", "true_est")}${th("Logged", "logged")}${th("Category", "category")}${th("Progress", "progress")}<th></th></tr></thead>
     <tbody>${rows}</tbody>
   </table>`;
 }
@@ -752,16 +752,35 @@ function renderPulseItem(d, s, ctx = "manager") {
       <div class="pulse-free ${freeCls}">${freeLabel}</div>
       <div class="pulse-chevron">&#9662;</div>
     </div>
-    ${expanded ? renderPulseDetail(d, s) : ""}
+    ${expanded ? renderPulseDetail(d, s, ctx) : ""}
   </div>`;
 }
 
-function renderPulseDetail(d, s) {
+// Sort state for the expanded per-designer task table inside Team Pulse —
+// one shared sort applied to every open row (same idea as _pulseSort's
+// by-load/by-availability toggle), kept per ctx so the manager Overview
+// tab and a delegate-enabled designer's Team Pulse tab never collide.
+// sortableTh's onclick only ever passes one literal arg, so ctx can't be
+// threaded through a single function call — hence the two thin wrappers.
+const _pulseDetailSort = { manager: { key: null, dir: "asc" }, delegate: { key: null, dir: "asc" } };
+
+function _setPulseDetailSort(key, ctx) {
+  const cur = _pulseDetailSort[ctx];
+  _pulseDetailSort[ctx] = cur.key === key ? { key, dir: cur.dir === "asc" ? "desc" : "asc" } : { key, dir: "asc" };
+  if (ctx === "manager") renderOverview(); else renderMyPulse();
+}
+function setPulseDetailSort(key) { _setPulseDetailSort(key, "manager"); }
+function setDelegatePulseDetailSort(key) { _setPulseDetailSort(key, "delegate"); }
+
+function renderPulseDetail(d, s, ctx = "manager") {
   if (!s.active.length) {
     return `<div class="pulse-detail"><div class="attention-empty">No active tasks this week.</div></div>`;
   }
+  const sort = _pulseDetailSort[ctx];
+  const sorted = sortTodos(s.active, sort.key, sort.dir);
+  const sortFn = ctx === "manager" ? "setPulseDetailSort" : "setDelegatePulseDetailSort";
   return `<div class="pulse-detail">
-    ${buildTaskTable(s.active, d.color)}
+    ${buildTaskTable(sorted, d.color, { sort: sort.key ? sort : null, sortFn })}
     <button class="btn btn-ghost btn-sm ov-edit-link" onclick="gotoDesigner('${d.bc_id}')">Open day planner &rarr;</button>
   </div>`;
 }
