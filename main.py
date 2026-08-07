@@ -357,10 +357,18 @@ async def _fetch_person(d: dict, overrides: dict, week_end: str) -> dict:
         # Priority: step due_on → manual override → comment/title HDD → todo due_on
         hdd    = step_due or ov.get("hdd") or t.get("hdd")
         hdd_src = "step" if step_due else ("override" if ov.get("hdd") else t.get("hdd_source"))
-        # A comment deadline weeks in the past is abandoned, not late —
-        # surface it as a decision to re-set, never as days-late pressure
+        # A comment deadline weeks in the past is abandoned, not late.
+        # Worse, it's often not a real per-task deadline at all — a comment
+        # mentioning a date is frequently a shared broadcast action item
+        # (e.g. "everyone join this call on X") tagging several people, not
+        # a personal HDD for this specific task. Showing it as if it were
+        # a real (if overdue) HDD is actively misleading, so once it's
+        # stale, treat it exactly like no HDD ever existed rather than a
+        # fixable date — the designer sees "HDD needed," not an old date.
         stale_cutoff = (date.today() - timedelta(days=STALE_HDD_DAYS)).isoformat()
         hdd_stale = bool(hdd) and hdd_src == "comment" and hdd < stale_cutoff
+        if hdd_stale:
+            hdd = None
         pdd    = ov.get("pdd")   or t.get("pdd")
         # EST priority: manual override > Everhour estimate > comment/title-parsed
         # When Everhour's estimate is per-user, that breakdown is authoritative:
@@ -409,7 +417,9 @@ async def _fetch_person(d: dict, overrides: dict, week_end: str) -> dict:
         else:
             progress = min(100, round((logged / total * 100) if total > 0 else 0))
 
-        # has_hdd: True only when HDD comes from a real source (step, override, comment)
+        # has_hdd: True only when HDD comes from a real, task-specific source
+        # (step due date or a manual override) — never a comment-parsed
+        # guess, which is too unreliable to treat as a confirmed deadline
         has_hdd = bool(step_due or ov.get("hdd"))
         # Category: manual override > auto-detected
         category = ov.get("category") or t.get("category", "Misc.")
@@ -427,15 +437,16 @@ async def _fetch_person(d: dict, overrides: dict, week_end: str) -> dict:
             "is_complete": t.get("is_complete", False),
             "overrides": list(ov.keys()),
         })
-    # Weekly est: sum tasks due within this week
+    # Weekly est: sum tasks due within this week. A stale comment-parsed HDD
+    # is already nulled out above, so it's naturally excluded here too —
+    # no separate hdd_stale check needed.
     weekly_est = sum(
         max(0, t.get("total_hours", 0) - t.get("logged", 0))
         for t in enriched
         if t.get("hdd") and t["hdd"] <= week_end
         and not t.get("is_complete")
         and not t.get("is_misc")
-        and not t.get("in_revisions")
-        and not t.get("hdd_stale"))
+        and not t.get("in_revisions"))
     capacity_pct = min(100, round(weekly_est / WEEKLY_CAP * 100))
     return {**d, "todos": enriched,
             "weekly_est": round(weekly_est, 1),

@@ -332,7 +332,6 @@ body { min-height: 100vh; }
 }
 .meta-pill.date-pill { color: var(--text-muted); background: var(--surface2); border-color: var(--border); font-weight: 700; }
 .meta-pill.hdd { color: var(--dr-orange); background: var(--accent-light); border-color: #fbd0a0; }
-.meta-pill.hdd.stale { color: #b45309; background: var(--warning-light); border-color: #fcd34d; border-style: dashed; }
 .meta-pill.pdd { color: var(--dr-blue); background: #eaf7fc; border-color: #a9dff2; }
 .meta-pill.est { color: #7c3aed; background: #f5f3ff; border-color: #ddd6fe; }
 /* Navy-on-lime per brand contrast rule — raw lime text reads poorly at pill size */

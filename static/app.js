@@ -961,7 +961,6 @@ function renderMyStuffAttention(active) {
 
   for (const t of active) {
     if (t.in_revisions) { decisions.push({ t, kind: "revision" }); continue; }
-    if (t.hdd_stale) { decisions.push({ t, kind: "stale" }); continue; }
     if (t.hdd && t.hdd < today) {
       const days = Math.round((new Date(today) - new Date(t.hdd)) / 86400000);
       pastDue.push({ t, days });
@@ -1009,7 +1008,6 @@ function renderMyStuffAttention(active) {
       }
       return row(t, `<span class="ov-pill revision">&#8617; waiting${waiting}</span>`);
     }
-    if (item.kind === "stale") return row(t, `<span class="ov-pill needed">stale HDD ${fmtDate(t.hdd)} · re-set?</span>`);
     if (item.kind === "trueest") return row(t, `<span class="ov-pill needed">+${t.over_by}h · True EST?</span>`);
     return row(t, `<span class="ov-pill needed">needs ${item.what}</span>`);
   });
