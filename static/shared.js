@@ -824,7 +824,6 @@ function renderPulseDetail(d, s, ctx = "manager") {
   const sortFn = ctx === "manager" ? "setPulseDetailSort" : "setDelegatePulseDetailSort";
   return `<div class="pulse-detail">
     ${buildTaskTable(sorted, d.color, { sort: sort.key ? sort : null, sortFn })}
-    <button class="btn btn-ghost btn-sm ov-edit-link" onclick="gotoDesigner('${d.bc_id}')">Open day planner &rarr;</button>
   </div>`;
 }
 
