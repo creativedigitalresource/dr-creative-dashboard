@@ -1002,12 +1002,12 @@ function renderMyStuffAttention(active) {
     } else if (t.hdd && t.hdd <= soon && (t.progress || 0) < 50) {
       atRisk.push({ t });
     }
-    const stepDone = t.designer_step && t.designer_step.completed;
-    if (!stepDone && t.true_est == null && t.est > 0 && (t.logged || 0) >= t.est) {
-      decisions.push({ t, kind: "trueest" });
-    }
-    if (t.est == null) decisions.push({ t, kind: "missing", what: "EST" });
-    else if (!t.has_hdd && !t.in_revisions) decisions.push({ t, kind: "missing", what: "HDD" });
+    // Richard's own Needs a Decision drops EST entirely (2026-08-19) — his
+    // personal/admin todos rarely carry an EST and it's not a signal he
+    // wants surfaced here. This function only ever renders My Stuff, so
+    // no gating needed; designers' EST prompts live in a separate render
+    // path untouched by this.
+    if (!t.has_hdd && !t.in_revisions) decisions.push({ t, kind: "missing", what: "HDD" });
   }
   pastDue.sort((a, b) => b.days - a.days);
   atRisk.sort((a, b) => a.t.hdd.localeCompare(b.t.hdd));
@@ -1043,7 +1043,6 @@ function renderMyStuffAttention(active) {
       }
       return row(t, `<span class="ov-pill revision">&#8617; waiting${waiting}</span>`);
     }
-    if (item.kind === "trueest") return row(t, `<span class="ov-pill needed">+${t.over_by}h · True EST?</span>`);
     return row(t, `<span class="ov-pill needed">needs ${item.what}</span>`);
   });
 
