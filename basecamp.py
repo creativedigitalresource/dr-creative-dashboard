@@ -366,6 +366,18 @@ async def get_designer_todos(designer_bc_id: int) -> list:
         is_subtask = t.get("parent", {}).get("type") == "Todo"
         fields = parse_todo_fields(t["content"], comments)
 
+        # Raw comment authorship, oldest-to-newest — additive, used only by
+        # My Stuff's "who's this from" resolution (main.py's _resolve_sender).
+        # Designers' pipeline runs through this same function but never
+        # reads these keys, so nothing here changes their behavior.
+        comment_authors = [
+            {"id": (c.get("creator") or {}).get("id"),
+             "name": (c.get("creator") or {}).get("name"),
+             "at": c.get("created_at")}
+            for c in comments
+        ]
+        creator = t.get("creator") or {}
+
         # Find the active step assigned to this designer — its due_on is the HDD
         steps = t.get("steps", [])
         designer_steps = [s for s in steps
@@ -415,6 +427,9 @@ async def get_designer_todos(designer_bc_id: int) -> list:
             "is_misc": False,
             "is_complete": False,
             "category": categorize_todo(t["content"]),
+            "comment_authors": comment_authors,
+            "creator_id": creator.get("id"),
+            "creator_name": creator.get("name"),
             **fields,
         })
     return results

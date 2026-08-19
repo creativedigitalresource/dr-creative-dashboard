@@ -448,17 +448,35 @@ function _hddWeekLabel(hdd) {
   return "Due Later";
 }
 
+// "From" cell for My Stuff's priority-grouped table only (opts.showSender):
+// who the task is really from (server-resolved, see main.py's
+// _resolve_sender) plus an inline overdue badge — Richard's call was to
+// put sender + overdue status on the row itself rather than a separate
+// panel. Not used on designer pages/Team Pulse — sender_name is only ever
+// populated for Richard's own todos, so this cell would just be empty
+// dashes there.
+function fromCellHTML(t) {
+  if (!t.sender_name) return `<span class="ov-muted">&mdash;</span>`;
+  let overdueBadge = "";
+  if (t.hdd && t.hdd < localISO(new Date())) {
+    const days = Math.max(1, Math.round((new Date(localISO(new Date())) - new Date(t.hdd)) / 86400000));
+    overdueBadge = ` <span class="ov-pill late" title="${days} day${days === 1 ? "" : "s"} past HDD">${days}d late</span>`;
+  }
+  return `<span class="sender-name">${esc(t.sender_name)}</span>${overdueBadge}`;
+}
+
 /* ---- Editable task table — the Overview expanded row and the designer
    page render exactly this ---- */
 function buildTaskTable(todos, color, opts = {}) {
   if (!todos.length) return `<div class="attention-empty">No active tasks this week.</div>`;
   const showSpotlight = !!opts.spotlight;
+  const showSender = !!opts.showSender;
   const atCap = opts.spotlight && opts.spotlight.atCap;
   const sort = opts.sort || null;
   const sortFn = opts.sortFn || "";
   const th = (label, key, tooltip) => sortableTh(label, key, sort, sortFn, tooltip);
   const groupByHdd = sort && sort.key === "hdd";
-  const colCount = showSpotlight ? 10 : 9;
+  const colCount = (showSpotlight ? 10 : 9) + (showSender ? 1 : 0);
   let lastGroup = null;
   const rowsArr = [];
   todos.forEach(t => {
@@ -476,6 +494,7 @@ function buildTaskTable(todos, color, opts = {}) {
     }
     rowsArr.push(`<tr class="ov-task-row">
       ${showSpotlight ? `<td>${spotlightStarHTML(t, atCap)}</td>` : ""}
+      ${showSender ? `<td class="ov-sender">${fromCellHTML(t)}</td>` : ""}
       <td class="ov-client">${esc(cleanClient(t.bucket_name)) || "&mdash;"}</td>
       <td class="ov-title" title="${esc(t.title)}">${t.url
         ? `<a href="${t.url}" target="_blank" onclick="event.stopPropagation()">${esc(truncate(t.title, 52))}</a>`
@@ -492,7 +511,7 @@ function buildTaskTable(todos, color, opts = {}) {
   });
   const rows = rowsArr.join("");
   return `<table class="ov-table">
-    <thead><tr>${showSpotlight ? "<th></th>" : ""}${th("Client", "client")}${th("Task", "task")}${th("Date", "date")}${th("HDD", "hdd")}${th("EST", "est")}${th("True", "true_est")}${th("Logged", "logged")}${th("Category", "category")}${th("Progress", "progress")}<th></th></tr></thead>
+    <thead><tr>${showSpotlight ? "<th></th>" : ""}${showSender ? "<th>From</th>" : ""}${th("Client", "client")}${th("Task", "task")}${th("Date", "date")}${th("HDD", "hdd")}${th("EST", "est")}${th("True", "true_est")}${th("Logged", "logged")}${th("Category", "category")}${th("Progress", "progress")}<th></th></tr></thead>
     <tbody>${rows}</tbody>
   </table>`;
 }

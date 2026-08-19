@@ -45,6 +45,89 @@ LOGGED_SYNC_BC_IDS = {ME["bc_id"], 52471282}  # Richard, Maria C
 # bc_id here to revoke access at any time.
 DELEGATE_ENABLED_BC_IDS = {46567979}  # Gaby
 
+# My Stuff priority roster (2026-08-19, Richard-confirmed) — who a todo is
+# "from" groups it for display. Keyed by Basecamp person id, not name
+# strings: two different people can have near-identical names (e.g. the
+# CMO named "Genesis Suarez" vs "COMGenesis Suarez," the Client Operations
+# Manager who actually shows up in Richard's threads — the roster points at
+# the latter's id), and matching on id sidesteps that ambiguity entirely.
+# Tier 3 has two labeled sub-groups (Managers/HR and Sales) at equal
+# priority, shown as separate sections in the UI. Only ever consulted for
+# Richard's own todos (see is_me in _fetch_person) — never touches a
+# designer's data.
+PRIORITY_TIERS = [
+    (1, "Shay Berman", {44588291}),
+    (2, "Nate Mendenhall", {44609658}),
+    (3, "Managers / HR", {
+        44415656,  # Melanie Greene
+        44609659,  # LeTrice Baugh
+        42789152,  # Indiana Montero
+        44800237,  # COMGenesis Suarez (Client Operations Manager)
+        44609678,  # Candace Antezana
+        43893941,  # Jose Diaz
+        44800194,  # Julieta Lauria
+        44609710,  # Mike Demyan
+        44609671,  # Nicole Marasco
+    }),
+    (3, "Sales", {
+        44609674,  # Brice Sullivan
+        50021867,  # Anny Kautzky
+    }),
+    (4, "Account Management", {
+        44609675,  # Brooke Winkelmann
+        44800193,  # Tiffany Bretana
+        45188843,  # Karinna Schultz
+        46752532,  # Jackie O'Neill
+        46082379,  # Lindsay Berger
+        45532726,  # Marcelo Salvatore
+        45196786,  # Heidi Klein
+        49225846,  # Marisol Draughon
+        46677379,  # Jared Uy
+        51255199,  # Matteo Richard Schietromo
+        52754982,  # Sydney Linthicum
+        52886397,  # Jessica Morgan
+        49246425,  # Daniel Hernandez Arcila
+        49352347,  # Mary Joy Cabanig
+        49352010,  # Alejandra Rodriguez
+        51537021,  # Yinnel Gonzalez
+        51537296,  # Andrea Ebiteh
+        45178968,  # Maria Espitia Diaz
+        44609679,  # Jacob Rosuck
+        44609660,  # Taylor Stobie
+    }),
+]
+
+
+def _priority_group_for(sender_id):
+    """(tier, label) for a Basecamp person id. Anyone not in the roster —
+    or a todo with no other participant at all — lands in tier 5."""
+    if sender_id:
+        for tier, label, ids in PRIORITY_TIERS:
+            if sender_id in ids:
+                return tier, label
+    return 5, "Everyone Else"
+
+
+def _resolve_sender(t: dict, self_id: int):
+    """Who a todo is really from, walking its comments newest-first and
+    skipping self_id's own comments — that's who's actually being waited
+    on, whether self_id owes them a reply or vice versa. Falls back to the
+    todo's creator when no one else has ever commented. Returns
+    (sender_id, sender_name, sender_at, last_author_is_self); the last
+    element tells the caller whether self_id already has the most recent
+    word (so nothing is currently owed) or someone else does.
+    """
+    authors = t.get("comment_authors") or []
+    last_author_is_self = bool(authors) and authors[-1].get("id") == self_id
+    for c in reversed(authors):
+        if c.get("id") and c["id"] != self_id:
+            return c["id"], c.get("name"), c.get("at"), last_author_is_self
+    creator_id, creator_name = t.get("creator_id"), t.get("creator_name")
+    if creator_id and creator_id != self_id:
+        return creator_id, creator_name, t.get("created_at"), last_author_is_self
+    return None, None, None, last_author_is_self
+
+
 WEEKLY_CAP = 32.5  # 6.5h/day × 5 days (1.5h/day reserved for misc/admin)
 WORK_HOURS = 6.5
 STALE_HDD_DAYS = 14  # comment-sourced HDDs older than this are abandoned, not late
@@ -337,6 +420,7 @@ async def _refresh_all():
 async def _fetch_person(d: dict, overrides: dict, week_end: str) -> dict:
     """Fetch and enrich one person's assigned todos. Used for every designer
     and for Richard's My Stuff view — one pipeline, so the numbers never drift."""
+    is_me = d.get("bc_id") == ME["bc_id"]
     todos = await asyncio.wait_for(bc.get_designer_todos(d["bc_id"]), timeout=60.0)
     # Fetch Everhour time for all todos concurrently (max 3 at once)
     eh_sem = asyncio.Semaphore(3)
@@ -423,11 +507,30 @@ async def _fetch_person(d: dict, overrides: dict, week_end: str) -> dict:
         has_hdd = bool(step_due or ov.get("hdd"))
         # Category: manual override > auto-detected
         category = ov.get("category") or t.get("category", "Misc.")
-        # Reply Needed: manual-only flag for a to-do that's really a pending
-        # reply/clarification, not new production work (e.g. an AM comment
-        # asking a designer a question rather than requesting a deliverable).
-        # Stays visible everywhere but its hours don't count toward capacity.
-        reply_needed = bool(ov.get("reply_needed"))
+
+        # Sender / priority tier: only meaningful for Richard's own My Stuff
+        # view ("who's this from"). is_me gates this completely — a
+        # designer's todos never run through _resolve_sender, so their
+        # data is untouched by this addition.
+        sender_id = sender_name = sender_at = priority_tier = priority_label = None
+        last_author_is_self = False
+        if is_me:
+            sender_id, sender_name, sender_at, last_author_is_self = _resolve_sender(t, d["bc_id"])
+            priority_tier, priority_label = _priority_group_for(sender_id)
+
+        # Reply Needed: manual override > auto-detected, same precedence
+        # pattern as category above. The original manual-only behavior is
+        # preserved exactly for designers (auto-detection only ever runs
+        # when is_me, so their toggle/capacity behavior can't change).
+        # For Richard: someone else holds the last word and hasn't been
+        # replied to yet → default on; he can always toggle it off if the
+        # guess is wrong, same as any other override.
+        if "reply_needed" in ov:
+            reply_needed = bool(ov["reply_needed"])
+        elif is_me:
+            reply_needed = bool(sender_id) and not last_author_is_self
+        else:
+            reply_needed = False
 
         enriched.append({
             **t,
@@ -439,6 +542,8 @@ async def _fetch_person(d: dict, overrides: dict, week_end: str) -> dict:
             "has_hdd": has_hdd,
             "category": category,
             "reply_needed": reply_needed,
+            "sender_id": sender_id, "sender_name": sender_name, "sender_at": sender_at,
+            "priority_tier": priority_tier, "priority_label": priority_label,
             "is_misc": t.get("is_misc", False),
             "is_complete": t.get("is_complete", False),
             "overrides": list(ov.keys()),
@@ -655,6 +760,8 @@ def _public_todos(d: dict) -> list:
             "total_hours": t.get("total_hours", 0),
             "progress": t.get("progress", 0), "category": t.get("category"),
             "reply_needed": t.get("reply_needed", False),
+            "sender_name": t.get("sender_name"), "sender_at": t.get("sender_at"),
+            "priority_tier": t.get("priority_tier"), "priority_label": t.get("priority_label"),
             "overrides": t.get("overrides", []),
             "in_revisions": t.get("in_revisions", False),
             "revisions_since": t.get("revisions_since"),

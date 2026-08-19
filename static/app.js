@@ -916,6 +916,30 @@ function setMyStuffSort(key) {
   renderMyStuff();
 }
 
+// Priority sections for My Stuff — fixed display order, must match the
+// labels main.py's PRIORITY_TIERS assigns server-side (priority_label).
+// Two labels share tier 3 (Managers/HR, Sales) but render as separate
+// sections at equal priority. Confirmed with Richard 2026-08-19.
+const PRIORITY_SECTION_ORDER = [
+  "Shay Berman", "Nate Mendenhall", "Managers / HR", "Sales",
+  "Account Management", "Everyone Else",
+];
+
+// Buckets an already-sorted todo list by priority_label, preserving each
+// group's relative order (a stable partition of `sorted`) so whatever
+// column sort is active still governs the order within each section —
+// priority grouping decides WHICH section, not the row order inside it.
+function _groupByPriority(sortedTodos) {
+  const buckets = new Map(PRIORITY_SECTION_ORDER.map(label => [label, []]));
+  sortedTodos.forEach(t => {
+    const label = PRIORITY_SECTION_ORDER.includes(t.priority_label) ? t.priority_label : "Everyone Else";
+    buckets.get(label).push(t);
+  });
+  return PRIORITY_SECTION_ORDER
+    .map(label => ({ label, todos: buckets.get(label) }))
+    .filter(g => g.todos.length);
+}
+
 function renderMyStuff() {
   const root = document.getElementById("my-stuff-root");
   if (!root) return;
@@ -929,6 +953,21 @@ function renderMyStuff() {
   const active = (d.todos || []).filter(t => !t.is_complete && !t.is_misc);
   const spotlightCount = active.filter(t => t.is_spotlighted).length;
   const sorted = sortTodos(active, _myStuffSort.key, _myStuffSort.dir);
+  const sections = _groupByPriority(sorted);
+
+  const tableOpts = {
+    spotlight: { atCap: spotlightCount >= 4 },
+    sort: _myStuffSort.key ? _myStuffSort : null,
+    sortFn: "setMyStuffSort",
+    showSender: true,
+  };
+  const sectionsHTML = sections.length
+    ? sections.map(g => `
+      <div class="priority-section">
+        <div class="priority-section-head">${esc(g.label)} <span class="attention-count">${g.todos.length}</span></div>
+        <div class="my-table-wrap">${buildTaskTable(g.todos, d.color, tableOpts)}</div>
+      </div>`).join("")
+    : `<div class="my-table-wrap"><div class="attention-empty">No active tasks this week.</div></div>`;
 
   root.innerHTML = `
     ${buildSpotlightSection(active, d.color)}
@@ -945,11 +984,7 @@ function renderMyStuff() {
         </div>
         <div class="pulse-free ${free <= 2 ? "low" : free <= 8 ? "mid" : "ok"}">${free < 0 ? Math.abs(free) + "h over" : free + "h free"}</div>
       </div>
-      <div class="my-table-wrap">${buildTaskTable(sorted, d.color, {
-        spotlight: { atCap: spotlightCount >= 4 },
-        sort: _myStuffSort.key ? _myStuffSort : null,
-        sortFn: "setMyStuffSort",
-      })}</div>
+      ${sectionsHTML}
     </div>
     <div class="attention-grid">${renderMyStuffAttention(active)}</div>`;
 }

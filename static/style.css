@@ -937,6 +937,17 @@ input.cal-filter-select { font-weight: 500; }
 .ov-pill.revision { background: #fdf4ff; color: #a21caf; }
 .ov-pill.needed { background: var(--warning-light); color: #b45309; border: 1px dashed #fcd34d; }
 
+/* My Stuff — priority sections (Shay/Nate/Managers-HR/Sales/Account
+   Management/Everyone Else), each its own labeled task table */
+.priority-section { margin-bottom: 18px; }
+.priority-section-head {
+  font-size: 11px; font-weight: 700; text-transform: uppercase; letter-spacing: .08em;
+  color: var(--text-muted); margin-bottom: 8px;
+  display: flex; align-items: center; gap: 8px;
+}
+.ov-sender { white-space: nowrap; }
+.sender-name { font-size: 12px; font-weight: 600; color: var(--text); }
+
 /* Needs Attention */
 .attention-grid { display: grid; grid-template-columns: repeat(3, 1fr); gap: 20px; margin-bottom: 20px; }
 .attention-panel {
