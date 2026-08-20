@@ -1055,10 +1055,13 @@ function renderMyStuffAttention(active) {
 // Tabs
 // ---------------------------------------------------------------------------
 
+let _activeTab = "overview";
+
 function initTabs() {
   document.querySelectorAll(".tab-btn").forEach(btn => {
     btn.addEventListener("click", () => {
       const tab = btn.dataset.tab;
+      _activeTab = tab;
       document.querySelectorAll(".tab-btn").forEach(b => b.classList.remove("active"));
       document.querySelectorAll(".tab-panel").forEach(p => p.classList.remove("active"));
       btn.classList.add("active");
@@ -1279,12 +1282,35 @@ function editPriorityTodo(id) {
 // Refresh
 // ---------------------------------------------------------------------------
 
+// Scoped refresh: tabs whose data doesn't depend on the full team roster
+// get a fast, tab-specific fetch instead of the ~20s full team refresh.
+// Everything else (Overview, Standups, Priorities, QA, and the hidden
+// Designer Workload/Calendar) falls through to the full refresh below,
+// since those need every designer's data.
+const _SCOPED_TAB_REFRESH = {
+  unassigned: () => fetch("/api/unassigned/refresh", { method: "POST" }).then(loadUnassigned),
+  mystuff: () => fetch("/api/me/refresh", { method: "POST" }).then(loadMyStuff),
+  analytics: () => loadAnalytics(),
+};
+
 function triggerRefresh() {
   const btn = document.getElementById("refresh-btn");
   if (btn) {
     btn.disabled = true;
     btn.innerHTML = `<span class="refresh-spin">&#8635;</span> Refreshing…`;
   }
+
+  const scoped = _SCOPED_TAB_REFRESH[_activeTab];
+  if (scoped) {
+    Promise.resolve(scoped())
+      .catch(() => {})
+      .finally(() => {
+        updateLastUpdated();
+        resetRefreshBtn();
+      });
+    return;
+  }
+
   fetch("/api/refresh", { method: "POST" });
   startPolling(); // poll until refresh completes, then reload UI
 }

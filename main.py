@@ -385,7 +385,15 @@ async def _record_analytics(designers_out: list, unassigned: list, refresh_ts: f
                 task_count=cnt,
             )
 
-    # Unassigned queue tracking
+    _record_queue_tracking(unassigned, refresh_ts)
+
+
+def _record_queue_tracking(unassigned: list, ts: float):
+    """Split out from _record_analytics: unlike completion detection, this
+    only ever compares `unassigned` against itself (queue entries/exits),
+    never against a designer roster — so it's safe to call standalone from
+    a scoped refresh (e.g. the To Delegate tab's own refresh) without the
+    incomplete-roster risk completion detection has."""
     current_queue_ids = {str(t["id"]) for t in unassigned}
     for todo_id, row in store.get_all_queue_tracking().items():
         if todo_id not in current_queue_ids:
@@ -397,7 +405,7 @@ async def _record_analytics(designers_out: list, unassigned: list, refresh_ts: f
             todo_id=str(t["id"]),
             title=t.get("title", ""),
             client_name=t.get("bucket_name", ""),
-            ts=refresh_ts,
+            ts=ts,
         )
 
 
@@ -718,6 +726,30 @@ async def api_unassigned():
     return _cached_data.get("unassigned", [])
 
 
+@app.post("/api/unassigned/refresh")
+async def api_unassigned_refresh():
+    """Refresh just the To Delegate queue — one independent Basecamp call,
+    no Everhour and no designer data involved, so it doesn't need the full
+    team-wide refresh to serve this tab."""
+    overrides = store.get_all_overrides()
+    try:
+        unassigned = await asyncio.wait_for(bc.get_unassigned_todos(), timeout=25.0)
+    except asyncio.TimeoutError:
+        return {"ok": False, "error": "timeout"}
+    except Exception as e:
+        return {"ok": False, "error": f"{type(e).__name__}: {e}"}
+
+    for t in unassigned:
+        ov = overrides.get(str(t["id"]), {})
+        t["category"] = ov.get("category") or categorize_todo(t.get("title", ""))
+        t["overrides"] = list(ov.keys())
+    unassigned.sort(key=lambda t: t.get("created_at") or "")
+
+    _cached_data["unassigned"] = unassigned
+    _record_queue_tracking(unassigned, time.time())
+    return {"ok": True}
+
+
 @app.get("/api/designers")
 async def api_designers():
     designers = _cached_data.get("designers", [])
@@ -789,7 +821,24 @@ async def api_me():
     pto = store.get_all_pto().get(str(ME["bc_id"]), [])
     return {"name": me["name"], "color": me["color"], "avatar": me.get("avatar"), "pto": pto,
             "todos": _public_todos(me),
-            "last_updated": _cached_data.get("last_updated")}
+            "last_updated": max(_cached_data.get("last_updated") or 0, _cached_data.get("me_last_updated") or 0)}
+
+
+@app.post("/api/me/refresh")
+async def api_me_refresh():
+    """Refresh just Richard's own data — used by the My Stuff tab's refresh.
+    Same shape as POST /api/my/{token}/refresh: fetch only this one person,
+    never run completion-detection analytics on a partial roster (see that
+    endpoint's comment for why — this is the same bug class, avoided the
+    same way)."""
+    today = date.today()
+    week_end = (today + timedelta(days=4 - today.weekday())).isoformat()
+    overrides = store.get_all_overrides()
+    me = await _fetch_person(ME, overrides, week_end)
+    me["todos"].sort(key=_todo_sort_key)
+    _cached_data["me"] = me
+    _cached_data["me_last_updated"] = time.time()
+    return {"ok": True}
 
 
 @app.get("/api/my/{token}")
