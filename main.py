@@ -850,24 +850,26 @@ async def api_my_refresh(token: str):
     person = await _fetch_person(d, overrides, week_end)
     person["todos"].sort(key=_todo_sort_key)
 
-    designers_out = list(_cached_data.get("designers", []))
+    # Only splice into the shared cache if it already holds a full roster —
+    # never append/shrink it. A cold cache (fresh deploy, first request ever)
+    # means _cached_data["designers"] isn't the full team yet; leave it alone
+    # and let the normal _cache_is_stale() lazy full-refresh populate it.
+    designers_out = _cached_data.get("designers", [])
     idx = next((i for i, x in enumerate(designers_out) if str(x["bc_id"]) == str(bc_id)), None)
     if idx is not None:
         designers_out[idx] = person
-    else:
-        designers_out.append(person)
-    _cached_data["designers"] = designers_out
-    _cached_data.setdefault("designer_last_updated", {})[str(bc_id)] = time.time()
+        _cached_data.setdefault("designer_last_updated", {})[str(bc_id)] = time.time()
 
-    # Completion detection needs the full current roster (todo_tracking rows
-    # for every OTHER designer must still show up in current_ids), which is
-    # why designers_out above is the full cached list with just this one
-    # person's entry swapped, not a single-person list.
-    try:
-        await _record_analytics(designers_out, _cached_data.get("unassigned", []), time.time())
-    except Exception as e:
-        print(f"[analytics] error (single refresh, {d['name']}): {type(e).__name__}: {e}")
-
+    # Deliberately NOT running _record_analytics here. Completion detection
+    # compares a full current-roster snapshot against all persisted
+    # todo_tracking rows — anyone missing from the snapshot reads as
+    # "completed". Running it from a single-person fetch (even with the
+    # cache spliced above) risks that snapshot being incomplete and mass-
+    # marking every OTHER designer's active work as done. Learned this live:
+    # an early version of this endpoint did call it, and during a cold-cache
+    # window it wrote 76 false completions in one shot. Completion detection
+    # stays exclusively _do_refresh's job (full refresh runs automatically
+    # whenever the cache goes stale, at most every 5 min).
     return {"ok": True}
 
 
