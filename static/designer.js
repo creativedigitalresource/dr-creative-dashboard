@@ -115,12 +115,12 @@ function renderMyPulse() {
 function myRefresh() {
   const btn = document.getElementById("refresh-btn");
   if (btn) { btn.disabled = true; btn.innerHTML = `<span class="refresh-spin">&#8635;</span> Refreshing…`; }
-  fetch("/api/refresh", { method: "POST" }).finally(() => {
-    setTimeout(async () => {
-      await loadMe();
+  fetch(`/api/my/${TOKEN}/refresh`, { method: "POST" })
+    .then(loadMe)
+    .catch(() => loadMe())
+    .finally(() => {
       if (btn) { btn.disabled = false; btn.innerHTML = "&#8635; Refresh"; }
-    }, 20000);
-  });
+    });
 }
 
 function renderMe() {

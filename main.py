@@ -566,6 +566,20 @@ async def _fetch_person(d: dict, overrides: dict, week_end: str) -> dict:
             "capacity_pct": capacity_pct}
 
 
+def _is_dr_internal(bucket_name: str) -> bool:
+    bn = (bucket_name or "").lower()
+    return "digital resource" in bn or "dr team" in bn
+
+
+def _todo_sort_key(t: dict):
+    return (
+        1 if _is_dr_internal(t.get("bucket_name", "")) else 0,
+        t.get("due_on") or "9999-99-99",
+        0 if t.get("has_hdd") else 1,
+        t.get("hdd") or "9999-99-99",
+    )
+
+
 async def _do_refresh():
     today = date.today()
     week_start = (today - timedelta(days=today.weekday())).isoformat()
@@ -616,18 +630,9 @@ async def _do_refresh():
         me_out = _cached_data.get("me") or {**ME, "todos": [], "weekly_est": 0,
                                             "weekly_cap": WEEKLY_CAP, "capacity_pct": 0}
 
-    def _is_dr_internal(bucket_name: str) -> bool:
-        bn = (bucket_name or "").lower()
-        return "digital resource" in bn or "dr team" in bn
-
     # Sort: client work first → due_on → has_hdd → hdd value
     for d in designers_out + [me_out]:
-        d["todos"].sort(key=lambda t: (
-            1 if _is_dr_internal(t.get("bucket_name", "")) else 0,
-            t.get("due_on") or "9999-99-99",
-            0 if t.get("has_hdd") else 1,
-            t.get("hdd") or "9999-99-99"
-        ))
+        d["todos"].sort(key=_todo_sort_key)
     unassigned.sort(key=lambda t: t.get("created_at") or "")
 
     refresh_ts = time.time()
@@ -819,7 +824,51 @@ async def api_my(token: str):
             "standup": store.get_standup(d["bc_id"], today.isoformat()),
             "qa_enabled": d["bc_id"] in QA_ENABLED_BC_IDS,
             "delegate_enabled": d["bc_id"] in DELEGATE_ENABLED_BC_IDS,
-            "last_updated": _cached_data.get("last_updated")}
+            "last_updated": max(
+                _cached_data.get("last_updated") or 0,
+                _cached_data.get("designer_last_updated", {}).get(str(d["bc_id"])) or 0,
+            )}
+
+
+@app.post("/api/my/{token}/refresh")
+async def api_my_refresh(token: str):
+    """Refresh just this one designer's own data — used by the Refresh
+    button on their personal page. Fetches only their Basecamp/Everhour
+    data (a couple seconds) instead of running the full team-wide
+    sequential refresh (~20s), which nobody but this one person needs
+    right now."""
+    bc_id = store.resolve_designer_token(token)
+    if not bc_id:
+        return Response(status_code=404)
+    d = next((x for x in DESIGNERS if str(x["bc_id"]) == str(bc_id)), None)
+    if not d:
+        return Response(status_code=404)
+
+    today = date.today()
+    week_end = (today + timedelta(days=4 - today.weekday())).isoformat()
+    overrides = store.get_all_overrides()
+    person = await _fetch_person(d, overrides, week_end)
+    person["todos"].sort(key=_todo_sort_key)
+
+    designers_out = list(_cached_data.get("designers", []))
+    idx = next((i for i, x in enumerate(designers_out) if str(x["bc_id"]) == str(bc_id)), None)
+    if idx is not None:
+        designers_out[idx] = person
+    else:
+        designers_out.append(person)
+    _cached_data["designers"] = designers_out
+    _cached_data.setdefault("designer_last_updated", {})[str(bc_id)] = time.time()
+
+    # Completion detection needs the full current roster (todo_tracking rows
+    # for every OTHER designer must still show up in current_ids), which is
+    # why designers_out above is the full cached list with just this one
+    # person's entry swapped, not a single-person list.
+    try:
+        await _record_analytics(designers_out, _cached_data.get("unassigned", []), time.time())
+    except Exception as e:
+        print(f"[analytics] error (single refresh, {d['name']}): {type(e).__name__}: {e}")
+
+    return {"ok": True}
 
 
 @app.put("/api/my/{token}/todos/{todo_id}/fields")
