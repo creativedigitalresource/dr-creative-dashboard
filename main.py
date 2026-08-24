@@ -1,4 +1,4 @@
-import asyncio, json, os, time, statistics
+import asyncio, json, os, re, time, statistics
 from collections import Counter, defaultdict
 from datetime import date, timedelta
 from contextlib import asynccontextmanager
@@ -1686,6 +1686,76 @@ async def api_capacity_analytics(refresh: int = 0):
     data = await _compute_capacity_analytics()
     store.cache_set("capacity_analytics_v2", data, ttl_seconds=6 * 3600)
     return data
+
+
+# Basecamp project names already carry "(tier)(AM initials)" as a suffix —
+# e.g. "Franklin Family Dental-TN(1)(BW)" — the same tagging cleanClient()
+# in shared.js strips for display. This is a search, not an end anchor, so
+# it still finds the tag on the rare name with something trailing after it
+# (e.g. "Mirror Lake - GDP (1)(TS) (WF)"). Internal/personal buckets (DR
+# Team: Creative, Teammate: X, Marketing: Digital Resource) never match,
+# which is exactly how "is this a real client" gets decided below — no
+# separate exclusion list needed.
+_TIER_AM_RE = re.compile(r"\((\d+\+?)\)\(([A-Z]+)\)")
+_CLIENT_SUFFIX_RE1 = re.compile(r"\s*\(\d+\+?\)\([A-Z]+\)\s*$")
+_CLIENT_SUFFIX_RE2 = re.compile(r"\s*\(\d+\+?\)\s*$")
+
+
+def _clean_client_name(bucket_name: str) -> str:
+    s = bucket_name or ""
+    s = _CLIENT_SUFFIX_RE1.sub("", s)
+    s = _CLIENT_SUFFIX_RE2.sub("", s)
+    return s.strip()
+
+
+@app.get("/api/analytics/clients")
+async def api_analytics_clients():
+    """Per-client rollup for the Analytics tab: tier + AM (parsed from the
+    Basecamp project name), total hours logged, and distinct project count.
+    Spend isn't tracked anywhere in Basecamp or this app's own data — it
+    lives in Salesforce/DR Pulse. Richard's call (2026-08-24): ship this
+    without it for now and wire spend in later once that's reachable again;
+    the column is included as null so the frontend can render it as
+    "pending" rather than needing a shape change later.
+
+    Sources one todo-level map first (historical completions, then live
+    active/unassigned data overwriting by id) so a task is never counted
+    or hour-summed twice even if it briefly appears in both."""
+    todos_by_id: dict[str, dict] = {}
+    for row in store.get_analytics_completions():
+        todos_by_id[str(row.get("todo_id"))] = {
+            "bucket_name": row.get("client_name"),
+            "hours": row.get("logged_hours") or 0,
+        }
+    for d in _cached_data.get("designers", []):
+        for t in d.get("todos", []):
+            todos_by_id[str(t["id"])] = {
+                "bucket_name": t.get("bucket_name"),
+                "hours": t.get("logged") or 0,
+            }
+    for t in _cached_data.get("unassigned", []):
+        todos_by_id.setdefault(str(t["id"]), {
+            "bucket_name": t.get("bucket_name"),
+            "hours": 0,
+        })
+
+    clients: dict[str, dict] = {}
+    for info in todos_by_id.values():
+        bn = info["bucket_name"]
+        m = _TIER_AM_RE.search(bn or "")
+        if not m:
+            continue
+        name = _clean_client_name(bn)
+        c = clients.setdefault(name, {
+            "name": name, "tier": m.group(1), "am": m.group(2),
+            "hours": 0.0, "project_count": 0,
+        })
+        c["hours"] += info["hours"] or 0
+        c["project_count"] += 1
+
+    out = [{**c, "hours": round(c["hours"], 1), "spend": None} for c in clients.values()]
+    out.sort(key=lambda c: c["hours"], reverse=True)
+    return out
 
 
 @app.get("/api/analytics")

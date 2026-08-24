@@ -1455,6 +1455,7 @@ async function loadCalendar() {
 let _analyticsData = null;
 let _analyticsSection = "capacity";
 let _capacityData = null;
+let _clientsData = null;
 
 // Analytics filters — apply to Completions / Weekly Capacity / Queue /
 // Categories. Capacity has its own controls and ignores these.
@@ -1571,6 +1572,45 @@ function adjCapSim(g, dir) {
 function resetCapSim() {
   for (const g of Object.keys(_capSim)) _capSim[g] = 0;
   renderCapacitySection(document.getElementById("analytics-content"));
+}
+
+// Client tier/AM come straight off the Basecamp project name's
+// "(tier)(AM initials)" suffix (see main.py _TIER_AM_RE) — hours and
+// project count are real, computed from Everhour + Basecamp data already
+// tracked here. Spend isn't tracked anywhere yet (no billing data exists
+// in Basecamp or this app) — Richard's call (2026-08-24) was to ship
+// without it and wire it in later once Salesforce/DR Pulse is reachable,
+// so it always renders as "—" for now rather than a fabricated number.
+async function renderClientsSection(el) {
+  if (!_clientsData) {
+    el.innerHTML = `<div class="loading-cell" style="padding:40px;text-align:center">Loading clients…</div>`;
+    try {
+      const r = await fetch("/api/analytics/clients");
+      _clientsData = await r.json();
+    } catch {
+      el.innerHTML = _noData("Failed to load client data.");
+      return;
+    }
+    if (_analyticsSection !== "clients") return; // user moved on while loading
+  }
+  if (!_clientsData.length) { el.innerHTML = _noData("No client data yet."); return; }
+
+  const rows = _clientsData.map(c => `<tr>
+    <td>${esc(c.name)}</td>
+    <td><span class="category-badge">${esc(c.tier)}</span></td>
+    <td class="text-muted">${esc(c.am || "—")}</td>
+    <td>${c.hours}h</td>
+    <td>${c.project_count}</td>
+    <td class="text-muted">${c.spend != null ? "$" + c.spend : "—"}</td>
+  </tr>`).join("");
+
+  const spendHint = `<span class="th-info-wrap"><span class="th-info">&#9432;</span>` +
+    `<span class="th-tooltip">Not tracked in Basecamp or this dashboard — pending a Salesforce/DR Pulse connection.</span></span>`;
+
+  el.innerHTML = `<div class="table-wrap"><table class="data-table">
+    <thead><tr><th>Client</th><th>Tier</th><th>AM</th><th>Hours</th><th>Projects</th><th>Spend ${spendHint}</th></tr></thead>
+    <tbody>${rows}</tbody>
+  </table></div>`;
 }
 
 async function loadAnalytics() {
@@ -1830,10 +1870,13 @@ function drawCapacityChart(mount, d, moLabel) {
 
 function renderAnalyticsSection(section) {
   const el = document.getElementById("analytics-content");
-  // The completions-based stat strip and filters are noise on the capacity section
-  document.getElementById("analytics-stats")?.classList.toggle("hidden", section === "capacity");
-  document.getElementById("analytics-filters")?.classList.toggle("hidden", section === "capacity");
+  // The completions-based stat strip and filters are noise on capacity/clients —
+  // both are their own independent rollups, not a filtered view of completions.
+  const ownRollup = section === "capacity" || section === "clients";
+  document.getElementById("analytics-stats")?.classList.toggle("hidden", ownRollup);
+  document.getElementById("analytics-filters")?.classList.toggle("hidden", ownRollup);
   if (section === "capacity") { renderCapacitySection(el); return; }
+  if (section === "clients") { renderClientsSection(el); return; }
   if (!_analyticsData) return;
 
   const f = _anFilters;
