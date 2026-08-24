@@ -663,40 +663,11 @@ def get_spotlight_ids(designer_bc_id: str) -> list:
     return [r["todo_id"] for r in rows]
 
 
-# ---------------------------------------------------------------------------
-# Standups — a designer's daily "what I'm working on today" post, built from
-# their own My Week planner. Re-postable: posting again the same day replaces
-# the note/task list and bumps posted_at, rather than creating a new entry.
-# ---------------------------------------------------------------------------
-
-def set_standup(designer_bc_id: str, day: str, note: str, todo_ids: list) -> dict:
-    """Upsert, not replace — a repost updates note/todo_ids/posted_at but
-    leaves first_posted_at untouched, so Richard can see when it was first
-    posted vs. last updated."""
-    with get_db() as c:
-        c.execute("""
-            INSERT INTO standups (designer_bc_id, date, note, todo_ids, posted_at, first_posted_at)
-            VALUES (?, ?, ?, ?, unixepoch(), unixepoch())
-            ON CONFLICT(designer_bc_id, date) DO UPDATE SET
-                note = excluded.note,
-                todo_ids = excluded.todo_ids,
-                posted_at = unixepoch()
-        """, (str(designer_bc_id), day, note, json.dumps([str(i) for i in todo_ids])))
-        row = c.execute(
-            "SELECT posted_at, first_posted_at FROM standups WHERE designer_bc_id=? AND date=?",
-            (str(designer_bc_id), day)).fetchone()
-    return {"ok": True, "posted_at": row["posted_at"], "first_posted_at": row["first_posted_at"]}
-
-
-def get_standup(designer_bc_id: str, day: str) -> dict | None:
-    with get_db() as c:
-        row = c.execute(
-            "SELECT note, todo_ids, posted_at, first_posted_at FROM standups WHERE designer_bc_id=? AND date=?",
-            (str(designer_bc_id), day)).fetchone()
-    if not row:
-        return None
-    return {"note": row["note"], "todo_ids": json.loads(row["todo_ids"]),
-            "posted_at": row["posted_at"], "first_posted_at": row["first_posted_at"]}
+# Standups feature (designer's daily "what I'm working on today" post) was
+# removed 2026-08-20 in favor of Spotlight as the standup signal — the
+# `standups` table and its migration below are left in place as inert
+# history rather than dropped, but nothing in the app writes or reads it
+# anymore.
 
 
 def claim_at_risk_notifications(todo_ids: list, day: str) -> list:

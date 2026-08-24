@@ -3,7 +3,7 @@
    Sees: own capacity, own tasks, own planner, own attention items.
    Never sees other designers, the delegation queue, or analytics —
    UNLESS delegate_enabled (main.py DELEGATE_ENABLED_BC_IDS) grants
-   temporary delegation coverage: To Delegate, Team Pulse, Standups.
+   temporary delegation coverage: To Delegate, Team Pulse, Team Spotlight.
    ============================================================ */
 
 const TOKEN = (() => {
@@ -79,19 +79,19 @@ async function loadMe() {
 }
 
 /* ---- Delegation coverage tabs (delegate_enabled only) — To Delegate and
-   Standups reuse the exact shared.js functions the manager dashboard uses
-   (same #unassigned-list/#standups-root ids); Team Pulse reuses the same
-   roster+attention renderer as the manager's Overview tab, scoped with
-   ctx="delegate" so its sort/expand state never collides with the
+   Team Spotlight reuse the exact shared.js functions the manager dashboard
+   uses (same #unassigned-list/#team-spotlight-root ids); Team Pulse reuses
+   the same roster+attention renderer as the manager's Overview tab, scoped
+   with ctx="delegate" so its sort/expand state never collides with the
    manager's own "manager"-ctx state (see shared.js). ---- */
 function switchMyTab(tab) {
   document.querySelectorAll("#my-tab-nav .tab-btn").forEach(b => b.classList.toggle("active", b.dataset.mytab === tab));
   document.getElementById("my-root").style.display = tab === "week" ? "" : "none";
-  ["delegate", "pulse", "standups"].forEach(t =>
+  ["delegate", "pulse", "spotlight"].forEach(t =>
     document.getElementById(`tab-${t}`).classList.toggle("active", tab === t));
   if (tab === "delegate") loadUnassigned();
   if (tab === "pulse") loadMyPulse();
-  if (tab === "standups") loadStandups();
+  if (tab === "spotlight") loadTeamSpotlight();
 }
 
 let _pulseDesignerData = [];
@@ -390,7 +390,6 @@ function renderMyPlanner() {
         <div class="planner-day-date">${date.toLocaleDateString("en-US", { month: "short", day: "numeric" })}</div>
         <div class="my-day-hours">${hrs}h</div>
       </div>
-      ${dt === todayStr ? renderStandupBlock(byDay[dt]) : ""}
       ${byDay[dt].map(card).join("") || `<div class="planner-drop-hint">Drop here</div>`}
     </div>`;
   }).join("");
@@ -400,58 +399,6 @@ function renderMyPlanner() {
       <div class="planner-day-header"><div class="planner-day-name">Unscheduled</div></div>
       ${unscheduled.map(card).join("") || `<div class="planner-drop-hint">Nothing waiting</div>`}
     </div>${cols}`;
-}
-
-/* ---- Standup — post today's plan from the day column, re-postable ---- */
-let _standupDraft = { open: false, note: "" };
-
-function renderStandupBlock(todayTasks) {
-  const standup = _me.standup;
-  if (!_standupDraft.open) {
-    const label = standup ? `&#10003; ${standupTimeLabel(standup)}` : "Post Standup";
-    return `<button class="btn btn-ghost btn-sm standup-btn${standup ? " posted" : ""}" onclick="toggleStandupDraft()">${label}</button>`;
-  }
-  const taskRows = todayTasks.length
-    ? todayTasks.map(t => {
-        const rem = taskRemainingHrs(t);
-        return `<div class="standup-task">
-        <span class="standup-task-title">${esc(truncate(t.title, 44))}</span>
-        <span class="standup-task-hrs">${rem != null ? rem + "h left" : "&mdash;"}</span>
-      </div>`;
-      }).join("")
-    : `<div class="standup-task-empty">Nothing scheduled today yet — drag a task in first, or post anyway.</div>`;
-  return `<div class="standup-draft">
-    <div class="standup-draft-label">Today's Standup</div>
-    ${taskRows}
-    <textarea class="standup-note" placeholder="Optional note — blocked, light day, etc." oninput="_standupDraft.note=this.value">${esc(_standupDraft.note)}</textarea>
-    <div class="standup-draft-actions">
-      <button class="btn btn-primary btn-sm" onclick="postStandup()">Post</button>
-      <button class="btn btn-ghost btn-sm" onclick="toggleStandupDraft()">Cancel</button>
-    </div>
-  </div>`;
-}
-
-function toggleStandupDraft() {
-  _standupDraft.open = !_standupDraft.open;
-  if (_standupDraft.open) _standupDraft.note = _me.standup?.note || "";
-  renderMyPlanner();
-  if (_standupDraft.open) setTimeout(() => document.querySelector(".standup-note")?.focus(), 30);
-}
-
-async function postStandup() {
-  const todayStr = localISO(new Date());
-  const active = (_me.todos || []).filter(t => !t.is_complete && !t.is_misc);
-  const ids = active.filter(t => !t.in_revisions && t.due_on === todayStr).map(t => t.id);
-  const note = _standupDraft.note || "";
-  const res = await fetch(`/api/my/${TOKEN}/standup`, {
-    method: "PUT",
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ note, todo_ids: ids }),
-  }).then(r => r.json()).catch(() => null);
-  if (!res || res.ok === false) return;
-  _me.standup = { note, todo_ids: ids.map(String), posted_at: res.posted_at, first_posted_at: res.first_posted_at };
-  _standupDraft.open = false;
-  renderMyPlanner();
 }
 
 function myDragStart(evt, id) { _dragId = id; }

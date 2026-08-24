@@ -1072,8 +1072,8 @@ function initTabs() {
       if (tab === "analytics") {
         loadAnalytics();
       }
-      if (tab === "standups") {
-        loadStandups();
+      if (tab === "spotlight") {
+        loadTeamSpotlight();
       }
       if (tab === "priorities") {
         loadPriorityTodos();
@@ -1284,9 +1284,10 @@ function editPriorityTodo(id) {
 
 // Scoped refresh: tabs whose data doesn't depend on the full team roster
 // get a fast, tab-specific fetch instead of the ~20s full team refresh.
-// Everything else (Overview, Standups, Priorities, QA, and the hidden
-// Designer Workload/Calendar) falls through to the full refresh below,
-// since those need every designer's data.
+// Everything else (Overview, Priorities, QA, and the hidden Designer
+// Workload/Calendar) falls through to the full refresh below, since those
+// need every designer's data — Team Spotlight needs it too (it's every
+// designer's spotlight list), same bucket as Overview.
 const _SCOPED_TAB_REFRESH = {
   unassigned: () => fetch("/api/unassigned/refresh", { method: "POST" }).then(loadUnassigned),
   mystuff: () => fetch("/api/me/refresh", { method: "POST" }).then(loadMyStuff),

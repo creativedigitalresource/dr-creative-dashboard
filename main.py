@@ -41,8 +41,8 @@ ME = {"name": "Richard", "bc_id": 49482127, "eh_id": 1415584, "color": "#6366f1"
 LOGGED_SYNC_BC_IDS = {ME["bc_id"], 52471282}  # Richard, Maria C
 
 # Delegation coverage — lets a designer see the To Delegate queue, everyone's
-# capacity, and Standups on their own page while Richard is out. Remove a
-# bc_id here to revoke access at any time.
+# capacity, and Team Spotlight on their own page while Richard is out. Remove
+# a bc_id here to revoke access at any time.
 DELEGATE_ENABLED_BC_IDS = {46567979}  # Gaby
 
 # My Stuff priority roster (2026-08-19, Richard-confirmed) — who a todo is
@@ -754,9 +754,16 @@ async def api_unassigned_refresh():
 async def api_designers():
     designers = _cached_data.get("designers", [])
     pto_map = store.get_all_pto()
-    # Attach PTO to each designer so client can calculate real capacity
     for d in designers:
+        # Attach PTO so client can calculate real capacity
         d["pto"] = pto_map.get(str(d["bc_id"]), [])
+        # Attach spotlight state so the manager's Team Spotlight tab (and
+        # any other manager-side view) can read it straight off this same
+        # designer list, same as _public_todos() already does for a
+        # designer's own token-scoped page.
+        spotlight_ids = set(store.get_spotlight_ids(d["bc_id"]))
+        for t in d.get("todos", []):
+            t["is_spotlighted"] = str(t["id"]) in spotlight_ids
     return designers
 
 
@@ -870,7 +877,6 @@ async def api_my(token: str):
             "manager_message": manager_message,
             "shipped_week": store.count_completions_since(d["bc_id"], week_start),
             "estimate_guide": _compute_estimate_guide(d["bc_id"]),
-            "standup": store.get_standup(d["bc_id"], today.isoformat()),
             "qa_enabled": d["bc_id"] in QA_ENABLED_BC_IDS,
             "delegate_enabled": d["bc_id"] in DELEGATE_ENABLED_BC_IDS,
             "last_updated": max(
@@ -949,20 +955,6 @@ async def api_my_set_spotlight(token: str, todo_id: str, request: Request):
     return store.set_spotlight(str(d["bc_id"]), str(todo_id), bool(body.get("on")))
 
 
-@app.put("/api/my/{token}/standup")
-async def api_my_set_standup(token: str, request: Request):
-    """Post (or re-post) today's standup — only today's date is ever
-    writable here; the designer can't backdate or future-date a post."""
-    d = _designer_for_token(token)
-    if not d:
-        return Response(status_code=404 if not store.resolve_designer_token(token) else 503)
-    body = await request.json()
-    note = str(body.get("note", ""))[:2000]
-    valid_ids = {str(t["id"]) for t in d.get("todos", [])}
-    todo_ids = [str(i) for i in body.get("todo_ids", []) if str(i) in valid_ids]
-    return store.set_standup(str(d["bc_id"]), date.today().isoformat(), note, todo_ids)
-
-
 @app.put("/api/my/{token}/planner-order")
 async def api_my_planner_order(token: str, request: Request):
     d = _designer_for_token(token)
@@ -1020,29 +1012,6 @@ async def api_estimate_guide():
     """Company-wide medians + Richard's goals — no per-designer data, safe
     for the manager Overview panel."""
     return _compute_estimate_guide()
-
-
-@app.get("/api/standups")
-async def api_standups():
-    """Today's posted standups across the team, for the manager Standups tab.
-    Tasks are re-hydrated from live todo data (not frozen at post time) so
-    hours/progress stay current; a task removed from the board since the
-    post was made just quietly drops out of the list."""
-    today = date.today().isoformat()
-    out = []
-    for d in _cached_data.get("designers", []):
-        s = store.get_standup(str(d["bc_id"]), today)
-        entry = {"bc_id": d["bc_id"], "name": d["name"], "color": d["color"], "avatar": d.get("avatar")}
-        if s:
-            todos_by_id = {str(t["id"]): t for t in _public_todos(d)}
-            entry["posted_at"] = s["posted_at"]
-            entry["first_posted_at"] = s["first_posted_at"]
-            entry["note"] = s["note"]
-            entry["tasks"] = [todos_by_id[tid] for tid in s["todo_ids"] if tid in todos_by_id]
-        else:
-            entry["posted_at"] = None
-        out.append(entry)
-    return out
 
 
 @app.get("/api/at-risk")

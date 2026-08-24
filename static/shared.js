@@ -143,20 +143,10 @@ function formatDue(iso) {
   return d.toLocaleDateString("en-US", { month: "short", day: "numeric" });
 }
 
-// Shared by the My Week standup button and the manager's Standups tab —
-// shows an "updated" qualifier only once a repost has actually happened.
-function standupTimeLabel(standup) {
-  const fmt = ts => new Date(ts * 1000).toLocaleTimeString("en-US", { hour: "numeric", minute: "2-digit" });
-  const posted = fmt(standup.posted_at);
-  return (standup.first_posted_at && standup.posted_at !== standup.first_posted_at)
-    ? `Posted ${fmt(standup.first_posted_at)} &middot; updated ${posted}`
-    : `Posted ${posted}`;
-}
-
-// Remaining hours on a task today (est minus what's already logged), same
+// Remaining hours on a task (est minus what's already logged), same
 // formula the day-planner's own dayHours() uses for the day-header total —
-// the standup should show what's left to do today, not the task's full
-// original estimate (which double-counts hours already logged elsewhere).
+// Team Spotlight should show what's left, not the task's full original
+// estimate (which double-counts hours already logged elsewhere).
 // Returns null when there's no estimate at all, distinct from a real 0.
 function taskRemainingHrs(t) {
   if (t.est == null) return null;
@@ -684,62 +674,52 @@ function renderUnassigned() {
   </table>`;
 }
 
-/* ---- Standups — shared by the manager's Standups tab and a delegate-
-   enabled designer's own page (both target #standups-root). ---- */
-async function loadStandups() {
-  const root = document.getElementById("standups-root");
-  const data = await fetchWithTimeout("/api/standups").then(r => r.json()).catch(() => null);
-  if (!data) { root.innerHTML = `<div class="loading-card">Couldn't load standups.</div>`; return; }
-  renderStandups(data);
+/* ---- Team Spotlight — replaces Standups (2026-08-20). No posting step,
+   no "today" or timestamp: it's just each designer's current pinned focus
+   list (up to 4, via the same star used everywhere else). Shared by the
+   manager's Team Spotlight tab and a delegate-enabled designer's own page
+   (both target #team-spotlight-root). ---- */
+async function loadTeamSpotlight() {
+  const root = document.getElementById("team-spotlight-root");
+  const designers = await fetchWithTimeout("/api/designers").then(r => r.json()).catch(() => null);
+  if (!designers) { root.innerHTML = `<div class="loading-card">Couldn't load Team Spotlight.</div>`; return; }
+  renderTeamSpotlight(designers);
 }
 
-function renderStandups(data) {
-  const root = document.getElementById("standups-root");
-  if (!data.length) { root.innerHTML = `<div class="loading-card">No designers yet.</div>`; return; }
+function renderTeamSpotlight(designers) {
+  const root = document.getElementById("team-spotlight-root");
+  if (!designers.length) { root.innerHTML = `<div class="loading-card">No designers yet.</div>`; return; }
 
-  const posted = data.filter(d => d.posted_at).sort((a, b) => b.posted_at - a.posted_at);
-  const waiting = data.filter(d => !d.posted_at).sort((a, b) => a.name.localeCompare(b.name));
-
-  const taskRows = tasks => (tasks || []).length
+  const taskRows = tasks => tasks.length
     ? tasks.map(t => {
         const rem = taskRemainingHrs(t);
         const title = esc(truncate(t.title, 50));
         const titleHtml = t.url
           ? `<a href="${t.url}" target="_blank" title="Open in Basecamp">${title}</a>`
           : title;
-        return `<div class="standup-task">
-        <span class="standup-task-title">${titleHtml}</span>
-        <span class="standup-task-hrs">${rem != null ? rem + "h left" : "&mdash;"}</span>
+        return `<div class="team-spotlight-task">
+        <span class="team-spotlight-task-title">${titleHtml}</span>
+        <span class="team-spotlight-task-hrs">${rem != null ? rem + "h left" : "&mdash;"}</span>
       </div>`;
       }).join("")
-    : `<div class="standup-task-empty">No tasks scheduled today.</div>`;
+    : `<div class="team-spotlight-task-empty">Nothing spotlighted right now.</div>`;
 
-  const postedCard = d => {
-    const totalHrs = Math.round((d.tasks || []).reduce((s, t) => s + Math.max(0, (t.est || 0) - (t.logged || 0)), 0) * 10) / 10;
-    return `<div class="standup-card">
-      <div class="standup-card-head">
+  const card = d => {
+    const spotlighted = (d.todos || []).filter(t => t.is_spotlighted && !t.is_complete);
+    return `<div class="team-spotlight-card">
+      <div class="team-spotlight-head">
         ${avatarHTML(d, { cls: "designer-avatar" })}
-        <div class="standup-card-info">
+        <div class="team-spotlight-info">
           <div class="designer-name">${esc(d.name)}</div>
-          <div class="standup-card-time">${standupTimeLabel(d)} &middot; ${totalHrs}h planned</div>
+          <div class="team-spotlight-count">${spotlighted.length}/4 spotlighted</div>
         </div>
       </div>
-      ${d.note ? `<div class="standup-card-note">&ldquo;${esc(d.note)}&rdquo;</div>` : ""}
-      <div class="standup-card-tasks">${taskRows(d.tasks)}</div>
+      <div class="team-spotlight-tasks">${taskRows(spotlighted)}</div>
     </div>`;
   };
 
-  const waitingCard = d => `<div class="standup-card waiting">
-    <div class="standup-card-head">
-      ${avatarHTML(d, { cls: "designer-avatar" })}
-      <div class="standup-card-info">
-        <div class="designer-name">${esc(d.name)}</div>
-        <div class="standup-card-time">Hasn&rsquo;t posted yet</div>
-      </div>
-    </div>
-  </div>`;
-
-  root.innerHTML = posted.map(postedCard).join("") + waiting.map(waitingCard).join("");
+  const sorted = [...designers].sort((a, b) => a.name.localeCompare(b.name));
+  root.innerHTML = sorted.map(card).join("");
 }
 
 /* ---- Team Pulse — the manager Overview tab's expandable roster + Needs

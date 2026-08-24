@@ -29,7 +29,7 @@
       <button class="tab-btn active" data-mytab="week" onclick="switchMyTab('week')">My Week</button>
       <button class="tab-btn" data-mytab="delegate" onclick="switchMyTab('delegate')">To Delegate</button>
       <button class="tab-btn" data-mytab="pulse" onclick="switchMyTab('pulse')">Team Pulse</button>
-      <button class="tab-btn" data-mytab="standups" onclick="switchMyTab('standups')">Standups</button>
+      <button class="tab-btn" data-mytab="spotlight" onclick="switchMyTab('spotlight')">Team Spotlight</button>
     </nav>
     <div class="my-page" id="my-root">
       <div class="loading-card">Loading your week…</div>
@@ -60,13 +60,13 @@
       </div>
       <div class="attention-grid" id="my-attention-grid"></div>
     </div>
-    <div id="tab-standups" class="tab-panel">
+    <div id="tab-spotlight" class="tab-panel">
       <div class="panel-header">
-        <h2>Today's Standups</h2>
-        <span class="panel-hint">Who's already posted their plan for today.</span>
+        <h2>Team Spotlight</h2>
+        <span class="panel-hint">Each designer's own spotlighted tasks — up to 4, always current.</span>
       </div>
-      <div id="standups-root" class="standups-grid">
-        <div class="loading-card">Loading standups…</div>
+      <div id="team-spotlight-root" class="team-spotlight-grid">
+        <div class="loading-card">Loading Team Spotlight…</div>
       </div>
     </div>
   </div>
