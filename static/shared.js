@@ -1005,13 +1005,51 @@ function openEstimateGuidePanel(category) {
   }
 }
 
+/* ---- User Guide — reference sections, one collapsible panel each, reusing
+   the exact same .eg-panel/.eg-head/.eg-body accordion CSS as the Estimate
+   Guide above (no new styles needed). Shared by the manager dashboard and
+   each designer's own page — each page owns its own content array (admin
+   vs. team-member features are meaningfully different) and calls
+   renderGuide(mountId, sections) once; re-renders on toggle reuse whatever
+   was passed the first time. ---- */
+const _guideContent = {};
+const _guideExpanded = new Set();
+
+function renderGuide(mountId, sections) {
+  if (sections) _guideContent[mountId] = sections;
+  const root = document.getElementById(mountId);
+  if (!root) return;
+  const list = _guideContent[mountId] || [];
+  root.innerHTML = list.map(s => {
+    const key = `${mountId}:${s.id}`;
+    const open = _guideExpanded.has(key);
+    return `<div class="pulse-panel eg-panel${open ? " open" : ""}">
+      <div class="eg-head" onclick="toggleGuideSection('${mountId}','${s.id}')">
+        <div>
+          <div class="cap-chart-title">${esc(s.title)}</div>
+          ${s.subtitle ? `<div class="cap-chart-sub">${esc(s.subtitle)}</div>` : ""}
+        </div>
+        <span class="eg-chevron">&#9662;</span>
+      </div>
+      <div class="eg-body"><div class="guide-content">${s.body}</div></div>
+    </div>`;
+  }).join("");
+}
+
+function toggleGuideSection(mountId, sectionId) {
+  const key = `${mountId}:${sectionId}`;
+  if (_guideExpanded.has(key)) _guideExpanded.delete(key);
+  else _guideExpanded.add(key);
+  renderGuide(mountId);
+}
+
 /* ---- QA Checklists — pick a service, check off items, get a shareable
    certificate. Shared by the manager's QA tab and a designer's own page
    (both just need a <div id="qa-root">). ---- */
 
 let _qaTemplates = {};
 let _qaService = null;
-let _qaItems = []; // [{text, checked}]
+let _qaItems = []; // [{text, state: "unchecked"|"checked"|"na"}]
 
 // Entry point that's safe to call on every render of a page that also
 // redraws other things over time (e.g. a designer page's 90s poll) — it

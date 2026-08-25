@@ -53,6 +53,7 @@
              code/panels kept intact below, just no nav entry. Day planner
              functionality still reachable by designers via their own /my/{token} link. -->
         <button class="tab-btn" data-tab="analytics">Analytics</button>
+        <button class="tab-btn" data-tab="guide">Guide</button>
       </nav>
 
       <!-- Tab 0: Overview -->
@@ -148,6 +149,15 @@
         <div id="analytics-content" class="analytics-content"></div>
       </div>
 
+      <!-- Tab: Guide — reference sections, one collapsible panel per topic -->
+      <div id="tab-guide" class="tab-panel">
+        <div class="panel-header">
+          <h2>Guide</h2>
+          <span class="panel-hint">Click a topic to expand it.</span>
+        </div>
+        <div id="guide-root"></div>
+      </div>
+
       <!-- Tab 5: My Stuff — Richard's own todos, same anatomy as a designer page -->
       <div id="tab-mystuff" class="tab-panel">
         <div id="my-stuff-root">
@@ -159,7 +169,7 @@
       <div id="tab-spotlight" class="tab-panel">
         <div class="panel-header">
           <h2>Team Spotlight</h2>
-          <span class="panel-hint">Each designer's own spotlighted tasks — up to 4, always current.</span>
+          <span class="panel-hint">Each designer's own spotlighted tasks — up to 10, always current.</span>
         </div>
         <div id="team-spotlight-root" class="team-spotlight-grid">
           <div class="loading-card">Loading Team Spotlight…</div>

@@ -11,6 +11,59 @@ const TOKEN = (() => {
   return m ? m[1] : new URLSearchParams(location.search).get("token");
 })();
 
+// This page's reference guide — see renderGuide/toggleGuideSection in
+// shared.js for the rendering mechanics. Content only lives here.
+const TEAM_GUIDE_SECTIONS = [
+  {
+    id: "week",
+    title: "My Week",
+    subtitle: "Your day planner",
+    body: `
+      <p>Monday through Friday, drag a task card between days to reschedule it — that updates the due date in Basecamp right away. The ring in each day's header fills up as that day gets more hours scheduled into it.</p>
+      <p>Tasks with a hard due date past their scheduled date get a small warning badge — that's a heads up, not a block, since sometimes life happens and it's fine, just worth noticing.</p>
+      <p>"Unscheduled" on the left holds anything without a day assigned yet, plus anything back for revisions (those don't get forced onto a specific day — the deadline is set deliberately when you're ready, not automatically).</p>
+    `,
+  },
+  {
+    id: "spotlight",
+    title: "Spotlight",
+    subtitle: "This is your standup now — no separate posting step",
+    body: `
+      <p>Click the star on up to 10 tasks to pin them to the top of your page. That's it — there's no daily "post" button anymore and no timestamp to keep current. Whatever's spotlighted right now <em>is</em> what you're signaling as your current focus, both on your own page and on the manager's Team Spotlight view.</p>
+      <p>Worth keeping in mind: since there's no daily reset, an old spotlighted task will just sit there looking current until you swap it out yourself — it's on you to keep it reflecting what you're actually working on.</p>
+    `,
+  },
+  {
+    id: "coverage",
+    title: "To Delegate / Team Pulse (coverage access only)",
+    subtitle: "Only visible if you've been given delegation coverage",
+    body: `
+      <p>If you see extra tabs above (To Delegate, Team Pulse) beyond My Week and Spotlight, Richard has temporarily given you visibility into the unassigned queue and everyone's capacity — usually while he's out. To Delegate works exactly like his own tab; Team Pulse is a read-only view of the whole team's load.</p>
+    `,
+  },
+  {
+    id: "qa",
+    title: "QA Checklist",
+    subtitle: "If enabled for you — check items off or mark N/A",
+    body: `
+      <p>Pick a service, work through the checklist. Each item has two buttons: <strong>✓ Done</strong> when you've actually verified it, or <strong>N/A</strong> when it just doesn't apply to this stage or this piece of creative — both count as satisfied, only a real untouched item blocks you from finishing. Tap the same button again to undo it.</p>
+      <p>Finishing the checklist gives you a shareable certificate link — paste that into the Basecamp to-do as your sign-off.</p>
+    `,
+  },
+  {
+    id: "everhour",
+    title: "Everhour button",
+    subtitle: "One click to log time on a specific task",
+    body: `<p>Next to any logged-hours number, there's a small green circular button — click it to open that exact task in Everhour, in a new tab, ready to add time. No more hunting for the right task.</p>`,
+  },
+  {
+    id: "refresh",
+    title: "Refresh",
+    subtitle: "Only pulls your own data, not the whole team",
+    body: `<p>Your Refresh button only re-fetches your own tasks — a couple of seconds, not the ~20 second team-wide refresh the manager dashboard sometimes needs.</p>`,
+  },
+];
+
 // Designer commit hook for the shared inline editors. Own todos write
 // through the token-scoped endpoint (server-validates the todo belongs to
 // this designer); a delegate-enabled To Delegate edit is for a todo that
@@ -83,15 +136,20 @@ async function loadMe() {
    uses (same #unassigned-list/#team-spotlight-root ids); Team Pulse reuses
    the same roster+attention renderer as the manager's Overview tab, scoped
    with ctx="delegate" so its sort/expand state never collides with the
-   manager's own "manager"-ctx state (see shared.js). ---- */
+   manager's own "manager"-ctx state (see shared.js).
+
+   "guide" isn't delegate-gated — it's reachable by every designer via the
+   header button (#my-tab-nav itself stays hidden unless delegate_enabled,
+   but this function works the same regardless of which button called it). ---- */
 function switchMyTab(tab) {
   document.querySelectorAll("#my-tab-nav .tab-btn").forEach(b => b.classList.toggle("active", b.dataset.mytab === tab));
   document.getElementById("my-root").style.display = tab === "week" ? "" : "none";
-  ["delegate", "pulse", "spotlight"].forEach(t =>
+  ["delegate", "pulse", "spotlight", "guide"].forEach(t =>
     document.getElementById(`tab-${t}`).classList.toggle("active", tab === t));
   if (tab === "delegate") loadUnassigned();
   if (tab === "pulse") loadMyPulse();
   if (tab === "spotlight") loadTeamSpotlight();
+  if (tab === "guide") renderGuide("guide-root", TEAM_GUIDE_SECTIONS);
 }
 
 let _pulseDesignerData = [];

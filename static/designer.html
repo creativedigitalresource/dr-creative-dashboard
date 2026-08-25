@@ -22,6 +22,7 @@
       </div>
       <div class="header-right">
         <span id="last-updated" class="last-updated"></span>
+        <button class="btn btn-ghost" onclick="switchMyTab('guide')">&#9432; Guide</button>
         <button id="refresh-btn" class="btn btn-ghost" onclick="myRefresh()">&#8635; Refresh</button>
       </div>
     </header>
@@ -63,11 +64,19 @@
     <div id="tab-spotlight" class="tab-panel">
       <div class="panel-header">
         <h2>Team Spotlight</h2>
-        <span class="panel-hint">Each designer's own spotlighted tasks — up to 4, always current.</span>
+        <span class="panel-hint">Each designer's own spotlighted tasks — up to 10, always current.</span>
       </div>
       <div id="team-spotlight-root" class="team-spotlight-grid">
         <div class="loading-card">Loading Team Spotlight…</div>
       </div>
+    </div>
+    <div id="tab-guide" class="tab-panel">
+      <div class="panel-header">
+        <button class="btn btn-ghost btn-sm" onclick="switchMyTab('week')">&larr; Back to My Week</button>
+        <h2>Guide</h2>
+        <span class="panel-hint">Click a topic to expand it.</span>
+      </div>
+      <div id="guide-root"></div>
     </div>
   </div>
   <script src="/static/shared.js"></script>

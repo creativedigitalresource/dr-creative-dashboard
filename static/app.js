@@ -1057,6 +1057,91 @@ function renderMyStuffAttention(active) {
 
 let _activeTab = "overview";
 
+// Manager dashboard reference guide — see renderGuide/toggleGuideSection
+// in shared.js for the rendering mechanics. Content only lives here.
+const ADMIN_GUIDE_SECTIONS = [
+  {
+    id: "overview",
+    title: "Overview",
+    subtitle: "Your default tab — the whole team at a glance",
+    body: `
+      <p><strong>Team Pulse</strong> shows every designer as a row — capacity bar, task count, past-due count, and free/over hours for the current week. Click a row to expand it into a full task table for that person, with a jump link over to Designer Workload if you need to edit or plan their week.</p>
+      <p><strong>Needs Attention</strong> has three buckets: <strong>Past Due</strong> (sorted worst-first), <strong>At Risk</strong> (due within 2 days, under 50% progress), and <strong>Needs a Decision</strong> — tasks waiting on a revision HDD, a True EST prompt, or missing EST/HDD entirely, with a "fix →" link straight to that designer.</p>
+      <p><strong>Estimate Guide</strong> (bottom of the page) shows the company-wide median hours per category alongside a goal you set — click it open to edit a goal inline. Designers see this same panel on their own page, but only their own personal pace against the goal, never anyone else's numbers.</p>
+      <p>Use the week arrows next to "Team Pulse" to look at a different week — Past Due/At Risk/Needs a Decision always stay anchored to today regardless, since "past due" isn't meaningful for a hypothetical week.</p>
+    `,
+  },
+  {
+    id: "spotlight",
+    title: "Team Spotlight",
+    subtitle: "Each designer's current focus — this replaced Standups",
+    body: `
+      <p>Shows every designer's currently spotlighted tasks (up to 10 each) — the same star toggle they use on their own page. There's no daily posting step and no timestamp: it's just always whatever's currently pinned, which is the point — no separate check-in ritual to keep up with.</p>
+      <p>A designer with nothing spotlighted just shows "Nothing spotlighted right now" — that's not a red flag, it just means they haven't pinned anything at the moment.</p>
+    `,
+  },
+  {
+    id: "unassigned",
+    title: "To Delegate",
+    subtitle: "The unassigned queue",
+    body: `
+      <p>Every unclaimed todo, oldest first. Set a category from the dropdown right on the row — that's the only edit available here, since these tasks aren't assigned to anyone yet.</p>
+      <p>This tab's Refresh is the fastest one in the app (about a second) — see the <strong>Refresh button</strong> section below for why.</p>
+    `,
+  },
+  {
+    id: "mystuff",
+    title: "My Stuff",
+    subtitle: "Your own Basecamp todos",
+    body: `
+      <p>Same editable table designers get on their own page, but for you — grouped into sections by who the task is really from (a client, a specific manager, sales, etc.), with an overdue badge when whoever holds the last word hasn't heard back from you yet.</p>
+      <p>You can spotlight your own tasks here too, same star, same 10-item cap as everyone else.</p>
+    `,
+  },
+  {
+    id: "priorities",
+    title: "Priorities",
+    subtitle: "Your own freeform checklist",
+    body: `<p>A simple personal to-do list, not tied to Basecamp at all — add items, drag to reorder, check them off. Nobody else sees this.</p>`,
+  },
+  {
+    id: "qa",
+    title: "QA Checklists",
+    subtitle: "Per-service checklists → a shareable certificate",
+    body: `
+      <p>Pick a service, work through its checklist, then create the certificate — you get a link (<code>/qa/cert/...</code>) to paste into the Basecamp to-do as your sign-off.</p>
+      <p>Each item has two ways to satisfy it: <strong>✓ Done</strong> (you verified it) or <strong>N/A</strong> (doesn't apply to this stage or this piece of creative). Both count toward completing the checklist — only a genuinely untouched item blocks you from getting the certificate. Click the same button again to undo it back to unchecked.</p>
+      <p>The certificate page shows N/A items with a distinct badge instead of a checkmark, so anyone reviewing it later can tell "verified" apart from "didn't apply" at a glance.</p>
+      <p>Editing a checklist's items themselves is PIN-gated (bottom of the checklist view) — day-to-day use doesn't need the PIN, only changing what's on the list does.</p>
+    `,
+  },
+  {
+    id: "analytics",
+    title: "Analytics",
+    subtitle: "Capacity, completions, and the Clients rollup",
+    body: `
+      <p><strong>Capacity</strong> is month-over-month utilization per service group, with a headcount what-if simulator. <strong>Completions</strong>/<strong>Weekly Capacity</strong>/<strong>Queue Time</strong>/<strong>Categories</strong> all share one filter bar (designer, category, client, status, date range) at the top.</p>
+      <p><strong>Clients</strong> rolls up every real client by tier, AM, hours logged, and project count — tier and AM come straight from Basecamp's own project-naming convention (e.g. <code>Franklin Family Dental-TN(1)(BW)</code>), so this needed no manual data entry. Click any column header to sort by it; click a client row to expand the individual project titles, each linking straight to Basecamp. Spend isn't shown yet — that lives in Salesforce/DR Pulse, not in Basecamp or this dashboard, so it's marked pending until that's connected.</p>
+    `,
+  },
+  {
+    id: "refresh",
+    title: "The Refresh button",
+    subtitle: "Fast on some tabs, thorough on others — on purpose",
+    body: `
+      <p>Refresh is tab-aware. <strong>To Delegate</strong> and <strong>My Stuff</strong> only re-fetch that one thing (a couple seconds); <strong>Analytics</strong> doesn't need a live fetch at all, it's already reading fresh from the database every time you open it. <strong>Overview</strong>, <strong>Team Spotlight</strong>, and everything else needing the whole team's data still runs the full refresh (10–20 seconds or so), since there's no shortcut for "everyone's current state" — that one genuinely needs to ask Basecamp and Everhour about every designer.</p>
+    `,
+  },
+  {
+    id: "everhour",
+    title: "The Everhour button",
+    subtitle: "One click to log time on a specific task",
+    body: `
+      <p>Wherever you see logged hours next to a task, there's now a small green circular button right beside it — click it to open that exact task in Everhour, in a new tab, ready to add time. No more hunting for the right task in Everhour or Basecamp.</p>
+    `,
+  },
+];
+
 function initTabs() {
   document.querySelectorAll(".tab-btn").forEach(btn => {
     btn.addEventListener("click", () => {
@@ -1080,6 +1165,9 @@ function initTabs() {
       }
       if (tab === "qa") {
         renderQaMount();
+      }
+      if (tab === "guide") {
+        renderGuide("guide-root", ADMIN_GUIDE_SECTIONS);
       }
     });
   });

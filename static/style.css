@@ -1190,6 +1190,19 @@ input.cal-filter-select { font-weight: 500; }
 .eg-body { display: none; padding: 0 22px 20px; overflow-x: auto; }
 .eg-panel.open .eg-body { display: block; }
 
+/* User Guide prose — scoped inside .eg-body so it doesn't affect the
+   Estimate Guide's own table content. */
+.guide-content { font-size: 13.5px; color: var(--text); line-height: 1.6; }
+.guide-content p { margin: 0 0 10px; }
+.guide-content p:last-child { margin-bottom: 0; }
+.guide-content ul { margin: 0 0 10px; padding-left: 20px; }
+.guide-content li { margin-bottom: 4px; }
+.guide-content strong { color: var(--text); font-weight: 700; }
+.guide-content code {
+  background: var(--surface2); padding: 1px 5px; border-radius: 4px;
+  font-size: 12.5px; font-family: ui-monospace, monospace;
+}
+
 .eg-table { width: 100%; border-collapse: collapse; }
 .eg-table th {
   font-size: 10.5px; font-weight: 700; text-transform: uppercase; letter-spacing: .06em;
