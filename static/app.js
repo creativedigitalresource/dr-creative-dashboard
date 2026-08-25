@@ -1581,6 +1581,35 @@ function resetCapSim() {
 // in Basecamp or this app) — Richard's call (2026-08-24) was to ship
 // without it and wire it in later once Salesforce/DR Pulse is reachable,
 // so it always renders as "—" for now rather than a fabricated number.
+let _clientsSort = { key: "hours", dir: "desc" };
+
+function setClientsSort(key) {
+  _clientsSort = _clientsSort.key === key
+    ? { key, dir: _clientsSort.dir === "asc" ? "desc" : "asc" }
+    : { key, dir: "asc" };
+  renderClientsSection(document.getElementById("analytics-content"));
+}
+
+// Tier sorts fine as a plain string ("1" < "1+" < "2" < "3" lexically
+// matches size order); everything else is either a name/initials string
+// or a plain number.
+function sortClients(clients, key, dir) {
+  if (!key) return [...clients];
+  const arr = [...clients];
+  const mul = dir === "asc" ? 1 : -1;
+  const byStr = (a, b) => (a || "").localeCompare(b || "") * mul;
+  const byNum = (a, b) => ((a || 0) - (b || 0)) * mul;
+  switch (key) {
+    case "name":     return arr.sort((a, b) => byStr(a.name, b.name));
+    case "tier":     return arr.sort((a, b) => byStr(a.tier, b.tier));
+    case "am":       return arr.sort((a, b) => byStr(a.am, b.am));
+    case "hours":    return arr.sort((a, b) => byNum(a.hours, b.hours));
+    case "projects": return arr.sort((a, b) => byNum(a.project_count, b.project_count));
+    case "spend":    return arr.sort((a, b) => byNum(a.spend, b.spend));
+    default:         return arr;
+  }
+}
+
 async function renderClientsSection(el) {
   if (!_clientsData) {
     el.innerHTML = `<div class="loading-cell" style="padding:40px;text-align:center">Loading clients…</div>`;
@@ -1595,7 +1624,10 @@ async function renderClientsSection(el) {
   }
   if (!_clientsData.length) { el.innerHTML = _noData("No client data yet."); return; }
 
-  const rows = _clientsData.map(c => `<tr>
+  const sorted = sortClients(_clientsData, _clientsSort.key, _clientsSort.dir);
+  const th = (label, key, tooltip) => sortableTh(label, key, _clientsSort, "setClientsSort", tooltip);
+
+  const rows = sorted.map(c => `<tr>
     <td>${esc(c.name)}</td>
     <td><span class="category-badge">${esc(c.tier)}</span></td>
     <td class="text-muted">${esc(c.am || "—")}</td>
@@ -1604,11 +1636,11 @@ async function renderClientsSection(el) {
     <td class="text-muted">${c.spend != null ? "$" + c.spend : "—"}</td>
   </tr>`).join("");
 
-  const spendHint = `<span class="th-info-wrap"><span class="th-info">&#9432;</span>` +
-    `<span class="th-tooltip">Not tracked in Basecamp or this dashboard — pending a Salesforce/DR Pulse connection.</span></span>`;
-
   el.innerHTML = `<div class="table-wrap"><table class="data-table">
-    <thead><tr><th>Client</th><th>Tier</th><th>AM</th><th>Hours</th><th>Projects</th><th>Spend ${spendHint}</th></tr></thead>
+    <thead><tr>
+      ${th("Client", "name")}${th("Tier", "tier")}${th("AM", "am")}${th("Hours", "hours")}${th("Projects", "projects")}
+      ${th("Spend", "spend", "Not tracked in Basecamp or this dashboard — pending a Salesforce/DR Pulse connection.")}
+    </tr></thead>
     <tbody>${rows}</tbody>
   </table></div>`;
 }
