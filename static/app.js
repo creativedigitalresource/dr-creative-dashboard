@@ -1616,6 +1616,16 @@ function sortClients(clients, key, dir) {
   }
 }
 
+// Keyed by client name (there's no numeric client id) — persists across
+// re-renders within the session, same pattern as Team Pulse's _pulseExpanded.
+const _clientsExpanded = new Set();
+
+function toggleClientRow(name) {
+  if (_clientsExpanded.has(name)) _clientsExpanded.delete(name);
+  else _clientsExpanded.add(name);
+  renderClientsSection(document.getElementById("analytics-content"));
+}
+
 async function renderClientsSection(el) {
   if (!_clientsData) {
     el.innerHTML = `<div class="loading-cell" style="padding:40px;text-align:center">Loading clients…</div>`;
@@ -1633,16 +1643,37 @@ async function renderClientsSection(el) {
   const sorted = sortClients(_clientsData, _clientsSort.key, _clientsSort.dir);
   const th = (label, key, tooltip) => sortableTh(label, key, _clientsSort, "setClientsSort", tooltip);
 
-  const rows = sorted.map(c => `<tr>
-    <td>${esc(c.name)}</td>
-    <td><span class="category-badge">${esc(c.tier)}</span></td>
-    <td class="text-muted">${esc(c.am || "—")}</td>
-    <td>${c.hours}h</td>
-    <td>${c.project_count}</td>
-    <td class="text-muted">${c.spend != null ? "$" + c.spend : "—"}</td>
-  </tr>`).join("");
+  // A completed task from a client with no currently active work has no
+  // Basecamp URL to link to (main.py's api_analytics_clients comment
+  // explains why) — those render as plain text, not a broken link.
+  const projectRow = t => `<div class="team-spotlight-task">
+    <span class="team-spotlight-task-title">${
+      t.url ? `<a href="${t.url}" target="_blank" title="Open in Basecamp">${esc(truncate(t.title, 70))}</a>`
+            : esc(truncate(t.title, 70))
+    }</span>
+  </div>`;
 
-  el.innerHTML = `<div class="table-wrap"><table class="data-table">
+  const rows = sorted.map(c => {
+    const open = _clientsExpanded.has(c.name);
+    const detailRow = open ? `<tr class="client-detail-row">
+      <td colspan="6">${(c.todos || []).map(projectRow).join("") || `<div class="team-spotlight-task-empty">No project titles on record.</div>`}</td>
+    </tr>` : "";
+    return `<tr onclick="toggleClientRow('${esc(c.name).replace(/'/g, "\\'")}')" style="cursor:pointer">
+      <td><span class="sort-arrow" style="display:inline-block;width:12px">${open ? "▾" : "▸"}</span>${esc(c.name)}</td>
+      <td><span class="category-badge">${esc(c.tier)}</span></td>
+      <td class="text-muted">${esc(c.am || "—")}</td>
+      <td>${c.hours}h</td>
+      <td>${c.project_count}</td>
+      <td class="text-muted">${c.spend != null ? "$" + c.spend : "—"}</td>
+    </tr>${detailRow}`;
+  }).join("");
+
+  el.innerHTML = `
+    <div class="analytics-stat-card" style="max-width:180px;margin-bottom:14px">
+      <div class="stat-value">${sorted.length}</div>
+      <div class="stat-label">Total Clients</div>
+    </div>
+    <div class="table-wrap"><table class="data-table">
     <thead><tr>
       ${th("Client", "name")}${th("Tier", "tier")}${th("AM", "am")}${th("Hours", "hours")}${th("Projects", "projects")}
       ${th("Spend", "spend", "Not tracked in Basecamp or this dashboard — pending a Salesforce/DR Pulse connection.")}

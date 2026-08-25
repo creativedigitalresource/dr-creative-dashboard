@@ -1708,39 +1708,58 @@ def _clean_client_name(bucket_name: str) -> str:
     return s.strip()
 
 
+_BC_URL_PREFIX_RE = re.compile(r"^(.+/buckets/\d+)/todos/\d+")
+
+
 @app.get("/api/analytics/clients")
 async def api_analytics_clients():
     """Per-client rollup for the Analytics tab: tier + AM (parsed from the
-    Basecamp project name), total hours logged, and distinct project count.
-    Spend isn't tracked anywhere in Basecamp or this app's own data — it
-    lives in Salesforce/DR Pulse. Richard's call (2026-08-24): ship this
-    without it for now and wire spend in later once that's reachable again;
-    the column is included as null so the frontend can render it as
+    Basecamp project name), total hours logged, distinct project count,
+    and the list of project titles themselves (for the expand-per-client
+    view). Spend isn't tracked anywhere in Basecamp or this app's own data
+    — it lives in Salesforce/DR Pulse. Richard's call (2026-08-24): ship
+    this without it for now and wire spend in later once that's reachable
+    again; the column is included as null so the frontend can render it as
     "pending" rather than needing a shape change later.
 
     Sources one todo-level map first (historical completions, then live
     active/unassigned data overwriting by id) so a task is never counted
-    or hour-summed twice even if it briefly appears in both."""
+    or hour-summed twice even if it briefly appears in both.
+
+    Historical completions never had a Basecamp URL stored (only the live
+    active/unassigned data does), so a completed task from a client with
+    no currently active work has no way to construct one — those render
+    as plain text on the frontend rather than a broken link. For a client
+    that DOES still have live work, its bucket_id doesn't change over
+    time, so the URL prefix from any one live task is reused to build a
+    real, correct link for that client's other, otherwise URL-less,
+    completed tasks too."""
     todos_by_id: dict[str, dict] = {}
     for row in store.get_analytics_completions():
         todos_by_id[str(row.get("todo_id"))] = {
             "bucket_name": row.get("client_name"),
+            "title": row.get("title"),
+            "url": None,
             "hours": row.get("logged_hours") or 0,
         }
     for d in _cached_data.get("designers", []):
         for t in d.get("todos", []):
             todos_by_id[str(t["id"])] = {
                 "bucket_name": t.get("bucket_name"),
+                "title": t.get("title"),
+                "url": t.get("url"),
                 "hours": t.get("logged") or 0,
             }
     for t in _cached_data.get("unassigned", []):
         todos_by_id.setdefault(str(t["id"]), {
             "bucket_name": t.get("bucket_name"),
+            "title": t.get("title"),
+            "url": t.get("url"),
             "hours": 0,
         })
 
     clients: dict[str, dict] = {}
-    for info in todos_by_id.values():
+    for tid, info in todos_by_id.items():
         bn = info["bucket_name"]
         m = _TIER_AM_RE.search(bn or "")
         if not m:
@@ -1748,12 +1767,23 @@ async def api_analytics_clients():
         name = _clean_client_name(bn)
         c = clients.setdefault(name, {
             "name": name, "tier": m.group(1), "am": m.group(2),
-            "hours": 0.0, "project_count": 0,
+            "hours": 0.0, "project_count": 0, "todos": [],
         })
         c["hours"] += info["hours"] or 0
         c["project_count"] += 1
+        c["todos"].append({"id": tid, "title": info["title"], "url": info["url"]})
 
-    out = [{**c, "hours": round(c["hours"], 1), "spend": None} for c in clients.values()]
+    out = []
+    for c in clients.values():
+        prefix = next((_BC_URL_PREFIX_RE.match(t["url"]).group(1)
+                        for t in c["todos"] if t["url"] and _BC_URL_PREFIX_RE.match(t["url"])), None)
+        if prefix:
+            for t in c["todos"]:
+                if not t["url"]:
+                    t["url"] = f"{prefix}/todos/{t['id']}"
+        c["todos"].sort(key=lambda t: (t["title"] or "").lower())
+        out.append({**c, "hours": round(c["hours"], 1), "spend": None})
+
     out.sort(key=lambda c: c["hours"], reverse=True)
     return out
 
