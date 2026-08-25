@@ -827,6 +827,7 @@ async def api_me():
         return {"warming": True}
     pto = store.get_all_pto().get(str(ME["bc_id"]), [])
     return {"name": me["name"], "color": me["color"], "avatar": me.get("avatar"), "pto": pto,
+            "eh_id": ME.get("eh_id"),
             "todos": _public_todos(me),
             "last_updated": max(_cached_data.get("last_updated") or 0, _cached_data.get("me_last_updated") or 0)}
 
@@ -871,6 +872,7 @@ async def api_my(token: str):
         if age_days <= 10:  # stale messages read worse than none
             manager_message = {"text": msg, "at": float(msg_at)}
     return {"name": d["name"], "color": d["color"], "avatar": d.get("avatar"), "pto": pto, "todos": todos,
+            "eh_id": d.get("eh_id"),
             "planner_order": store.get_planner_order(d["bc_id"]),
             "notes": store.get_designer_note(d["bc_id"]),
             "kudos": store.get_kudos(d["bc_id"], since_ts=str(int(time.time() - 183 * 86400))),

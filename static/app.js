@@ -604,11 +604,11 @@ function renderDesignerCard(d, showCompleted = false) {
     <div class="completed-toggle" onclick="toggleCompleted('${d.bc_id}')">
       ${showCompleted ? "▲ Hide" : "▼ Show"} ${completedTodos.length} completed task${completedTodos.length !== 1 ? "s" : ""}
     </div>
-    ${showCompleted ? `<ul class="designer-todos completed-section">${completedTodos.map(t => renderTodoItem(t, d.color, true)).join("")}</ul>` : ""}
+    ${showCompleted ? `<ul class="designer-todos completed-section">${completedTodos.map(t => renderTodoItem(t, d.color, true, false, null, d.eh_id)).join("")}</ul>` : ""}
   ` : "";
 
   const todosHtml = activeTodos.length
-    ? `<ul class="designer-todos">${activeTodos.map(t => renderTodoItem(t, d.color, false, pulledForward.has(t.id))).join("")}</ul>${completedFooter}`
+    ? `<ul class="designer-todos">${activeTodos.map(t => renderTodoItem(t, d.color, false, pulledForward.has(t.id), null, d.eh_id)).join("")}</ul>${completedFooter}`
     : `<div class="no-todos">No active tasks</div>${completedFooter}`;
 
   return `
@@ -960,6 +960,7 @@ function renderMyStuff() {
     sort: _myStuffSort.key ? _myStuffSort : null,
     sortFn: "setMyStuffSort",
     showSender: true,
+    ehId: d.eh_id,
   };
   const sectionsHTML = sections.length
     ? sections.map(g => `
@@ -970,7 +971,7 @@ function renderMyStuff() {
     : `<div class="my-table-wrap"><div class="attention-empty">No active tasks this week.</div></div>`;
 
   root.innerHTML = `
-    ${buildSpotlightSection(active, d.color)}
+    ${buildSpotlightSection(active, d.color, d.eh_id)}
     <div class="pulse-panel">
       <div class="my-pulse">
         ${avatarHTML(d)}

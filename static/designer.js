@@ -210,7 +210,7 @@ function renderMe() {
   root.innerHTML = `
     ${ticker}
     ${mmBanner}
-    ${buildSpotlightSection(active, d.color)}
+    ${buildSpotlightSection(active, d.color, d.eh_id)}
     <div class="pulse-panel">
       <div class="my-pulse">
         ${avatarHTML(d)}
@@ -228,6 +228,7 @@ function renderMe() {
         spotlight: { atCap: spotlightCount >= SPOTLIGHT_MAX },
         sort: _mySort.key ? _mySort : null,
         sortFn: "setMySort",
+        ehId: d.eh_id,
       })}</div>
     </div>
     <div class="pulse-panel">

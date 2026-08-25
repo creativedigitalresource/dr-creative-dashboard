@@ -385,16 +385,26 @@ function pillTrueEst(t, isCompleted = false) {
 // successfully for every real API call this app makes — Everhour's own
 // docs don't document a URL format for this, so if it lands on the wrong
 // page, this one line is the fix.
-function everhourTaskUrl(todoId) {
-  return `https://app.everhour.com/#/tasks/b3:${todoId}`;
+//
+// CONFIRMED live 2026-08-25 (Richard copied a real URL out of Everhour):
+// #/members/{everhour_user_id}/timelog(view:b3:{basecamp_todo_id}) — the
+// assignee's own Everhour user id, not just the task id. Every render
+// call site threads that person's eh_id down to here; if it's missing
+// (shouldn't happen — every designer and Richard both have one — but
+// defensively) the button is simply omitted rather than link to a
+// half-built URL.
+function everhourTaskUrl(ehId, todoId) {
+  return `https://app.everhour.com/#/members/${ehId}/timelog(view:b3:${todoId})`;
 }
 
-function pillLogged(t) {
+function pillLogged(t, ehId) {
   const logged = t.logged || 0;
   const cls = (t.overrides || []).includes("logged") ? "overridden" : "";
   const loggedPill = `<span class="meta-pill ${cls} editable" onclick="editField(event,'${t.id}','logged','duration','${logged}')" title="Click to log time — try 1h, 30m, 1h30m, or a bare number for hours">${logged > 0 ? logged + "h" : "+ Log"}</span>`;
-  const everhourBtn = `<a class="everhour-btn" href="${everhourTaskUrl(t.id)}" target="_blank" rel="noopener" onclick="event.stopPropagation()" title="Add time in Everhour"><img src="/static/img/icons/everhour.svg" class="everhour-icon" alt="Everhour" /></a>`;
-  return `${loggedPill}${everhourBtn}`;
+  const everhourBtn = ehId
+    ? `<a class="everhour-btn" href="${everhourTaskUrl(ehId, t.id)}" target="_blank" rel="noopener" onclick="event.stopPropagation()" title="Add time in Everhour"><img src="/static/img/icons/everhour.svg" class="everhour-icon" alt="Everhour" /></a>`
+    : "";
+  return `<span class="logged-cell">${loggedPill}${everhourBtn}</span>`;
 }
 
 function selCategory(t) {
@@ -407,13 +417,13 @@ function selCategory(t) {
 
 // Progress against the stable allocation window max(est, true_est) —
 // never the moving max(est, logged) capacity floor
-function progressBlock(t, color) {
+function progressBlock(t, color, ehId) {
   const allocTotal = Math.max(t.est ?? 0, t.true_est ?? 0);
   const logged = t.logged || 0;
   const overBy = t.over_by || 0;
   const stepComplete = t.designer_step && t.designer_step.completed;
   const barPct = stepComplete ? 100 : (allocTotal > 0 ? Math.min(100, logged / allocTotal * 100) : 0);
-  const loggedEl = pillLogged(t);
+  const loggedEl = pillLogged(t, ehId);
   if (allocTotal <= 0) return `<div class="progress-wrap">${loggedEl}</div>`;
   const barColor = overBy > 0 ? "var(--danger)" : color;
   const overBadge = overBy > 0 ? `<span class="over-budget-badge">+${overBy}h over</span>` : "";
@@ -504,7 +514,7 @@ function buildTaskTable(todos, color, opts = {}) {
       <td>${pillHdd(t)}</td>
       <td>${pillEst(t)}</td>
       <td>${pillTrueEst(t) || `<span class="ov-muted">&mdash;</span>`}</td>
-      <td>${pillLogged(t)}</td>
+      <td>${pillLogged(t, opts.ehId)}</td>
       <td>${selCategory(t)}</td>
       <td>${progressCellCompact(t, color)}</td>
       <td>${t.url ? `<a href="${t.url}" target="_blank" class="link-btn" title="Open in Basecamp" onclick="event.stopPropagation()">&#8599;</a>` : ""}</td>
@@ -519,12 +529,12 @@ function buildTaskTable(todos, color, opts = {}) {
 
 /* ---- Task card, shared by Designer Workload cards and the Spotlight
    section (spotlightOpts = null hides the star entirely) ---- */
-function renderTodoItem(t, color, isCompleted = false, pulledForward = false, spotlightOpts = null) {
+function renderTodoItem(t, color, isCompleted = false, pulledForward = false, spotlightOpts = null, ehId = null) {
   const dateStr = pillDate(t);
   const hddStr = pillHdd(t);
   const estStr = pillEst(t);
   const trueEstStr = pillTrueEst(t, isCompleted);
-  const progressHtml = progressBlock(t, color);
+  const progressHtml = progressBlock(t, color, ehId);
   const catStr = selCategory(t);
 
   const clientName = cleanClient(t.bucket_name);
@@ -584,10 +594,10 @@ function toggleSpotlight(todoId, on) {
   window.__commitSpotlight(todoId, on);
 }
 
-function buildSpotlightSection(todos, color) {
+function buildSpotlightSection(todos, color, ehId) {
   const spotlighted = todos.filter(t => t.is_spotlighted && !t.is_complete);
   if (!spotlighted.length) return "";
-  const items = spotlighted.map(t => renderTodoItem(t, color, false, false, { atCap: false })).join("");
+  const items = spotlighted.map(t => renderTodoItem(t, color, false, false, { atCap: false }, ehId)).join("");
   return `<div class="pulse-panel spotlight-panel">
     <div class="spotlight-head">
       <div class="spotlight-title"><img src="/static/img/icons/lightbulb-on.png" class="spotlight-bulb" alt="" /> Spotlight</div>
@@ -833,7 +843,7 @@ function renderPulseDetail(d, s, ctx = "manager") {
   const sorted = sortTodos(s.active, sort.key, sort.dir);
   const sortFn = ctx === "manager" ? "setPulseDetailSort" : "setDelegatePulseDetailSort";
   return `<div class="pulse-detail">
-    ${buildTaskTable(sorted, d.color, { sort: sort.key ? sort : null, sortFn })}
+    ${buildTaskTable(sorted, d.color, { sort: sort.key ? sort : null, sortFn, ehId: d.eh_id })}
   </div>`;
 }
 
