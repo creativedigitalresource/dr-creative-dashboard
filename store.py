@@ -624,11 +624,11 @@ def get_estimate_goals() -> dict:
 
 
 # ---------------------------------------------------------------------------
-# Spotlight — each designer (and Richard, for My Stuff) can pin up to 4 of
+# Spotlight — each designer (and Richard, for My Stuff) can pin up to 10 of
 # their own tasks to a dedicated section at the top of their page.
 # ---------------------------------------------------------------------------
 
-SPOTLIGHT_MAX = 4
+SPOTLIGHT_MAX = 10
 
 
 def set_spotlight(designer_bc_id: str, todo_id: str, on: bool) -> dict:

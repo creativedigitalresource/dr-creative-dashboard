@@ -167,7 +167,7 @@ function renderMe() {
         <div class="pulse-free ${free <= 2 ? "low" : free <= 8 ? "mid" : "ok"}">${free < 0 ? Math.abs(free) + "h over" : free + "h free"}</div>
       </div>
       <div class="my-table-wrap">${buildTaskTable(sorted, d.color, {
-        spotlight: { atCap: spotlightCount >= 4 },
+        spotlight: { atCap: spotlightCount >= SPOTLIGHT_MAX },
         sort: _mySort.key ? _mySort : null,
         sortFn: "setMySort",
       })}</div>

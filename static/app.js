@@ -956,7 +956,7 @@ function renderMyStuff() {
   const sections = _groupByPriority(sorted);
 
   const tableOpts = {
-    spotlight: { atCap: spotlightCount >= 4 },
+    spotlight: { atCap: spotlightCount >= SPOTLIGHT_MAX },
     sort: _myStuffSort.key ? _myStuffSort : null,
     sortFn: "setMyStuffSort",
     showSender: true,

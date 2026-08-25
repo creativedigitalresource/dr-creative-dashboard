@@ -553,11 +553,11 @@ function renderTodoItem(t, color, isCompleted = false, pulledForward = false, sp
   </li>`;
 }
 
-/* ---- Spotlight — up to 4 tasks a designer (or Richard, for My Stuff) can
+/* ---- Spotlight — up to 10 tasks a designer (or Richard, for My Stuff) can
    pin to the top of their own page. Toggled via a star on each task; the
    page defines window.__commitSpotlight(todoId, on) the same way it
    defines window.__commitField. ---- */
-const SPOTLIGHT_MAX = 4;
+const SPOTLIGHT_MAX = 10;
 
 function spotlightStarHTML(t, atCap) {
   const disabled = !t.is_spotlighted && atCap;
@@ -711,7 +711,7 @@ function renderTeamSpotlight(designers) {
         ${avatarHTML(d, { cls: "designer-avatar" })}
         <div class="team-spotlight-info">
           <div class="designer-name">${esc(d.name)}</div>
-          <div class="team-spotlight-count">${spotlighted.length}/4 spotlighted</div>
+          <div class="team-spotlight-count">${spotlighted.length}/${SPOTLIGHT_MAX} spotlighted</div>
         </div>
       </div>
       <div class="team-spotlight-tasks">${taskRows(spotlighted)}</div>
