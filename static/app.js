@@ -1590,9 +1590,15 @@ function setClientsSort(key) {
   renderClientsSection(document.getElementById("analytics-content"));
 }
 
-// Tier sorts fine as a plain string ("1" < "1+" < "2" < "3" lexically
-// matches size order); everything else is either a name/initials string
-// or a plain number.
+// Tier isn't alphabetical — "1+" is DR's own top tier, ranked above plain
+// "1" (their own convention lists it "1+, 1, 2, 3"), not something
+// in between "1" and "2" the way a string compare would put it.
+const _TIER_ORDER = ["1+", "1", "2", "3"];
+function _tierRank(tier) {
+  const i = _TIER_ORDER.indexOf(tier);
+  return i === -1 ? _TIER_ORDER.length : i;
+}
+
 function sortClients(clients, key, dir) {
   if (!key) return [...clients];
   const arr = [...clients];
@@ -1601,7 +1607,7 @@ function sortClients(clients, key, dir) {
   const byNum = (a, b) => ((a || 0) - (b || 0)) * mul;
   switch (key) {
     case "name":     return arr.sort((a, b) => byStr(a.name, b.name));
-    case "tier":     return arr.sort((a, b) => byStr(a.tier, b.tier));
+    case "tier":     return arr.sort((a, b) => byNum(_tierRank(a.tier), _tierRank(b.tier)));
     case "am":       return arr.sort((a, b) => byStr(a.am, b.am));
     case "hours":    return arr.sort((a, b) => byNum(a.hours, b.hours));
     case "projects": return arr.sort((a, b) => byNum(a.project_count, b.project_count));
