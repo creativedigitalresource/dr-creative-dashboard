@@ -341,6 +341,15 @@ body { min-height: 100vh; }
 .meta-pill.editable { cursor: pointer; }
 .meta-pill.editable:hover { opacity: 0.75; transform: scale(1.03); }
 
+/* Circular "add time in Everhour" button — sits right next to the logged-
+   hours pill wherever it appears (task tables, cards, spotlight). */
+.everhour-btn {
+  display: inline-flex; align-items: center; justify-content: center;
+  width: 18px; height: 18px; margin-left: 4px; vertical-align: middle;
+  border-radius: 50%; flex-shrink: 0; transition: transform .15s;
+}
+.everhour-btn:hover { transform: scale(1.15); }
+.everhour-icon { width: 18px; height: 18px; display: block; }
 
 .inline-field-input {
   padding: 3px 8px;

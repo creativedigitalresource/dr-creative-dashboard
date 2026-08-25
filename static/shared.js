@@ -380,10 +380,21 @@ function pillTrueEst(t, isCompleted = false) {
   return "";
 }
 
+// Best-guess deep link into Everhour's own web app for this task, built on
+// the id scheme (b3:{basecamp_todo_id}) everhour.py already uses
+// successfully for every real API call this app makes — Everhour's own
+// docs don't document a URL format for this, so if it lands on the wrong
+// page, this one line is the fix.
+function everhourTaskUrl(todoId) {
+  return `https://app.everhour.com/#/tasks/b3:${todoId}`;
+}
+
 function pillLogged(t) {
   const logged = t.logged || 0;
   const cls = (t.overrides || []).includes("logged") ? "overridden" : "";
-  return `<span class="meta-pill ${cls} editable" onclick="editField(event,'${t.id}','logged','duration','${logged}')" title="Click to log time — try 1h, 30m, 1h30m, or a bare number for hours">${logged > 0 ? logged + "h" : "+ Log"}</span>`;
+  const loggedPill = `<span class="meta-pill ${cls} editable" onclick="editField(event,'${t.id}','logged','duration','${logged}')" title="Click to log time — try 1h, 30m, 1h30m, or a bare number for hours">${logged > 0 ? logged + "h" : "+ Log"}</span>`;
+  const everhourBtn = `<a class="everhour-btn" href="${everhourTaskUrl(t.id)}" target="_blank" rel="noopener" onclick="event.stopPropagation()" title="Add time in Everhour"><img src="/static/img/icons/everhour.svg" class="everhour-icon" alt="Everhour" /></a>`;
+  return `${loggedPill}${everhourBtn}`;
 }
 
 function selCategory(t) {
