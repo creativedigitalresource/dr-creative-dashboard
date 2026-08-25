@@ -1139,8 +1139,10 @@ async def api_create_qa_certificate(request: Request):
     items = body.get("items", [])
     if not service or not isinstance(items, list) or not items:
         return Response(status_code=400)
-    if not all(isinstance(i, dict) and i.get("checked") for i in items):
-        return {"ok": False, "error": "Every checklist item must be checked off before completing QA"}
+    # "na" (not applicable to this stage/creative) satisfies the gate the
+    # same as "checked" — only a real "unchecked" item blocks completion.
+    if not all(isinstance(i, dict) and i.get("state") in ("checked", "na") for i in items):
+        return {"ok": False, "error": "Every checklist item must be checked or marked N/A before completing QA"}
     cert_id = secrets.token_urlsafe(8)
     cert = store.create_qa_certificate(
         cert_id=cert_id,
@@ -1148,7 +1150,10 @@ async def api_create_qa_certificate(request: Request):
         task_title=str(body.get("task_title", "")).strip()[:300],
         client_name=str(body.get("client_name", "")).strip()[:200],
         completed_by=str(body.get("completed_by", "")).strip()[:100],
-        items=[{"text": str(i.get("text", "")), "checked": True} for i in items],
+        # Preserve the real per-item state (checked vs na) rather than
+        # collapsing everything to checked — the gate above already
+        # guarantees only those two values ever reach here.
+        items=[{"text": str(i.get("text", "")), "state": i.get("state")} for i in items],
         notes=str(body.get("notes", "")).strip()[:2000],
     )
     return {"ok": True, "id": cert_id, "url": f"/qa/cert/{cert_id}"}

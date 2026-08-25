@@ -1358,13 +1358,27 @@ input.cal-filter-select { font-weight: 500; }
 
 .qa-item-list { list-style: none; display: flex; flex-direction: column; gap: 6px; margin-bottom: 18px; }
 .qa-item {
-  display: flex; align-items: flex-start; gap: 10px; padding: 10px 12px; border-radius: var(--radius-sm);
-  background: var(--surface); border: 1px solid var(--border); cursor: pointer;
+  display: flex; align-items: center; justify-content: space-between; gap: 10px; padding: 10px 12px; border-radius: var(--radius-sm);
+  background: var(--surface); border: 1px solid var(--border);
 }
 .qa-item:hover { border-color: var(--accent); }
 .qa-item.done { background: var(--accent-light); border-color: transparent; }
 .qa-item-text { font-size: 13.5px; color: var(--text); line-height: 1.4; }
 .qa-item.done .qa-item-text { color: var(--text-muted); text-decoration: line-through; }
+
+/* Per-item Done/N/A segmented control — same pill-group pattern as
+   .pulse-sort/.sort-btn, sized down. Done gets the success color so it
+   reads as "verified"; N/A stays neutral so it reads as "doesn't apply"
+   rather than "passed" at a glance. */
+.qa-state-group { display: flex; gap: 2px; background: var(--surface2); border: 1px solid var(--border); border-radius: 16px; padding: 2px; flex-shrink: 0; }
+.qa-state-btn {
+  border: none; background: transparent; cursor: pointer;
+  font-size: 11.5px; font-weight: 600; color: var(--text-muted);
+  padding: 4px 10px; border-radius: 13px; white-space: nowrap;
+  transition: background .15s, color .15s;
+}
+.qa-state-btn.active { background: var(--success-light); color: var(--success); box-shadow: var(--shadow-sm); }
+.qa-state-btn.qa-state-na.active { background: var(--surface); color: var(--text); }
 
 .qa-meta-row { display: flex; gap: 10px; margin-bottom: 10px; flex-wrap: wrap; }
 .qa-meta-row .priority-input { flex: 1; min-width: 180px; }
@@ -1409,6 +1423,11 @@ input.cal-filter-select { font-weight: 500; }
 .qa-cert-item-list { list-style: none; display: flex; flex-direction: column; gap: 8px; }
 .qa-cert-item { display: flex; align-items: flex-start; gap: 10px; font-size: 13.5px; color: var(--text); }
 .qa-cert-check { color: var(--success); font-weight: 700; flex-shrink: 0; }
+.qa-cert-item-na { color: var(--text-muted); }
+.qa-cert-check.qa-cert-na {
+  color: var(--text-muted); font-size: 10px; font-weight: 700; letter-spacing: .02em;
+  border: 1px solid var(--border); border-radius: 4px; padding: 1px 4px; line-height: 1.4;
+}
 .qa-cert-notes { font-size: 13.5px; color: var(--text); white-space: pre-wrap; line-height: 1.5; }
 .qa-cert-footer { text-align: center; margin: 20px 0 40px; }
 

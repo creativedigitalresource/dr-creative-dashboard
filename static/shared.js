@@ -1039,13 +1039,14 @@ function renderQaServiceGrid() {
 
 function openQaChecklist(service) {
   _qaService = service;
-  _qaItems = (_qaTemplates[service] || []).map(text => ({ text, checked: false }));
+  _qaItems = (_qaTemplates[service] || []).map(text => ({ text, state: "unchecked" }));
   renderQaChecklistView();
 }
 
 function renderQaChecklistView() {
   const root = document.getElementById("qa-root");
-  const doneCount = _qaItems.filter(i => i.checked).length;
+  // Both "checked" and "na" satisfy an item — only "unchecked" is incomplete.
+  const doneCount = _qaItems.filter(i => i.state !== "unchecked").length;
   const allDone = doneCount === _qaItems.length && _qaItems.length > 0;
   root.innerHTML = `
     <div class="qa-checklist-head">
@@ -1055,9 +1056,15 @@ function renderQaChecklistView() {
     </div>
     <ul class="qa-item-list">
       ${_qaItems.map((item, i) => `
-        <li class="qa-item ${item.checked ? "done" : ""}" onclick="toggleQaItem(${i})">
-          <span class="priority-check ${item.checked ? "checked" : ""}">${item.checked ? "&#10003;" : ""}</span>
+        <li class="qa-item ${item.state !== "unchecked" ? "done" : ""}">
           <span class="qa-item-text">${esc(item.text)}</span>
+          <div class="qa-state-group">
+            <button class="qa-state-btn${item.state === "checked" ? " active" : ""}"
+              onclick="event.stopPropagation();setQaItemState(${i},'checked')">&#10003; Done</button>
+            <button class="qa-state-btn qa-state-na${item.state === "na" ? " active" : ""}"
+              onclick="event.stopPropagation();setQaItemState(${i},'na')"
+              title="Not applicable to this stage or creative">N/A</button>
+          </div>
         </li>
       `).join("")}
     </ul>
@@ -1079,8 +1086,10 @@ function renderQaChecklistView() {
   `;
 }
 
-function toggleQaItem(i) {
-  _qaItems[i].checked = !_qaItems[i].checked;
+// Clicking the already-active button reverts to "unchecked" (toggle-off);
+// clicking the other one switches directly — no ambiguous 3-way cycling.
+function setQaItemState(i, state) {
+  _qaItems[i].state = _qaItems[i].state === state ? "unchecked" : state;
   renderQaChecklistView();
 }
 

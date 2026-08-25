@@ -10,6 +10,14 @@ async function loadCertificate() {
   renderCertificate(cert);
 }
 
+// Old certs have no `state` field at all (pre-N/A shape) — those count
+// as fully passed, same as they always displayed.
+function checklistSummary(items) {
+  const naCount = items.filter(i => i.state === "na").length;
+  const checkedCount = items.length - naCount;
+  return naCount > 0 ? `${checkedCount} passed, ${naCount} N/A` : `${checkedCount}/${checkedCount} passed`;
+}
+
 function renderCertificate(cert) {
   const root = document.getElementById("cert-root");
   const date = new Date(cert.created_at * 1000).toLocaleDateString("en-US", {
@@ -36,9 +44,12 @@ function renderCertificate(cert) {
       ${metaRows}
     </div>
     <div class="qa-cert-panel">
-      <div class="qa-cert-panel-title">Checklist (${cert.items.length}/${cert.items.length} passed)</div>
+      <div class="qa-cert-panel-title">Checklist (${checklistSummary(cert.items)})</div>
       <ul class="qa-cert-item-list">
-        ${cert.items.map(i => `<li class="qa-cert-item"><span class="qa-cert-check">&#10003;</span>${esc(i.text)}</li>`).join("")}
+        ${cert.items.map(i => i.state === "na"
+          ? `<li class="qa-cert-item qa-cert-item-na"><span class="qa-cert-check qa-cert-na">N/A</span>${esc(i.text)}</li>`
+          : `<li class="qa-cert-item"><span class="qa-cert-check">&#10003;</span>${esc(i.text)}</li>`
+        ).join("")}
       </ul>
     </div>
     ${cert.notes ? `
