@@ -1715,33 +1715,37 @@ function renderAnalyticsStats(completions, queue) {
   // Hours-weighted (sum logged ÷ sum est), not a mean of per-task ratios.
   // A raw mean is dominated by outliers — a 15-minute task logged at 10x
   // its estimate moves the average exactly as much as an 8-hour task
-  // logged spot-on, which is why this used to read as an implausible
-  // 140%+ despite the team tracking close to on-target in aggregate
-  // (confirmed live 2026-08-28: mean-of-ratios said 112.6%, but
-  // sum(logged)/sum(est) across the same data was 98.4%). Weighting by
-  // real hours reflects actual time the way capacity planning already
-  // does everywhere else in this app.
+  // logged spot-on. Weighting by real hours reflects actual time the way
+  // capacity planning already does everywhere else in this app.
+  //
+  // Shown as a signed delta from 100% (+over / −under), not a raw ratio —
+  // "110% accuracy" reads as a good score when it actually means running
+  // 10% over, the opposite. "+10%" in red (same red-over/green-under
+  // convention the per-row Variance column already uses) says the same
+  // thing but can't be misread as "better than 100% accurate."
   const totalLogged = withBoth.reduce((s, c) => s + c.logged_hours, 0);
   const totalEst = withBoth.reduce((s, c) => s + c.est_hours, 0);
-  const avgAccuracy = withBoth.length && totalEst > 0
-    ? Math.round(totalLogged / totalEst * 100)
+  const estDelta = withBoth.length && totalEst > 0
+    ? Math.round((totalLogged / totalEst - 1) * 100)
     : null;
+  const estDeltaColor = estDelta == null ? "" : estDelta > 0 ? "color:var(--danger)" : estDelta < 0 ? "color:var(--success)" : "";
+  const estDeltaLabel = estDelta == null ? "—" : (estDelta > 0 ? "+" : "") + estDelta + "%";
   const misses = completions.filter(c => c.was_hdd_miss).length;
   const missRate = total ? Math.round(misses / total * 100) : null;
   const avgQueue = queue.length
     ? (queue.reduce((s, q) => s + q.hours_in_queue, 0) / queue.length).toFixed(1)
     : null;
 
-  const stat = (label, value, sub = "") => `
+  const stat = (label, value, sub = "", valueStyle = "") => `
     <div class="analytics-stat-card">
-      <div class="stat-value">${value}</div>
+      <div class="stat-value"${valueStyle ? ` style="${valueStyle}"` : ""}>${value}</div>
       <div class="stat-label">${label}</div>
       ${sub ? `<div class="stat-sub">${sub}</div>` : ""}
     </div>`;
 
   document.getElementById("analytics-stats").innerHTML = `
     ${stat("Tasks Completed", total, _anFilterActive() ? "filtered" : "all time")}
-    ${stat("EST Accuracy", avgAccuracy !== null ? avgAccuracy + "%" : "—", "logged ÷ est, weighted by hours")}
+    ${stat("EST Variance", estDeltaLabel, "logged vs est, weighted by hours", estDeltaColor)}
     ${stat("HDD Miss Rate", missRate !== null ? missRate + "%" : "—", "completed after deadline")}
     ${stat("Avg Queue Time", avgQueue !== null ? avgQueue + "h" : "—", "unassigned → claimed")}
   `;
