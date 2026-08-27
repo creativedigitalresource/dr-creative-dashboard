@@ -413,12 +413,36 @@ def delete_queue_tracking(todo_id):
 def record_completion(todo_id, designer_bc_id, designer_name, title, category,
                       client_name, est_hours, logged_hours, hdd, due_on,
                       week_start, was_hdd_miss, had_revision):
+    """Upsert, not insert-or-ignore. A task can leave a designer's active
+    list, come back for another round (AM review → more revisions →
+    designer again — a normal workflow, not an edge case), and leave
+    again; each time that happens this fires again for the same
+    (todo_id, designer_bc_id). The old INSERT OR IGNORE meant only the
+    FIRST detection ever stuck — confirmed live 2026-08-27: a task with
+    3 review rounds over 2 weeks got permanently recorded with a stale
+    in-progress EST/logged snapshot from the first time it briefly left
+    the designer's list for AM review, and its real final numbers a week
+    later were silently dropped. Upserting means each re-detection
+    corrects the record to the latest, most-accurate snapshot."""
     with get_db() as c:
         c.execute("""
-            INSERT OR IGNORE INTO analytics_completions
+            INSERT INTO analytics_completions
               (todo_id, designer_bc_id, designer_name, title, category, client_name,
                est_hours, logged_hours, hdd, due_on, week_start, was_hdd_miss, had_revision)
             VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?)
+            ON CONFLICT(todo_id, designer_bc_id) DO UPDATE SET
+                designer_name = excluded.designer_name,
+                title = excluded.title,
+                category = excluded.category,
+                client_name = excluded.client_name,
+                est_hours = excluded.est_hours,
+                logged_hours = excluded.logged_hours,
+                hdd = excluded.hdd,
+                due_on = excluded.due_on,
+                week_start = excluded.week_start,
+                was_hdd_miss = excluded.was_hdd_miss,
+                had_revision = excluded.had_revision,
+                recorded_at = unixepoch()
         """, (str(todo_id), str(designer_bc_id), designer_name, title, category,
               client_name, est_hours, logged_hours, hdd, due_on,
               week_start, was_hdd_miss, had_revision))
@@ -431,6 +455,17 @@ def update_completion_logged_hours(todo_id, designer_bc_id, logged_hours) -> boo
         cur = c.execute(
             "UPDATE analytics_completions SET logged_hours=? WHERE todo_id=? AND designer_bc_id=? AND logged_hours!=?",
             (logged_hours, str(todo_id), str(designer_bc_id), logged_hours))
+        return cur.rowcount > 0
+
+
+def update_completion_est_hours(todo_id, designer_bc_id, est_hours) -> bool:
+    """Same as update_completion_logged_hours, for est_hours — the other
+    field that was never fresh-refetched at completion time (see
+    main.py's _fresh_est_hours) and so could equally be stale."""
+    with get_db() as c:
+        cur = c.execute(
+            "UPDATE analytics_completions SET est_hours=? WHERE todo_id=? AND designer_bc_id=? AND (est_hours IS NULL OR est_hours!=?)",
+            (est_hours, str(todo_id), str(designer_bc_id), est_hours))
         return cur.rowcount > 0
 
 

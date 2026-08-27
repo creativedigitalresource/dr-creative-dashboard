@@ -313,6 +313,27 @@ async def _fresh_logged_hours(designer_bc_id: str, todo_id: str, fallback: float
         return fallback
 
 
+async def _fresh_est_hours(designer_bc_id: str, todo_id: str, fallback: float | None) -> float | None:
+    """Same idea as _fresh_logged_hours, for est_hours — this one never had
+    the fresh-refetch treatment, so a completion's EST was always whatever
+    the last regular refresh happened to see, even if it was bumped
+    between then and the moment the task actually left the designer's
+    list. Confirmed live 2026-08-27: a completion recorded EST 4h for a
+    task Everhour showed had a real 9h estimate by the time it was done."""
+    if not eh.EH_KEY:
+        return fallback
+    designer = next((d for d in DESIGNERS if str(d["bc_id"]) == str(designer_bc_id)), None)
+    if not designer or not designer.get("eh_id"):
+        return fallback
+    try:
+        fresh = await asyncio.wait_for(eh.get_time_logged(todo_id), timeout=6.0)
+        fresh_val = fresh.get("user_estimates", {}).get(str(designer["eh_id"]))
+        return fresh_val if fresh_val is not None else fallback
+    except Exception as e:
+        print(f"[analytics] fresh EST refetch failed for {todo_id}: {e}")
+        return fallback
+
+
 async def _record_analytics(designers_out: list, unassigned: list, refresh_ts: float):
     today = date.today()
     week = _week_start(today)
@@ -346,6 +367,7 @@ async def _record_analytics(designers_out: list, unassigned: list, refresh_ts: f
         if key not in current_ids:
             hdd = row.get("hdd")
             logged_hours = await _fresh_logged_hours(row["designer_bc_id"], row["todo_id"], row.get("logged_hours", 0))
+            est_hours = await _fresh_est_hours(row["designer_bc_id"], row["todo_id"], row.get("est_hours"))
             store.record_completion(
                 todo_id=row["todo_id"],
                 designer_bc_id=row["designer_bc_id"],
@@ -353,7 +375,7 @@ async def _record_analytics(designers_out: list, unassigned: list, refresh_ts: f
                 title=row["title"],
                 category=row["category"],
                 client_name=row["client_name"],
-                est_hours=row.get("est_hours"),
+                est_hours=est_hours,
                 logged_hours=logged_hours,
                 hdd=hdd,
                 due_on=row.get("due_on"),
@@ -1194,10 +1216,14 @@ async def api_set_estimate_goal(request: Request, pin: str = ""):
 
 @app.post("/api/analytics/reconcile-logged-hours")
 async def api_reconcile_logged_hours(pin: str = "", debug_todo_id: str = ""):
-    """One-time-or-repeatable fix for historical completions whose logged_hours
-    were captured from a stale todo_tracking snapshot (see _fresh_logged_hours) —
-    re-reads Everhour's current total per (todo, designer) and corrects any
-    completion record that no longer matches. Rate-limited against Everhour."""
+    """One-time-or-repeatable fix for historical completions whose est_hours
+    and/or logged_hours were captured from a stale todo_tracking snapshot
+    (see _fresh_logged_hours / _fresh_est_hours) — re-reads Everhour's
+    current per-designer total and estimate for each completion and
+    corrects any that no longer match. One fetch per row covers both
+    fields. Rate-limited against Everhour. (Endpoint path kept as-is even
+    though it now also reconciles est_hours — not worth breaking the
+    bookmarked URL over a rename.)"""
     if pin != "1868":
         return Response(status_code=403)
     completions = store.get_analytics_completions()
@@ -1213,7 +1239,8 @@ async def api_reconcile_logged_hours(pin: str = "", debug_todo_id: str = ""):
             try:
                 fresh = await asyncio.wait_for(eh.get_time_logged(debug_todo_id), timeout=10.0)
                 out["fresh_everhour_result"] = fresh
-                out["fresh_val_for_this_designer"] = fresh.get("user_logged", {}).get(str(designer["eh_id"]))
+                out["fresh_logged_for_this_designer"] = fresh.get("user_logged", {}).get(str(designer["eh_id"]))
+                out["fresh_est_for_this_designer"] = fresh.get("user_estimates", {}).get(str(designer["eh_id"]))
             except Exception as e:
                 out["fetch_error"] = f"{type(e).__name__}: {e}"
         return out
@@ -1245,28 +1272,39 @@ async def api_reconcile_logged_hours(pin: str = "", debug_todo_id: str = ""):
             except Exception as e:
                 return {"error": True, "todo_id": row["todo_id"], "designer_name": row["designer_name"],
                         "category": row["category"], "reason": f"{type(e).__name__}: {e}"}
-        fresh_val = fresh.get("user_logged", {}).get(str(designer["eh_id"]))
-        if fresh_val is None:
-            return {"skipped": True}
-        old_val = row.get("logged_hours") or 0
-        if abs(fresh_val - old_val) < 0.01:
+
+        changed_fields = {}
+        fresh_logged = fresh.get("user_logged", {}).get(str(designer["eh_id"]))
+        old_logged = row.get("logged_hours") or 0
+        if fresh_logged is not None and abs(fresh_logged - old_logged) >= 0.01:
+            if store.update_completion_logged_hours(row["todo_id"], row["designer_bc_id"], fresh_logged):
+                changed_fields["logged_hours"] = {"old": old_logged, "new": fresh_logged}
+
+        fresh_est = fresh.get("user_estimates", {}).get(str(designer["eh_id"]))
+        old_est = row.get("est_hours")
+        if fresh_est is not None and (old_est is None or abs(fresh_est - old_est) >= 0.01):
+            if store.update_completion_est_hours(row["todo_id"], row["designer_bc_id"], fresh_est):
+                changed_fields["est_hours"] = {"old": old_est, "new": fresh_est}
+
+        if not changed_fields:
             return {"unchanged": True}
-        changed = store.update_completion_logged_hours(row["todo_id"], row["designer_bc_id"], fresh_val)
         return {
             "updated": True, "todo_id": row["todo_id"], "designer_name": row["designer_name"],
             "category": row["category"], "title": row["title"][:60],
-            "old": old_val, "new": fresh_val,
-        } if changed else {"unchanged": True}
+            "changes": changed_fields,
+        }
 
     checked = await asyncio.gather(*[_check(r) for r in completions])
     changes = [c for c in checked if c.get("updated")]
     errors = [c for c in checked if c.get("error")]
     unchanged = [c for c in checked if c.get("unchanged")]
     skipped = [c for c in checked if c.get("skipped")]
-    by_category = defaultdict(lambda: {"count": 0, "delta": 0.0})
+    by_category = defaultdict(lambda: {"count": 0, "logged_delta": 0.0})
     for c in changes:
         by_category[c["category"]]["count"] += 1
-        by_category[c["category"]]["delta"] += c["new"] - c["old"]
+        lg = c["changes"].get("logged_hours")
+        if lg:
+            by_category[c["category"]]["logged_delta"] += lg["new"] - lg["old"]
 
     return {
         "ok": True, "total_completions": len(completions), "updated": len(changes),
