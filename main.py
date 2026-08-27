@@ -1756,16 +1756,11 @@ def _clean_client_name(bucket_name: str) -> str:
 _BC_URL_PREFIX_RE = re.compile(r"^(.+/buckets/\d+)/todos/\d+")
 
 
-@app.get("/api/analytics/clients")
-async def api_analytics_clients():
-    """Per-client rollup for the Analytics tab: tier + AM (parsed from the
-    Basecamp project name), total hours logged, distinct project count,
-    and the list of project titles themselves (for the expand-per-client
-    view). Spend isn't tracked anywhere in Basecamp or this app's own data
-    — it lives in Salesforce/DR Pulse. Richard's call (2026-08-24): ship
-    this without it for now and wire spend in later once that's reachable
-    again; the column is included as null so the frontend can render it as
-    "pending" rather than needing a shape change later.
+def _build_client_todo_groups() -> dict[str, dict]:
+    """Every real client's todos, grouped and Basecamp-URL-backfilled.
+    Shared by /api/analytics/clients (which returns this almost as-is) and
+    /api/analytics (which only needs the flat todo_id -> url map out of
+    it, for linking Completions table titles).
 
     Sources one todo-level map first (historical completions, then live
     active/unassigned data overwriting by id) so a task is never counted
@@ -1818,7 +1813,6 @@ async def api_analytics_clients():
         c["project_count"] += 1
         c["todos"].append({"id": tid, "title": info["title"], "url": info["url"]})
 
-    out = []
     for c in clients.values():
         prefix = next((_BC_URL_PREFIX_RE.match(t["url"]).group(1)
                         for t in c["todos"] if t["url"] and _BC_URL_PREFIX_RE.match(t["url"])), None)
@@ -1827,16 +1821,43 @@ async def api_analytics_clients():
                 if not t["url"]:
                     t["url"] = f"{prefix}/todos/{t['id']}"
         c["todos"].sort(key=lambda t: (t["title"] or "").lower())
-        out.append({**c, "hours": round(c["hours"], 1), "spend": None})
 
+    return clients
+
+
+@app.get("/api/analytics/clients")
+async def api_analytics_clients():
+    """Per-client rollup for the Analytics tab: tier + AM (parsed from the
+    Basecamp project name), total hours logged, distinct project count,
+    and the list of project titles themselves (for the expand-per-client
+    view). Spend isn't tracked anywhere in Basecamp or this app's own data
+    — it lives in Salesforce/DR Pulse. Richard's call (2026-08-24): ship
+    this without it for now and wire spend in later once that's reachable
+    again; the column is included as null so the frontend can render it as
+    "pending" rather than needing a shape change later."""
+    out = [{**c, "hours": round(c["hours"], 1), "spend": None} for c in _build_client_todo_groups().values()]
     out.sort(key=lambda c: c["hours"], reverse=True)
     return out
 
 
 @app.get("/api/analytics")
 async def api_analytics():
+    # Completion titles link to Basecamp using the same URL-backfill
+    # logic /api/analytics/clients already needed (see
+    # _build_client_todo_groups) — a completed task's own URL was never
+    # stored, but its client's bucket_id doesn't change, so a sibling
+    # task's URL (live or another backfilled completion) covers it.
+    url_by_todo_id = {
+        t["id"]: t["url"]
+        for c in _build_client_todo_groups().values()
+        for t in c["todos"]
+    }
+    completions = store.get_analytics_completions()
+    for row in completions:
+        row["url"] = url_by_todo_id.get(str(row.get("todo_id")))
+
     return {
-        "completions":       store.get_analytics_completions(),
+        "completions":       completions,
         "weekly_snapshots":  store.get_analytics_weekly_snapshots(),
         "queue_time":        store.get_analytics_queue_time(),
         "category_volume":   store.get_analytics_category_volume(),

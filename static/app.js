@@ -1975,7 +1975,9 @@ function renderAnalyticsSection(section) {
         <td>${fmtDate(_completionDay(c))}</td>
         <td>${esc(c.designer_name)}</td>
         <td class="text-muted">${esc(truncate(c.client_name, 28))}</td>
-        <td>${esc(truncate(c.title, 48))}</td>
+        <td>${c.url
+          ? `<a href="${c.url}" target="_blank" title="Open in Basecamp">${esc(truncate(c.title, 48))}</a>`
+          : esc(truncate(c.title, 48))}</td>
         <td><span class="category-badge">${esc(c.category)}</span></td>
         <td>${c.est_hours != null ? c.est_hours + "h" : "—"}</td>
         <td>${c.logged_hours > 0 ? c.logged_hours + "h" : "—"}</td>
