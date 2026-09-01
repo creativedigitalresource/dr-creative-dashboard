@@ -233,6 +233,15 @@ def init_db():
             pass  # column already exists
         c.execute("UPDATE standups SET first_posted_at = posted_at WHERE first_posted_at IS NULL")
 
+        # Migration: url was added to analytics_completions so a completed
+        # task's title can link straight to Basecamp — Everhour's own task
+        # response already carries the exact URL, no construction needed.
+        # Existing rows get backfilled by the reconcile endpoint, not here.
+        try:
+            c.execute("ALTER TABLE analytics_completions ADD COLUMN url TEXT")
+        except sqlite3.OperationalError:
+            pass  # column already exists
+
 
 def set_token(key: str, value: str):
     with get_db() as c:
@@ -412,7 +421,7 @@ def delete_queue_tracking(todo_id):
 
 def record_completion(todo_id, designer_bc_id, designer_name, title, category,
                       client_name, est_hours, logged_hours, hdd, due_on,
-                      week_start, was_hdd_miss, had_revision):
+                      week_start, was_hdd_miss, had_revision, url=None):
     """Upsert, not insert-or-ignore. A task can leave a designer's active
     list, come back for another round (AM review → more revisions →
     designer again — a normal workflow, not an edge case), and leave
@@ -423,13 +432,17 @@ def record_completion(todo_id, designer_bc_id, designer_name, title, category,
     in-progress EST/logged snapshot from the first time it briefly left
     the designer's list for AM review, and its real final numbers a week
     later were silently dropped. Upserting means each re-detection
-    corrects the record to the latest, most-accurate snapshot."""
+    corrects the record to the latest, most-accurate snapshot.
+
+    url is only set on conflict when a real value is provided — a retry
+    that couldn't reach Everhour (url=None) shouldn't blank out a url a
+    previous successful detection already captured."""
     with get_db() as c:
         c.execute("""
             INSERT INTO analytics_completions
               (todo_id, designer_bc_id, designer_name, title, category, client_name,
-               est_hours, logged_hours, hdd, due_on, week_start, was_hdd_miss, had_revision)
-            VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?)
+               est_hours, logged_hours, hdd, due_on, week_start, was_hdd_miss, had_revision, url)
+            VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?)
             ON CONFLICT(todo_id, designer_bc_id) DO UPDATE SET
                 designer_name = excluded.designer_name,
                 title = excluded.title,
@@ -442,10 +455,11 @@ def record_completion(todo_id, designer_bc_id, designer_name, title, category,
                 week_start = excluded.week_start,
                 was_hdd_miss = excluded.was_hdd_miss,
                 had_revision = excluded.had_revision,
+                url = COALESCE(excluded.url, analytics_completions.url),
                 recorded_at = unixepoch()
         """, (str(todo_id), str(designer_bc_id), designer_name, title, category,
               client_name, est_hours, logged_hours, hdd, due_on,
-              week_start, was_hdd_miss, had_revision))
+              week_start, was_hdd_miss, had_revision, url))
 
 
 def update_completion_logged_hours(todo_id, designer_bc_id, logged_hours) -> bool:
@@ -466,6 +480,17 @@ def update_completion_est_hours(todo_id, designer_bc_id, est_hours) -> bool:
         cur = c.execute(
             "UPDATE analytics_completions SET est_hours=? WHERE todo_id=? AND designer_bc_id=? AND (est_hours IS NULL OR est_hours!=?)",
             (est_hours, str(todo_id), str(designer_bc_id), est_hours))
+        return cur.rowcount > 0
+
+
+def update_completion_url(todo_id, designer_bc_id, url) -> bool:
+    """Backfill a historical completion's Basecamp url — added after
+    completions had already been recording without one. Only ever fills
+    a NULL, never overwrites (a url doesn't change once set)."""
+    with get_db() as c:
+        cur = c.execute(
+            "UPDATE analytics_completions SET url=? WHERE todo_id=? AND designer_bc_id=? AND url IS NULL",
+            (url, str(todo_id), str(designer_bc_id)))
         return cur.rowcount > 0
 
 

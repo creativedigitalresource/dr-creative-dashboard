@@ -293,45 +293,42 @@ def _is_revision(title: str, step_title: str = "") -> bool:
     return any(k in t for k in _REVISION_KEYWORDS)
 
 
-async def _fresh_logged_hours(designer_bc_id: str, todo_id: str, fallback: float) -> float:
+async def _fresh_task_snapshot(designer_bc_id: str, todo_id: str,
+                                fallback_logged: float, fallback_est: float | None
+                                ) -> tuple[float, float | None, str | None]:
     """Refetch Everhour at the moment a completion is detected, rather than
     trusting the last tracked snapshot — that snapshot is only as fresh as
-    the previous refresh, and a designer can log real time right up until
-    they're reassigned, between refreshes. (Confirmed live: a completion
-    recorded 0.0h for a designer who Everhour showed had logged 1.18h.)"""
+    the previous refresh, and a designer can log real time (or have their
+    estimate bumped) right up until they're reassigned, between refreshes.
+    (Confirmed live: a completion recorded 0.0h logged / 4h EST for a task
+    Everhour showed had 8h logged / a real 9h estimate by the time it was
+    done.) One fetch covers logged, est, and this task's Basecamp url all
+    together — this used to be two separate functions each independently
+    re-fetching the exact same Everhour response, which just doubled the
+    API calls (and 429 risk) for no benefit.
+
+    Returns (logged, est, url); url is None whenever the live fetch itself
+    is unavailable/fails, same fallback posture as the other two fields —
+    record_completion() treats a None url as "leave whatever was already
+    stored" rather than blanking one out."""
     if not eh.EH_KEY:
-        return fallback
+        return fallback_logged, fallback_est, None
     designer = next((d for d in DESIGNERS if str(d["bc_id"]) == str(designer_bc_id)), None)
     if not designer or not designer.get("eh_id"):
-        return fallback
+        return fallback_logged, fallback_est, None
     try:
         fresh = await asyncio.wait_for(eh.get_time_logged(todo_id), timeout=6.0)
-        fresh_val = fresh.get("user_logged", {}).get(str(designer["eh_id"]))
-        return fresh_val if fresh_val is not None else fallback
+        eh_uid = str(designer["eh_id"])
+        fresh_logged = fresh.get("user_logged", {}).get(eh_uid)
+        fresh_est = fresh.get("user_estimates", {}).get(eh_uid)
+        return (
+            fresh_logged if fresh_logged is not None else fallback_logged,
+            fresh_est if fresh_est is not None else fallback_est,
+            fresh.get("url"),
+        )
     except Exception as e:
-        print(f"[analytics] fresh logged-hours refetch failed for {todo_id}: {e}")
-        return fallback
-
-
-async def _fresh_est_hours(designer_bc_id: str, todo_id: str, fallback: float | None) -> float | None:
-    """Same idea as _fresh_logged_hours, for est_hours — this one never had
-    the fresh-refetch treatment, so a completion's EST was always whatever
-    the last regular refresh happened to see, even if it was bumped
-    between then and the moment the task actually left the designer's
-    list. Confirmed live 2026-08-27: a completion recorded EST 4h for a
-    task Everhour showed had a real 9h estimate by the time it was done."""
-    if not eh.EH_KEY:
-        return fallback
-    designer = next((d for d in DESIGNERS if str(d["bc_id"]) == str(designer_bc_id)), None)
-    if not designer or not designer.get("eh_id"):
-        return fallback
-    try:
-        fresh = await asyncio.wait_for(eh.get_time_logged(todo_id), timeout=6.0)
-        fresh_val = fresh.get("user_estimates", {}).get(str(designer["eh_id"]))
-        return fresh_val if fresh_val is not None else fallback
-    except Exception as e:
-        print(f"[analytics] fresh EST refetch failed for {todo_id}: {e}")
-        return fallback
+        print(f"[analytics] fresh task snapshot refetch failed for {todo_id}: {e}")
+        return fallback_logged, fallback_est, None
 
 
 async def _record_analytics(designers_out: list, unassigned: list, refresh_ts: float):
@@ -366,8 +363,8 @@ async def _record_analytics(designers_out: list, unassigned: list, refresh_ts: f
     for key, row in store.get_all_todo_tracking().items():
         if key not in current_ids:
             hdd = row.get("hdd")
-            logged_hours = await _fresh_logged_hours(row["designer_bc_id"], row["todo_id"], row.get("logged_hours", 0))
-            est_hours = await _fresh_est_hours(row["designer_bc_id"], row["todo_id"], row.get("est_hours"))
+            logged_hours, est_hours, task_url = await _fresh_task_snapshot(
+                row["designer_bc_id"], row["todo_id"], row.get("logged_hours", 0), row.get("est_hours"))
             store.record_completion(
                 todo_id=row["todo_id"],
                 designer_bc_id=row["designer_bc_id"],
@@ -382,6 +379,7 @@ async def _record_analytics(designers_out: list, unassigned: list, refresh_ts: f
                 week_start=week,
                 was_hdd_miss=1 if (hdd and hdd < today_str) else 0,
                 had_revision=row.get("had_revision", 0),
+                url=task_url,
             )
             store.delete_todo_tracking(row["todo_id"], row["designer_bc_id"])
             print(f"[analytics] completion recorded: {row['designer_name']} — {row['title'][:50]} ({logged_hours}h)")
@@ -1216,14 +1214,15 @@ async def api_set_estimate_goal(request: Request, pin: str = ""):
 
 @app.post("/api/analytics/reconcile-logged-hours")
 async def api_reconcile_logged_hours(pin: str = "", debug_todo_id: str = ""):
-    """One-time-or-repeatable fix for historical completions whose est_hours
-    and/or logged_hours were captured from a stale todo_tracking snapshot
-    (see _fresh_logged_hours / _fresh_est_hours) — re-reads Everhour's
-    current per-designer total and estimate for each completion and
-    corrects any that no longer match. One fetch per row covers both
-    fields. Rate-limited against Everhour. (Endpoint path kept as-is even
-    though it now also reconciles est_hours — not worth breaking the
-    bookmarked URL over a rename.)"""
+    """One-time-or-repeatable fix for historical completions whose est_hours,
+    logged_hours, and/or url were captured from a stale todo_tracking
+    snapshot or predate those fields entirely (see _fresh_task_snapshot) —
+    re-reads Everhour's current per-designer total, estimate, and Basecamp
+    url for each completion and corrects any that no longer match (url
+    only ever fills a gap, never overwrites — see update_completion_url).
+    One fetch per row covers all three. Rate-limited against Everhour.
+    (Endpoint path kept as-is even though it now reconciles more than
+    logged hours — not worth breaking the bookmarked URL over a rename.)"""
     if pin != "1868":
         return Response(status_code=403)
     completions = store.get_analytics_completions()
@@ -1241,6 +1240,7 @@ async def api_reconcile_logged_hours(pin: str = "", debug_todo_id: str = ""):
                 out["fresh_everhour_result"] = fresh
                 out["fresh_logged_for_this_designer"] = fresh.get("user_logged", {}).get(str(designer["eh_id"]))
                 out["fresh_est_for_this_designer"] = fresh.get("user_estimates", {}).get(str(designer["eh_id"]))
+                out["fresh_url"] = fresh.get("url")
             except Exception as e:
                 out["fetch_error"] = f"{type(e).__name__}: {e}"
         return out
@@ -1285,6 +1285,11 @@ async def api_reconcile_logged_hours(pin: str = "", debug_todo_id: str = ""):
         if fresh_est is not None and (old_est is None or abs(fresh_est - old_est) >= 0.01):
             if store.update_completion_est_hours(row["todo_id"], row["designer_bc_id"], fresh_est):
                 changed_fields["est_hours"] = {"old": old_est, "new": fresh_est}
+
+        fresh_url = fresh.get("url")
+        if fresh_url and not row.get("url"):
+            if store.update_completion_url(row["todo_id"], row["designer_bc_id"], fresh_url):
+                changed_fields["url"] = {"old": None, "new": fresh_url}
 
         if not changed_fields:
             return {"unchanged": True}
@@ -1842,19 +1847,24 @@ async def api_analytics_clients():
 
 @app.get("/api/analytics")
 async def api_analytics():
-    # Completion titles link to Basecamp using the same URL-backfill
-    # logic /api/analytics/clients already needed (see
-    # _build_client_todo_groups) — a completed task's own URL was never
-    # stored, but its client's bucket_id doesn't change, so a sibling
-    # task's URL (live or another backfilled completion) covers it.
-    url_by_todo_id = {
-        t["id"]: t["url"]
-        for c in _build_client_todo_groups().values()
-        for t in c["todos"]
-    }
     completions = store.get_analytics_completions()
-    for row in completions:
-        row["url"] = url_by_todo_id.get(str(row.get("todo_id")))
+    # Every completion's own real Basecamp url now gets captured directly
+    # from Everhour at the moment it's detected (see _fresh_task_snapshot)
+    # and backfilled for historical rows by /api/analytics/reconcile-
+    # logged-hours — that's the real, exact url for that exact task. The
+    # client-group borrow-a-sibling's-url trick (_build_client_todo_groups,
+    # still used by /api/analytics/clients) is only a fallback here now,
+    # for whatever's still missing one (not yet reconciled, or genuinely
+    # gone from Everhour with no better source).
+    missing = [row for row in completions if not row.get("url")]
+    if missing:
+        url_by_todo_id = {
+            t["id"]: t["url"]
+            for c in _build_client_todo_groups().values()
+            for t in c["todos"]
+        }
+        for row in missing:
+            row["url"] = url_by_todo_id.get(str(row.get("todo_id")))
 
     return {
         "completions":       completions,

@@ -18,7 +18,7 @@ def get_eh_http() -> httpx.AsyncClient:
     return _eh_http
 
 
-_EMPTY_TIME_LOGGED = {"logged": 0.0, "estimate": None, "estimate_type": None, "user_estimates": {}, "user_logged": {}}
+_EMPTY_TIME_LOGGED = {"logged": 0.0, "estimate": None, "estimate_type": None, "user_estimates": {}, "user_logged": {}, "url": None}
 
 
 def _parse_time_logged(data: dict) -> dict:
@@ -49,6 +49,10 @@ def _parse_time_logged(data: dict) -> dict:
         "estimate_type": estimate_obj.get("type") if isinstance(estimate_obj, dict) else None,
         "user_estimates": user_estimates,
         "user_logged": user_logged,
+        # Everhour's own task object already carries the exact Basecamp
+        # URL for this specific task (it's how the Basecamp integration
+        # links back) — no need to construct or borrow one.
+        "url": data.get("url"),
     }
 
 
@@ -59,6 +63,7 @@ async def get_time_logged(todo_id: str | int) -> dict:
       "estimate": float | None, # total estimate across all users
       "user_estimates": dict,   # {str(eh_user_id): hours} when per-user estimates are set
       "user_logged": dict,      # {str(eh_user_id): hours} per-user logged time
+      "url": str | None,        # this task's Basecamp URL, straight from Everhour
     }
     Swallows errors (including rate-limiting) as empty data — fine for a
     dashboard refresh, where a transient hiccup shouldn't break the UI.
