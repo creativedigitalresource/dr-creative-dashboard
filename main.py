@@ -1377,6 +1377,24 @@ async def delete_pto(pto_id: int):
     return {"ok": True}
 
 
+@app.post("/api/pto/company-holiday")
+async def add_company_holiday(request: Request):
+    """A company holiday is just everyone getting the same OOO day at
+    once — no separate data model needed, since capacity math already
+    reduces each person's capacity for any date in their own pto rows.
+    Applies to every designer and Richard in one call."""
+    body = await request.json()
+    dates = body.get("dates", [])
+    note = str(body.get("note", "")).strip() or "Company Holiday"
+    if not dates:
+        return {"ok": False, "error": "missing dates"}
+    bc_ids = [d["bc_id"] for d in DESIGNERS] + [ME["bc_id"]]
+    for bc_id in bc_ids:
+        for d in dates:
+            store.add_pto(str(bc_id), d, note)
+    return {"ok": True, "people": len(bc_ids), "dates": len(dates)}
+
+
 @app.get("/api/calendar")
 async def api_calendar():
     start_dates = store.get_all_start_dates()

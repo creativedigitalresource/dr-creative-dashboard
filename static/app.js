@@ -1354,6 +1354,7 @@ function openPtoModal(bcId, name) {
   renderPtoList(pto);
   document.getElementById("pto-date-input").value = "";
   document.getElementById("pto-note-input").value = "";
+  document.getElementById("pto-company-holiday").checked = false;
   show("pto-modal");
 }
 
@@ -1371,6 +1372,7 @@ async function savePto() {
   const dateVal = document.getElementById("pto-date-input").value;
   const endVal  = document.getElementById("pto-end-input").value;
   const note    = document.getElementById("pto-note-input").value.trim();
+  const isHoliday = document.getElementById("pto-company-holiday").checked;
   if (!dateVal) return;
 
   // Build array of dates (single or range)
@@ -1381,12 +1383,24 @@ async function savePto() {
     if (d.getDay() !== 0 && d.getDay() !== 6) // skip weekends
       dates.push(d.toISOString().split("T")[0]);
   }
+  if (!dates.length) return;
 
-  await fetch("/api/pto", {
-    method: "POST",
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ designer_bc_id: _ptoDesignerId, dates, note }),
-  });
+  if (isHoliday) {
+    // A company holiday is just everyone getting the same OOO day at
+    // once — same pto rows, same capacity math, one bulk endpoint.
+    await fetch("/api/pto/company-holiday", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ dates, note }),
+    });
+    document.getElementById("pto-company-holiday").checked = false;
+  } else {
+    await fetch("/api/pto", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ designer_bc_id: _ptoDesignerId, dates, note }),
+    });
+  }
   await refreshAfterPto();
 }
 
@@ -1398,6 +1412,7 @@ async function deletePto(ptoId) {
 async function refreshAfterPto() {
   await loadDesigners();
   await loadCalendar();
+  await loadMyStuff(); // a company holiday applies to Richard too
   // Reopen modal with fresh data
   const d = (_designerData || []).find(x => String(x.bc_id) === String(_ptoDesignerId));
   if (d) renderPtoList(d.pto || []);

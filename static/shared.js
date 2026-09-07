@@ -835,14 +835,29 @@ function _setPulseDetailSort(key, ctx) {
 function setPulseDetailSort(key) { _setPulseDetailSort(key, "manager"); }
 function setDelegatePulseDetailSort(key) { _setPulseDetailSort(key, "delegate"); }
 
+// OOO management is admin-only — never shown on a delegate-enabled
+// designer's own Team Pulse coverage view (ctx="delegate"), just the
+// manager's own Overview. Reuses the exact same modal (openPtoModal)
+// the old Designer Workload card used — that tab is hidden from nav now,
+// so this is the only reachable entry point to it.
+function _pulseOooBtnHTML(d, ctx) {
+  return ctx === "manager"
+    ? `<div class="pulse-detail-actions">
+         <button class="btn btn-ghost btn-sm" onclick="event.stopPropagation();openPtoModal('${d.bc_id}','${esc(d.name)}')" title="Mark OOO days">OOO</button>
+       </div>`
+    : "";
+}
+
 function renderPulseDetail(d, s, ctx = "manager") {
+  const oooBtn = _pulseOooBtnHTML(d, ctx);
   if (!s.active.length) {
-    return `<div class="pulse-detail"><div class="attention-empty">No active tasks this week.</div></div>`;
+    return `<div class="pulse-detail">${oooBtn}<div class="attention-empty">No active tasks this week.</div></div>`;
   }
   const sort = _pulseDetailSort[ctx];
   const sorted = sortTodos(s.active, sort.key, sort.dir);
   const sortFn = ctx === "manager" ? "setPulseDetailSort" : "setDelegatePulseDetailSort";
   return `<div class="pulse-detail">
+    ${oooBtn}
     ${buildTaskTable(sorted, d.color, { sort: sort.key ? sort : null, sortFn, ehId: d.eh_id })}
   </div>`;
 }
