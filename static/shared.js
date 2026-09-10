@@ -794,6 +794,13 @@ function _overviewStats(d, weekOffset = 0) {
 
 function _barCls(pct) { return pct < 60 ? "low" : pct < 85 ? "mid" : "high"; }
 
+// Today, specifically — not "has any PTO on record" — since this drives
+// a live "they're out right now" signal, not a historical/future one.
+function _isOOOToday(d) {
+  const today = localISO(new Date());
+  return (d.pto || []).some(p => p.date === today);
+}
+
 function renderPulseItem(d, s, ctx = "manager") {
   const expanded = _pulseExpanded[ctx].has(String(d.bc_id));
   const freeCls = s.free <= 2 ? "low" : s.free <= 8 ? "mid" : "ok";
@@ -801,11 +808,15 @@ function renderPulseItem(d, s, ctx = "manager") {
   const overdue = s.pastDue.length
     ? `<span class="pulse-overdue">${s.pastDue.length} past due</span>`
     : `<span class="pulse-overdue none">&mdash;</span>`;
+  const oooToday = _isOOOToday(d);
   return `
   <div class="pulse-item${expanded ? " open" : ""}">
     <div class="pulse-row" onclick="togglePulseRow('${d.bc_id}','${ctx}')">
-      ${avatarHTML(d)}
-      <div class="pulse-name">${esc(d.name)}</div>
+      ${avatarHTML(d, oooToday ? { cls: "avatar avatar-ooo" } : {})}
+      <div class="pulse-name${oooToday ? " pulse-name-ooo" : ""}">
+        ${esc(d.name)}
+        ${oooToday ? `<span class="ooo-badge">OOO Today</span>` : ""}
+      </div>
       <div class="pulse-bar-wrap">
         <div class="cap-bar-outer"><div class="cap-bar-inner ${_barCls(s.pct)}" style="width:${Math.min(100, s.pct)}%"></div></div>
         <span class="pulse-pct">${s.pct}%</span>
