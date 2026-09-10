@@ -179,6 +179,33 @@ DESIGN_POOL_CATEGORIES = {
     "Print - Collateral/Packaging", "Branding/Logo - Creation/Edits",
 }
 
+# Historical per-category EST fallback (2026-09-10, confirmed with Richard
+# against real analytics_completions data — mostly the category median,
+# with a few deliberate overrides where the median undersells real scope):
+#   - Branding/Logo: median was 1.5h but that reflects mostly edits/revisions
+#     in the sample, not real logo work, which runs ~2 revision rounds and
+#     more steps — Richard set this to 15h explicitly.
+#   - Web - Sites/Applications/UI: median was 3h but a real site is an
+#     internal page (~5-6h) + homepage (~5-6h) — Richard set this to 12h.
+#   - Web - Maintenance: median was 2.5h off a thin n=4 sample — Richard
+#     corrected to 1h as the realistic typical case.
+# Everything else uses the category median from real completions, which
+# Richard confirmed as-is.
+CATEGORY_HISTORICAL_EST_HOURS = {
+    "Misc.": 2.0,
+    "LP - Maintenance": 3.0,
+    "Web - Sites/Applications/UI": 12.0,
+    "Multi - Photo/Video/Edits": 3.0,
+    "LP - New": 3.0,
+    "Digital - Banner/Display Ads": 3.0,
+    "Email - Campaigns/Signatures": 2.0,
+    "Branding/Logo - Creation/Edits": 15.0,
+    "IPM - Campaigns/Reports": 3.75,
+    "SM - templates/graphics/reels": 2.0,
+    "Web - Maintenance": 1.0,
+    "Print - Collateral/Packaging": 6.0,
+}
+
 
 def _compute_pipeline_forecast() -> dict:
     """Hours sitting in the To Delegate queue, due this week, grouped by
@@ -186,11 +213,10 @@ def _compute_pipeline_forecast() -> dict:
     shared Design pool (DESIGN_POOL_CATEGORIES, no fixed assignee).
     Scoped to "due this week" — same window currently-assigned capacity
     already uses, so the two numbers are apples-to-apples. EST comes from
-    parse_est() on the title alone (no comments) since unassigned todos
-    never fetch comments — that's a real, deliberate speed tradeoff for
-    the To Delegate tab (see its scoped refresh), so this only catches an
-    EST that's already in the title, same as everywhere else in the app
-    that uses title-parsed EST as a fallback."""
+    parse_est() on the title first (rare, but wins when present); real
+    queue items almost never carry an EST tag pre-assignment, so this
+    falls back to CATEGORY_HISTORICAL_EST_HOURS, the confirmed per-category
+    average from real completions."""
     today = date.today()
     week_end = (today + timedelta(days=4 - today.weekday())).isoformat()
     by_person: dict[str, float] = {}
@@ -199,10 +225,10 @@ def _compute_pipeline_forecast() -> dict:
         due = t.get("due_on")
         if not due or due > week_end:
             continue
-        est = parse_est(t.get("title", "")) or 0
+        cat = t.get("category")
+        est = parse_est(t.get("title", "")) or CATEGORY_HISTORICAL_EST_HOURS.get(cat) or 0
         if est <= 0:
             continue
-        cat = t.get("category")
         bc_id = CATEGORY_SOLE_ASSIGNEE.get(cat)
         if bc_id:
             by_person[str(bc_id)] = round(by_person.get(str(bc_id), 0) + est, 2)
