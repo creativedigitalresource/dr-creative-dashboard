@@ -8,7 +8,7 @@ from fastapi.responses import FileResponse, HTMLResponse, RedirectResponse, Stre
 from fastapi.staticfiles import StaticFiles
 
 import store, basecamp as bc, everhour as eh
-from parsers import CATEGORIES, CATEGORY_TIMELINE, categorize_todo
+from parsers import CATEGORIES, CATEGORY_TIMELINE, categorize_todo, parse_est
 
 _cached_data: dict = {}
 _sse_clients: list[asyncio.Queue] = []
@@ -157,6 +157,58 @@ SERVICE_ROLLUP = {
     "Misc.": "Other",
     "Admin": "Other",
 }
+
+# Pipeline forecast (2026-09-10, Richard's call): categories that route
+# deterministically to one specific person once assigned — used to
+# forecast each person's incoming load from the still-unassigned queue,
+# a forward-looking counterpart to their already-assigned weekly_est.
+# Every other real category (LP-New/Maintenance, Digital-Banner, Web,
+# Print, Branding) is currently a judgment call across the whole 4-person
+# Design pool (Dexter/Lezly/Gaby/Maria C) with no fixed assignee — Richard
+# chose NOT to force those onto one name, so they're reported as a
+# separate design_pool_hours figure instead (see _compute_pipeline_forecast).
+CATEGORY_SOLE_ASSIGNEE = {
+    "Multi - Photo/Video/Edits": 48051100,     # Odette
+    "Email - Campaigns/Signatures": 52244353,  # Debi
+    "IPM - Campaigns/Reports": 46905124,       # Melany
+    "SM - templates/graphics/reels": 46905124, # Melany
+}
+DESIGN_POOL_CATEGORIES = {
+    "LP - New", "LP - Maintenance", "Digital - Banner/Display Ads",
+    "Web - Sites/Applications/UI", "Web - Maintenance",
+    "Print - Collateral/Packaging", "Branding/Logo - Creation/Edits",
+}
+
+
+def _compute_pipeline_forecast() -> dict:
+    """Hours sitting in the To Delegate queue, due this week, grouped by
+    where they'll land: a specific person (CATEGORY_SOLE_ASSIGNEE) or the
+    shared Design pool (DESIGN_POOL_CATEGORIES, no fixed assignee).
+    Scoped to "due this week" — same window currently-assigned capacity
+    already uses, so the two numbers are apples-to-apples. EST comes from
+    parse_est() on the title alone (no comments) since unassigned todos
+    never fetch comments — that's a real, deliberate speed tradeoff for
+    the To Delegate tab (see its scoped refresh), so this only catches an
+    EST that's already in the title, same as everywhere else in the app
+    that uses title-parsed EST as a fallback."""
+    today = date.today()
+    week_end = (today + timedelta(days=4 - today.weekday())).isoformat()
+    by_person: dict[str, float] = {}
+    pool_hours = 0.0
+    for t in _cached_data.get("unassigned", []):
+        due = t.get("due_on")
+        if not due or due > week_end:
+            continue
+        est = parse_est(t.get("title", "")) or 0
+        if est <= 0:
+            continue
+        cat = t.get("category")
+        bc_id = CATEGORY_SOLE_ASSIGNEE.get(cat)
+        if bc_id:
+            by_person[str(bc_id)] = round(by_person.get(str(bc_id), 0) + est, 2)
+        elif cat in DESIGN_POOL_CATEGORIES:
+            pool_hours += est
+    return {"by_person": by_person, "design_pool_hours": round(pool_hours, 1)}
 
 # QA checklist templates, one per deliverable service (mirrors CATEGORIES,
 # minus Misc./Admin which aren't QA'd). Seeded into the DB once; after that
@@ -746,6 +798,15 @@ async def api_unassigned():
     return _cached_data.get("unassigned", [])
 
 
+@app.get("/api/pipeline-forecast")
+async def api_pipeline_forecast():
+    """Design-pool figure for the To Delegate panel — hours due this week
+    in the shared-pool categories (no fixed assignee), plus the by-person
+    breakdown for reference. Per-person pipeline_hours is also attached
+    directly on /api/designers, /api/me, /api/my/{token}."""
+    return _compute_pipeline_forecast()
+
+
 @app.post("/api/unassigned/refresh")
 async def api_unassigned_refresh():
     """Refresh just the To Delegate queue — one independent Basecamp call,
@@ -774,9 +835,13 @@ async def api_unassigned_refresh():
 async def api_designers():
     designers = _cached_data.get("designers", [])
     pto_map = store.get_all_pto()
+    pipeline = _compute_pipeline_forecast()
     for d in designers:
         # Attach PTO so client can calculate real capacity
         d["pto"] = pto_map.get(str(d["bc_id"]), [])
+        # Forecasted hours headed their way from the still-unassigned queue
+        # (due this week, deterministic-assignee categories only)
+        d["pipeline_hours"] = pipeline["by_person"].get(str(d["bc_id"]), 0)
         # Attach spotlight state so the manager's Team Spotlight tab (and
         # any other manager-side view) can read it straight off this same
         # designer list, same as _public_todos() already does for a
@@ -846,8 +911,9 @@ async def api_me():
     if not me:
         return {"warming": True}
     pto = store.get_all_pto().get(str(ME["bc_id"]), [])
+    pipeline_hours = _compute_pipeline_forecast()["by_person"].get(str(ME["bc_id"]), 0)
     return {"name": me["name"], "color": me["color"], "avatar": me.get("avatar"), "pto": pto,
-            "eh_id": ME.get("eh_id"),
+            "eh_id": ME.get("eh_id"), "pipeline_hours": pipeline_hours,
             "todos": _public_todos(me),
             "last_updated": max(_cached_data.get("last_updated") or 0, _cached_data.get("me_last_updated") or 0)}
 
@@ -891,8 +957,9 @@ async def api_my(token: str):
         age_days = (time.time() - float(msg_at)) / 86400
         if age_days <= 10:  # stale messages read worse than none
             manager_message = {"text": msg, "at": float(msg_at)}
+    pipeline_hours = _compute_pipeline_forecast()["by_person"].get(str(d["bc_id"]), 0)
     return {"name": d["name"], "color": d["color"], "avatar": d.get("avatar"), "pto": pto, "todos": todos,
-            "eh_id": d.get("eh_id"),
+            "eh_id": d.get("eh_id"), "pipeline_hours": pipeline_hours,
             "planner_order": store.get_planner_order(d["bc_id"]),
             "notes": store.get_designer_note(d["bc_id"]),
             "kudos": store.get_kudos(d["bc_id"], since_ts=str(int(time.time() - 183 * 86400))),

@@ -666,6 +666,19 @@ async function loadUnassigned() {
   _unassignedData = todos;
   document.getElementById("unassigned-count").textContent = todos.length || "";
   renderUnassigned();
+  loadPipelinePoolNote();
+}
+
+// Design-pool forecast note: hours due this week in categories with no
+// fixed assignee (LP/Web/Print/Branding/Digital-Ads — shared across the
+// whole Design pool). Per-person forecast for the four deterministic
+// categories shows inline on Team Pulse instead (see _pulsePipelineNoteHTML).
+async function loadPipelinePoolNote() {
+  const el = document.getElementById("pipeline-pool-note");
+  if (!el) return;
+  const data = await fetchWithTimeout("/api/pipeline-forecast").then(r => r.json()).catch(() => null);
+  const hours = data && data.design_pool_hours;
+  el.textContent = hours ? `Design pool: +${hours}h due this week (unassigned)` : "";
 }
 
 function renderUnassigned() {
@@ -789,7 +802,14 @@ function _overviewStats(d, weekOffset = 0) {
   const active = (d.todos || []).filter(t => !t.is_complete && !t.is_misc);
   const pastDue = active.filter(t => !t.in_revisions && t.hdd && t.hdd < today);
   const free = Math.round((cap - weekly_est) * 10) / 10;
-  return { weekly_est, cap, pct, active, pastDue, free };
+  // Forecast marker (2026-09-10): a second, forward-looking capacity figure —
+  // hours still sitting unassigned in To Delegate that route deterministically
+  // to this person (see CATEGORY_SOLE_ASSIGNEE in main.py), on top of what's
+  // already assigned. Only meaningful for "this week" (weekOffset 0), same
+  // window the backend forecast is scoped to.
+  const pipelineHours = weekOffset === 0 ? (d.pipeline_hours || 0) : 0;
+  const projectedPct = cap > 0 ? Math.round(((weekly_est + pipelineHours) / cap) * 100) : 0;
+  return { weekly_est, cap, pct, active, pastDue, free, pipelineHours, projectedPct };
 }
 
 function _barCls(pct) { return pct < 60 ? "low" : pct < 85 ? "mid" : "high"; }
@@ -859,16 +879,25 @@ function _pulseOooBtnHTML(d, ctx) {
     : "";
 }
 
+// Shown only when there's real incoming load to report — a person with
+// no forecasted hours this week gets no note, not a "+0h" line.
+function _pulsePipelineNoteHTML(s) {
+  if (!s.pipelineHours) return "";
+  return `<div class="pulse-pipeline-note">+${s.pipelineHours}h incoming this week &rarr; ${s.projectedPct}% projected</div>`;
+}
+
 function renderPulseDetail(d, s, ctx = "manager") {
   const oooBtn = _pulseOooBtnHTML(d, ctx);
+  const pipelineNote = _pulsePipelineNoteHTML(s);
   if (!s.active.length) {
-    return `<div class="pulse-detail">${oooBtn}<div class="attention-empty">No active tasks this week.</div></div>`;
+    return `<div class="pulse-detail">${oooBtn}${pipelineNote}<div class="attention-empty">No active tasks this week.</div></div>`;
   }
   const sort = _pulseDetailSort[ctx];
   const sorted = sortTodos(s.active, sort.key, sort.dir);
   const sortFn = ctx === "manager" ? "setPulseDetailSort" : "setDelegatePulseDetailSort";
   return `<div class="pulse-detail">
     ${oooBtn}
+    ${pipelineNote}
     ${buildTaskTable(sorted, d.color, { sort: sort.key ? sort : null, sortFn, ehId: d.eh_id })}
   </div>`;
 }
