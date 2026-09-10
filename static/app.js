@@ -1766,6 +1766,37 @@ function renderAnalyticsStats(completions, queue) {
   `;
 }
 
+// "True Capacity" — a live, forward-looking number distinct from the
+// historical Everhour-based chart below it: what capacity would look
+// like this week if the To Delegate queue were fully assigned out right
+// now. Assigned + pipeline (both already scoped to "due this week" —
+// see calcCapacity's offset=0 branch and _compute_pipeline_forecast on
+// the backend) against remaining team capacity through Friday. Scoped
+// to the 7-person design team, not Richard — he's the one delegating,
+// not a recipient of the queue. Confirmed with Richard 2026-09-10.
+async function _trueCapacityCardHTML() {
+  if (!_designerData || !_designerData.length) return "";
+  let totalAssigned = 0, totalCap = 0;
+  for (const d of _designerData) {
+    const { weekly_est, cap } = calcCapacity(d.todos, d.pto, 0);
+    totalAssigned += weekly_est;
+    totalCap += cap;
+  }
+  let pipeline = { by_person: {}, design_pool_hours: 0 };
+  try {
+    pipeline = await fetch("/api/pipeline-forecast").then(r => r.json());
+  } catch {}
+  const totalPipeline = Object.values(pipeline.by_person || {}).reduce((s, v) => s + v, 0)
+    + (pipeline.design_pool_hours || 0);
+  const truePct = totalCap > 0 ? Math.round((totalAssigned + totalPipeline) / totalCap * 100) : 0;
+  const pctColor = truePct > 100 ? "var(--danger)" : truePct > 85 ? "var(--warning)" : "var(--success)";
+  return `<div class="true-capacity-card">
+    <div class="true-capacity-value" style="color:${pctColor}">${truePct}%</div>
+    <div class="true-capacity-label">True Capacity — if fully delegated</div>
+    <div class="true-capacity-sub">${Math.round(totalAssigned)}h assigned + ${Math.round(totalPipeline)}h queued (unassigned, due this week) &divide; ${Math.round(totalCap)}h team capacity remaining this week</div>
+  </div>`;
+}
+
 async function renderCapacitySection(el) {
   if (!_capacityData) {
     el.innerHTML = `<div class="loading-cell" style="padding:40px;text-align:center">Computing capacity from Everhour history — first load can take ~30s…</div>`;
@@ -1843,8 +1874,10 @@ async function renderCapacitySection(el) {
     return `<tr><td>${moLabel(mo)}${i === last ? ` <span class="cap-mtd">MTD</span>` : ""}</td>${cells}<td style="text-align:right;font-weight:700">${d.count_totals[i]}</td></tr>`;
   };
   const idxDesc = d.months.map((_, i) => i).reverse();
+  const trueCapHTML = await _trueCapacityCardHTML();
 
   el.innerHTML = `
+    ${trueCapHTML}
     <div class="analytics-stats" style="margin-bottom:18px">${statCards}</div>
     ${simBar}
     <div class="cap-chart-panel">
