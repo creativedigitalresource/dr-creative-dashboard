@@ -207,23 +207,32 @@ CATEGORY_HISTORICAL_EST_HOURS = {
 }
 
 
-def _compute_pipeline_forecast() -> dict:
-    """Hours sitting in the To Delegate queue, due this week, grouped by
-    where they'll land: a specific person (CATEGORY_SOLE_ASSIGNEE) or the
-    shared Design pool (DESIGN_POOL_CATEGORIES, no fixed assignee).
-    Scoped to "due this week" — same window currently-assigned capacity
-    already uses, so the two numbers are apples-to-apples. EST comes from
-    parse_est() on the title first (rare, but wins when present); real
-    queue items almost never carry an EST tag pre-assignment, so this
-    falls back to CATEGORY_HISTORICAL_EST_HOURS, the confirmed per-category
-    average from real completions."""
+def _compute_pipeline_forecast(offset: int = 0) -> dict:
+    """Hours sitting in the To Delegate queue, due in the target week,
+    grouped by where they'll land: a specific person (CATEGORY_SOLE_ASSIGNEE)
+    or the shared Design pool (DESIGN_POOL_CATEGORIES, no fixed assignee).
+    offset=0 (default) scopes to "due this week" — same window currently-
+    assigned capacity already uses, so the two numbers are apples-to-apples;
+    it has no lower bound, so overdue items still count (original behavior).
+    offset=1 scopes to next week specifically (lower-bounded at next
+    Monday) so it doesn't double-count items offset=0 already covers —
+    used when this week's remaining capacity has hit zero and the "True
+    Capacity" card rolls forward to next week instead of reporting a flat
+    0%. EST comes from parse_est() on the title first (rare, but wins when
+    present); real queue items almost never carry an EST tag pre-assignment,
+    so this falls back to CATEGORY_HISTORICAL_EST_HOURS, the confirmed
+    per-category average from real completions."""
     today = date.today()
-    week_end = (today + timedelta(days=4 - today.weekday())).isoformat()
+    week_start = today + timedelta(days=-today.weekday() + offset * 7)
+    week_end = (week_start + timedelta(days=4)).isoformat()
+    lower_bound = week_start.isoformat() if offset else None
     by_person: dict[str, float] = {}
     pool_hours = 0.0
     for t in _cached_data.get("unassigned", []):
         due = t.get("due_on")
         if not due or due > week_end:
+            continue
+        if lower_bound and due < lower_bound:
             continue
         cat = t.get("category")
         est = parse_est(t.get("title", "")) or CATEGORY_HISTORICAL_EST_HOURS.get(cat) or 0
@@ -825,12 +834,13 @@ async def api_unassigned():
 
 
 @app.get("/api/pipeline-forecast")
-async def api_pipeline_forecast():
+async def api_pipeline_forecast(offset: int = 0):
     """Design-pool figure for the To Delegate panel — hours due this week
-    in the shared-pool categories (no fixed assignee), plus the by-person
-    breakdown for reference. Per-person pipeline_hours is also attached
-    directly on /api/designers, /api/me, /api/my/{token}."""
-    return _compute_pipeline_forecast()
+    (or, with offset=1, next week) in the shared-pool categories (no fixed
+    assignee), plus the by-person breakdown for reference. Per-person
+    pipeline_hours is also attached directly on /api/designers, /api/me,
+    /api/my/{token} (those always use the offset=0 default)."""
+    return _compute_pipeline_forecast(offset)
 
 
 @app.post("/api/unassigned/refresh")

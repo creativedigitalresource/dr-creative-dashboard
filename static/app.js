@@ -1776,24 +1776,43 @@ function renderAnalyticsStats(completions, queue) {
 // not a recipient of the queue. Confirmed with Richard 2026-09-10.
 async function _trueCapacityCardHTML() {
   if (!_designerData || !_designerData.length) return "";
-  let totalAssigned = 0, totalCap = 0;
-  for (const d of _designerData) {
-    const { weekly_est, cap } = calcCapacity(d.todos, d.pto, 0);
-    totalAssigned += weekly_est;
-    totalCap += cap;
+  const sumCapacity = offset => {
+    let assigned = 0, cap = 0;
+    for (const d of _designerData) {
+      const r = calcCapacity(d.todos, d.pto, offset);
+      assigned += r.weekly_est;
+      cap += r.cap;
+    }
+    return { assigned, cap };
+  };
+
+  let offset = 0;
+  let { assigned: totalAssigned, cap: totalCap } = sumCapacity(0);
+  // Friday evening through the weekend, remaining hours *this* week hit
+  // zero for every designer (see calcCapacity's offset=0 branch), which
+  // makes the ratio meaningless — a flat 0% reads as "nothing queued"
+  // when really there's just no time left this week to measure against.
+  // Roll forward to next week instead so the card stays informative.
+  if (totalCap === 0) {
+    offset = 1;
+    ({ assigned: totalAssigned, cap: totalCap } = sumCapacity(1));
   }
+
   let pipeline = { by_person: {}, design_pool_hours: 0 };
   try {
-    pipeline = await fetch("/api/pipeline-forecast").then(r => r.json());
+    pipeline = await fetch(`/api/pipeline-forecast?offset=${offset}`).then(r => r.json());
   } catch {}
   const totalPipeline = Object.values(pipeline.by_person || {}).reduce((s, v) => s + v, 0)
     + (pipeline.design_pool_hours || 0);
   const truePct = totalCap > 0 ? Math.round((totalAssigned + totalPipeline) / totalCap * 100) : 0;
   const pctColor = truePct > 100 ? "var(--danger)" : truePct > 85 ? "var(--warning)" : "var(--success)";
+  const label = offset ? "True Capacity — if fully delegated (next week)" : "True Capacity — if fully delegated";
+  const dueWhen = offset ? "next week" : "this week";
+  const capWhen = offset ? "next week" : "remaining this week";
   return `<div class="true-capacity-card">
     <div class="true-capacity-value" style="color:${pctColor}">${truePct}%</div>
-    <div class="true-capacity-label">True Capacity — if fully delegated</div>
-    <div class="true-capacity-sub">${Math.round(totalAssigned)}h assigned + ${Math.round(totalPipeline)}h queued (unassigned, due this week) &divide; ${Math.round(totalCap)}h team capacity remaining this week</div>
+    <div class="true-capacity-label">${label}</div>
+    <div class="true-capacity-sub">${Math.round(totalAssigned)}h assigned + ${Math.round(totalPipeline)}h queued (unassigned, due ${dueWhen}) &divide; ${Math.round(totalCap)}h team capacity ${capWhen}</div>
   </div>`;
 }
 
