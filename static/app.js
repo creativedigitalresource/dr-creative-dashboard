@@ -1766,6 +1766,23 @@ function renderAnalyticsStats(completions, queue) {
   `;
 }
 
+// Cumulative assigned hours through endDate, no lower bound — an overdue
+// or this-week task doesn't stop needing doing just because the week ran
+// out, so it stays counted. Mirrors calcCapacity's own offset=0 filter
+// (hdd <= end, no floor) rather than the offset!=0 branch, which is
+// deliberately bounded to a single future week for the multi-week
+// capacity planner and would otherwise silently drop this backlog.
+function _cumulativeAssignedHours(todos, endDate) {
+  let sum = 0;
+  for (const t of (todos || [])) {
+    if (t.is_complete || t.is_misc) continue;
+    if (t.in_revisions || t.reply_needed) continue;
+    if (!t.total_hours || !t.hdd || t.hdd > endDate) continue;
+    sum += Math.max(0, t.total_hours - (t.logged || 0));
+  }
+  return sum;
+}
+
 // "True Capacity" — a live, forward-looking number distinct from the
 // historical Everhour-based chart below it: what capacity would look
 // like this week if the To Delegate queue were fully assigned out right
@@ -1776,26 +1793,32 @@ function renderAnalyticsStats(completions, queue) {
 // not a recipient of the queue. Confirmed with Richard 2026-09-10.
 async function _trueCapacityCardHTML() {
   if (!_designerData || !_designerData.length) return "";
-  const sumCapacity = offset => {
-    let assigned = 0, cap = 0;
-    for (const d of _designerData) {
-      const r = calcCapacity(d.todos, d.pto, offset);
-      assigned += r.weekly_est;
-      cap += r.cap;
-    }
-    return { assigned, cap };
-  };
+  let totalAssigned = 0, totalCap = 0;
+  for (const d of _designerData) {
+    const { weekly_est, cap } = calcCapacity(d.todos, d.pto, 0);
+    totalAssigned += weekly_est;
+    totalCap += cap;
+  }
 
   let offset = 0;
-  let { assigned: totalAssigned, cap: totalCap } = sumCapacity(0);
   // Friday evening through the weekend, remaining hours *this* week hit
   // zero for every designer (see calcCapacity's offset=0 branch), which
   // makes the ratio meaningless — a flat 0% reads as "nothing queued"
   // when really there's just no time left this week to measure against.
   // Roll forward to next week instead so the card stays informative.
+  // Assigned hours are recomputed cumulatively (through next Friday, no
+  // lower bound) rather than via calcCapacity(offset=1)'s strict
+  // next-week-only window, which would drop this week's undelegated
+  // backlog entirely instead of correctly carrying it forward.
   if (totalCap === 0) {
     offset = 1;
-    ({ assigned: totalAssigned, cap: totalCap } = sumCapacity(1));
+    const { end } = getWeekBounds(1);
+    totalAssigned = 0;
+    totalCap = 0;
+    for (const d of _designerData) {
+      totalAssigned += _cumulativeAssignedHours(d.todos, end);
+      totalCap += calcCapacity(d.todos, d.pto, 1).cap;
+    }
   }
 
   let pipeline = { by_person: {}, design_pool_hours: 0 };
