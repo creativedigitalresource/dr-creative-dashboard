@@ -886,6 +886,25 @@ def add_qa_template_item(service: str, item: str) -> list:
     return items
 
 
+def remove_qa_template_item(service: str, item: str) -> list:
+    """Removes one item by exact text — the lightweight, single-item
+    counterpart to set_qa_template's full-list replace, for deleting a
+    stray or no-longer-relevant item (whether Richard added it, a
+    designer added it via add_qa_template_item, or it's an original
+    default) without retyping the whole checklist. PIN-gated at the API
+    layer, same as the full rewrite. Refuses to empty a checklist
+    entirely — every service needs at least one item."""
+    with get_db() as c:
+        row = c.execute("SELECT items FROM qa_templates WHERE service=?", (service,)).fetchone()
+        items = json.loads(row["items"]) if row else []
+        if item in items and len(items) > 1:
+            items.remove(item)
+            c.execute(
+                "INSERT OR REPLACE INTO qa_templates (service, items, updated_at) VALUES (?, ?, unixepoch())",
+                (service, json.dumps(items)))
+    return items
+
+
 def create_qa_certificate(cert_id: str, service: str, task_title: str, client_name: str,
                            completed_by: str, items: list, notes: str, feedback: str = "") -> dict:
     with get_db() as c:

@@ -1257,13 +1257,32 @@ async def api_set_qa_template(service: str, request: Request, pin: str = ""):
 @app.post("/api/qa/templates/{service:path}/items")
 async def api_add_qa_template_item(service: str, request: Request):
     # No PIN — anyone running the checklist (designer or Richard) can add a
-    # missing item the moment they notice a gap. The PUT above (full rewrite)
-    # stays PIN-gated for reorganizing or removing items.
+    # missing item the moment they notice a gap. Removing an item (below)
+    # stays PIN-gated since it's destructive to everyone's checklist.
     body = await request.json()
     item = str(body.get("item", "")).strip()[:300]
     if not item:
         return {"ok": False, "error": "Item text is required"}
     items = store.add_qa_template_item(service, item)
+    return {"ok": True, "items": items}
+
+
+@app.delete("/api/qa/templates/{service:path}/items")
+async def api_remove_qa_template_item(service: str, request: Request, pin: str = ""):
+    # PIN-gated (unlike adding) — deleting an item affects every designer
+    # who uses this checklist going forward, whether the item was a
+    # default, added by Richard, or added by a designer via the endpoint
+    # above.
+    if pin != "1868":
+        return Response(status_code=403)
+    body = await request.json()
+    item = str(body.get("item", "")).strip()
+    current = store.get_qa_templates().get(service, [])
+    if item not in current:
+        return {"ok": False, "error": "That item is no longer on the checklist"}
+    if len(current) <= 1:
+        return {"ok": False, "error": "A checklist needs at least one item"}
+    items = store.remove_qa_template_item(service, item)
     return {"ok": True, "items": items}
 
 

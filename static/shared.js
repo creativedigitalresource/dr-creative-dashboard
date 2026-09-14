@@ -1180,12 +1180,16 @@ function renderQaChecklistView() {
       ${_qaItems.map((item, i) => `
         <li class="qa-item ${item.state !== "unchecked" ? "done" : ""}">
           <span class="qa-item-text">${esc(item.text)}</span>
-          <div class="qa-state-group">
-            <button class="qa-state-btn${item.state === "checked" ? " active" : ""}"
-              onclick="event.stopPropagation();setQaItemState(${i},'checked')">&#10003; Done</button>
-            <button class="qa-state-btn qa-state-na${item.state === "na" ? " active" : ""}"
-              onclick="event.stopPropagation();setQaItemState(${i},'na')"
-              title="Not applicable to this stage or creative">N/A</button>
+          <div class="qa-item-actions">
+            <div class="qa-state-group">
+              <button class="qa-state-btn${item.state === "checked" ? " active" : ""}"
+                onclick="event.stopPropagation();setQaItemState(${i},'checked')">&#10003; Done</button>
+              <button class="qa-state-btn qa-state-na${item.state === "na" ? " active" : ""}"
+                onclick="event.stopPropagation();setQaItemState(${i},'na')"
+                title="Not applicable to this stage or creative">N/A</button>
+            </div>
+            <button class="qa-item-delete" title="Remove this item from the checklist (PIN required)"
+              onclick="event.stopPropagation();deleteQaChecklistItem(${i})">&times;</button>
           </div>
         </li>
       `).join("")}
@@ -1248,6 +1252,28 @@ async function addQaChecklistItem() {
     _qaItems.push({ text, state: "unchecked" });
   }
   _qaNewItemText = "";
+  renderQaChecklistView();
+}
+
+// PIN-gated (unlike adding) — removes one item from the shared template,
+// whether it's an original default, something Richard added, or something
+// a designer added via addQaChecklistItem. Fetches the current PIN each
+// call rather than caching it, same pattern as editQaTemplate.
+async function deleteQaChecklistItem(i) {
+  const item = _qaItems[i];
+  if (!item) return;
+  if (!confirm(`Remove "${item.text}" from this checklist for everyone? This can't be undone.`)) return;
+  const pin = prompt("Enter PIN to remove this item:");
+  if (pin === null) return;
+  const res = await fetch(`/api/qa/templates/${encodeURIComponent(_qaService)}/items?pin=${encodeURIComponent(pin)}`, {
+    method: "DELETE",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ item: item.text }),
+  }).then(r => r.ok ? r.json() : { ok: false, error: r.status === 403 ? "Incorrect PIN." : "Couldn't remove that item." })
+    .catch(() => ({ ok: false, error: "Couldn't remove that item." }));
+  if (!res.ok) { alert(res.error || "Couldn't remove that item."); return; }
+  _qaTemplates[_qaService] = res.items;
+  _qaItems.splice(i, 1);
   renderQaChecklistView();
 }
 

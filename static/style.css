@@ -1432,6 +1432,13 @@ input.cal-filter-select { font-weight: 500; }
 .qa-state-btn.active { background: var(--success-light); color: var(--success); box-shadow: var(--shadow-sm); }
 .qa-state-btn.qa-state-na.active { background: var(--surface); color: var(--text); }
 
+.qa-item-actions { display: flex; align-items: center; gap: 8px; flex-shrink: 0; }
+.qa-item-delete {
+  border: none; background: transparent; cursor: pointer; color: var(--text-muted);
+  font-size: 18px; line-height: 1; padding: 2px 6px; border-radius: var(--radius-sm);
+}
+.qa-item-delete:hover { color: var(--danger); background: var(--danger-light); }
+
 .qa-add-item-row { display: flex; gap: 8px; margin-bottom: 16px; }
 .qa-add-item-row .priority-input { flex: 1; }
 
