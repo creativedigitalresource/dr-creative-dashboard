@@ -1432,6 +1432,9 @@ input.cal-filter-select { font-weight: 500; }
 .qa-state-btn.active { background: var(--success-light); color: var(--success); box-shadow: var(--shadow-sm); }
 .qa-state-btn.qa-state-na.active { background: var(--surface); color: var(--text); }
 
+.qa-add-item-row { display: flex; gap: 8px; margin-bottom: 16px; }
+.qa-add-item-row .priority-input { flex: 1; }
+
 .qa-meta-row { display: flex; gap: 10px; margin-bottom: 10px; flex-wrap: wrap; }
 .qa-meta-row .priority-input { flex: 1; min-width: 180px; }
 .qa-notes {
@@ -1440,7 +1443,42 @@ input.cal-filter-select { font-weight: 500; }
   background: var(--surface); color: var(--text); margin-bottom: 16px;
 }
 .qa-notes:focus { outline: none; border-color: var(--accent); }
+/* Feedback is internal-only (never on the certificate) — a distinct tint
+   keeps it from being mistaken for the cert-visible Notes field above it. */
+.qa-feedback { background: var(--warning-light, #fff8e6); border-color: var(--warning, #d97706); }
 .qa-actions { display: flex; align-items: center; gap: 12px; flex-wrap: wrap; }
+
+/* QA tab nav badge — unseen feedback count */
+.tab-badge {
+  display: inline-flex; align-items: center; justify-content: center;
+  min-width: 16px; height: 16px; padding: 0 4px; margin-left: 6px;
+  border-radius: 8px; background: var(--danger); color: #fff;
+  font-size: 10px; font-weight: 700; line-height: 16px; vertical-align: middle;
+}
+
+/* QA Activity — manager's feedback review list */
+.qa-activity-panel { margin-bottom: 24px; }
+.qa-activity-title { font-size: 13px; font-weight: 700; text-transform: uppercase; letter-spacing: .04em; color: var(--text-muted); margin-bottom: 10px; }
+.qa-feedback-card {
+  border: 1px solid var(--border); border-radius: var(--radius); background: var(--surface);
+  padding: 14px 16px; margin-bottom: 10px;
+}
+.qa-feedback-card.unseen { border-color: var(--warning, #d97706); background: var(--warning-light, #fff8e6); }
+.qa-feedback-card-head { display: flex; align-items: center; justify-content: space-between; gap: 10px; margin-bottom: 4px; }
+.qa-feedback-card-who { font-size: 13.5px; font-weight: 700; color: var(--text); }
+.qa-feedback-unseen-tag {
+  font-size: 10px; font-weight: 800; text-transform: uppercase; letter-spacing: .04em;
+  color: var(--danger); background: var(--danger-light, rgba(220,38,38,.1)); padding: 2px 7px; border-radius: 10px;
+}
+.qa-feedback-card-sub { font-size: 12px; color: var(--text-muted); margin-bottom: 2px; }
+.qa-feedback-card-summary { font-size: 12px; color: var(--text-muted); margin-bottom: 10px; }
+.qa-feedback-card-label {
+  font-size: 11px; font-weight: 700; text-transform: uppercase; letter-spacing: .05em;
+  color: var(--text-muted); border-top: 1px solid var(--border); padding-top: 10px; margin-bottom: 6px;
+}
+.qa-feedback-card-body { font-size: 13.5px; color: var(--text); white-space: pre-wrap; line-height: 1.5; margin-bottom: 10px; }
+.qa-feedback-card-actions { text-align: right; border-top: 1px solid var(--border); padding-top: 10px; }
+.qa-activity-empty { font-size: 13px; color: var(--text-muted); }
 
 .qa-error { margin-top: 14px; color: var(--danger); font-size: 13px; font-weight: 600; }
 .qa-cert-success {

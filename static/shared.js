@@ -1115,6 +1115,12 @@ function toggleGuideSection(mountId, sectionId) {
 let _qaTemplates = {};
 let _qaService = null;
 let _qaItems = []; // [{text, state: "unchecked"|"checked"|"na"}]
+// Meta/notes/feedback fields live in state (not just the DOM) because
+// renderQaChecklistView() fully replaces its innerHTML on every item
+// toggle and every "add missing item" — without this, typing feedback
+// then checking one more box would silently wipe what was typed.
+let _qaMeta = { task_title: "", client_name: "", completed_by: "", notes: "", feedback: "" };
+let _qaNewItemText = "";
 
 // Entry point that's safe to call on every render of a page that also
 // redraws other things over time (e.g. a designer page's 90s poll) — it
@@ -1154,6 +1160,8 @@ function renderQaServiceGrid() {
 function openQaChecklist(service) {
   _qaService = service;
   _qaItems = (_qaTemplates[service] || []).map(text => ({ text, state: "unchecked" }));
+  _qaMeta = { task_title: "", client_name: "", completed_by: "", notes: "", feedback: "" };
+  _qaNewItemText = "";
   renderQaChecklistView();
 }
 
@@ -1182,14 +1190,29 @@ function renderQaChecklistView() {
         </li>
       `).join("")}
     </ul>
-    <div class="qa-meta-row">
-      <input type="text" id="qa-task-title" class="priority-input" placeholder="Task / project title (optional)" />
-      <input type="text" id="qa-client-name" class="priority-input" placeholder="Client name (optional)" />
+    <div class="qa-add-item-row">
+      <input type="text" id="qa-new-item" class="priority-input" placeholder="Missing a check? Add it to this checklist…"
+        value="${esc(_qaNewItemText)}"
+        oninput="_qaNewItemText=this.value"
+        onkeydown="if(event.key==='Enter'){event.preventDefault();addQaChecklistItem();}" />
+      <button class="btn btn-ghost btn-sm" onclick="addQaChecklistItem()">+ Add item</button>
     </div>
     <div class="qa-meta-row">
-      <input type="text" id="qa-completed-by" class="priority-input" placeholder="Your name" />
+      <input type="text" id="qa-task-title" class="priority-input" placeholder="Task / project title (optional)"
+        value="${esc(_qaMeta.task_title)}" oninput="_qaMeta.task_title=this.value" />
+      <input type="text" id="qa-client-name" class="priority-input" placeholder="Client name (optional)"
+        value="${esc(_qaMeta.client_name)}" oninput="_qaMeta.client_name=this.value" />
     </div>
-    <textarea id="qa-notes" class="qa-notes" placeholder="Notes (optional) — anything worth flagging even though everything passed"></textarea>
+    <div class="qa-meta-row">
+      <input type="text" id="qa-completed-by" class="priority-input" placeholder="Your name"
+        value="${esc(_qaMeta.completed_by)}" oninput="_qaMeta.completed_by=this.value" />
+    </div>
+    <textarea id="qa-notes" class="qa-notes"
+      placeholder="Notes (optional) — anything worth flagging even though everything passed. Shown on the certificate."
+      oninput="_qaMeta.notes=this.value">${esc(_qaMeta.notes)}</textarea>
+    <textarea id="qa-feedback" class="qa-notes qa-feedback"
+      placeholder="Feedback for Richard (optional) — thoughts on this checklist itself, e.g. an item that doesn't fit or something missing. Internal only, never shown on the certificate."
+      oninput="_qaMeta.feedback=this.value">${esc(_qaMeta.feedback)}</textarea>
     <div class="qa-actions">
       <button class="btn btn-primary btn-lg" ${allDone ? "" : "disabled"} onclick="submitQaCertificate()">
         Complete QA &amp; Get Certificate
@@ -1207,6 +1230,27 @@ function setQaItemState(i, state) {
   renderQaChecklistView();
 }
 
+// No PIN — anyone running the checklist can add a missing item on the
+// spot. It's saved to the shared template immediately (so it's there for
+// everyone from now on) and added to the in-progress checklist as an
+// unchecked item, ready for its own Done/N/A buttons like any other item.
+async function addQaChecklistItem() {
+  const text = _qaNewItemText.trim();
+  if (!text) return;
+  const res = await fetch(`/api/qa/templates/${encodeURIComponent(_qaService)}/items`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ item: text }),
+  }).then(r => r.json()).catch(() => null);
+  if (!res || !res.ok) { alert(res?.error || "Couldn't add that item."); return; }
+  _qaTemplates[_qaService] = res.items;
+  if (!_qaItems.some(i => i.text === text)) {
+    _qaItems.push({ text, state: "unchecked" });
+  }
+  _qaNewItemText = "";
+  renderQaChecklistView();
+}
+
 function backToQaServices() {
   _qaService = null;
   _qaItems = [];
@@ -1217,10 +1261,11 @@ async function submitQaCertificate() {
   const body = {
     service: _qaService,
     items: _qaItems,
-    task_title: document.getElementById("qa-task-title")?.value || "",
-    client_name: document.getElementById("qa-client-name")?.value || "",
-    completed_by: document.getElementById("qa-completed-by")?.value || "",
-    notes: document.getElementById("qa-notes")?.value || "",
+    task_title: _qaMeta.task_title,
+    client_name: _qaMeta.client_name,
+    completed_by: _qaMeta.completed_by,
+    notes: _qaMeta.notes,
+    feedback: _qaMeta.feedback,
   };
   const res = await fetch("/api/qa/certificates", {
     method: "POST",

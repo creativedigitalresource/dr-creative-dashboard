@@ -242,6 +242,19 @@ def init_db():
         except sqlite3.OperationalError:
             pass  # column already exists
 
+        # Migration: feedback + feedback_seen_at were added to qa_certificates
+        # for the internal-only "notes to Richard" field — separate from the
+        # existing `notes` column, which is shown on the public certificate
+        # page. feedback_seen_at is NULL until Richard clicks Mark as Seen.
+        try:
+            c.execute("ALTER TABLE qa_certificates ADD COLUMN feedback TEXT NOT NULL DEFAULT ''")
+        except sqlite3.OperationalError:
+            pass  # column already exists
+        try:
+            c.execute("ALTER TABLE qa_certificates ADD COLUMN feedback_seen_at REAL")
+        except sqlite3.OperationalError:
+            pass  # column already exists
+
 
 def set_token(key: str, value: str):
     with get_db() as c:
@@ -846,14 +859,48 @@ def set_qa_template(service: str, items: list):
             (service, json.dumps(items)))
 
 
+def add_qa_template_item(service: str, item: str) -> list:
+    """Appends one item to a service's checklist — the lightweight,
+    no-PIN counterpart to set_qa_template's full-list replace. Anyone
+    (designer or Richard) can use this the moment they notice a gap;
+    the heavier PIN-gated rewrite still exists for reorganizing or
+    removing items. Silently no-ops a duplicate rather than erroring —
+    whoever clicked Add just wanted the item present."""
+    with get_db() as c:
+        row = c.execute("SELECT items FROM qa_templates WHERE service=?", (service,)).fetchone()
+        items = json.loads(row["items"]) if row else []
+        if item not in items:
+            items.append(item)
+        c.execute(
+            "INSERT OR REPLACE INTO qa_templates (service, items, updated_at) VALUES (?, ?, unixepoch())",
+            (service, json.dumps(items)))
+    return items
+
+
 def create_qa_certificate(cert_id: str, service: str, task_title: str, client_name: str,
-                           completed_by: str, items: list, notes: str) -> dict:
+                           completed_by: str, items: list, notes: str, feedback: str = "") -> dict:
     with get_db() as c:
         c.execute("""
-            INSERT INTO qa_certificates (id, service, task_title, client_name, completed_by, items, notes)
-            VALUES (?, ?, ?, ?, ?, ?, ?)
-        """, (cert_id, service, task_title, client_name, completed_by, json.dumps(items), notes))
+            INSERT INTO qa_certificates (id, service, task_title, client_name, completed_by, items, notes, feedback)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+        """, (cert_id, service, task_title, client_name, completed_by, json.dumps(items), notes, feedback))
     return get_qa_certificate(cert_id)
+
+
+def mark_qa_feedback_seen(cert_id: str) -> dict | None:
+    with get_db() as c:
+        c.execute(
+            "UPDATE qa_certificates SET feedback_seen_at = unixepoch() WHERE id=?",
+            (cert_id,))
+    return get_qa_certificate(cert_id)
+
+
+def count_unseen_qa_feedback() -> int:
+    with get_db() as c:
+        row = c.execute(
+            "SELECT COUNT(*) AS n FROM qa_certificates WHERE feedback != '' AND feedback_seen_at IS NULL"
+        ).fetchone()
+    return row["n"] if row else 0
 
 
 def get_qa_certificate(cert_id: str) -> dict | None:

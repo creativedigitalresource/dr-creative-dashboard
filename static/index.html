@@ -48,7 +48,7 @@
         <button class="tab-btn" data-tab="unassigned">To Delegate</button>
         <button class="tab-btn" data-tab="mystuff">My Stuff</button>
         <button class="tab-btn" data-tab="priorities">Priorities</button>
-        <button class="tab-btn" data-tab="qa">QA Checklists</button>
+        <button class="tab-btn" data-tab="qa">QA Checklists<span id="qa-tab-badge" class="tab-badge" hidden></span></button>
         <!-- Designer Workload and Calendar tabs hidden 2026-08-11 per Richard —
              code/panels kept intact below, just no nav entry. Day planner
              functionality still reachable by designers via their own /my/{token} link. -->
@@ -209,6 +209,7 @@
           <h2>QA Checklists</h2>
           <span class="panel-hint">Pick the service you're QA'ing, work through the checklist, then complete it to get a shareable certificate link for the Basecamp to-do.</span>
         </div>
+        <div id="qa-activity-mount"></div>
         <div id="qa-root">
           <div class="loading-card">Loading checklists…</div>
         </div>

@@ -89,6 +89,9 @@ async function boot() {
     if (!status.last_updated || status.stale) {
       startPolling();
     }
+    // QA feedback isn't tied to the Basecamp/Everhour refresh cycle above,
+    // so it gets its own light poll to keep the tab badge current.
+    setInterval(loadQaFeedbackBadge, 60000);
   } catch (e) {
     const grid = document.getElementById("designer-grid");
     if (grid) grid.innerHTML = `<div class="loading-card" style="color:red;font-size:13px">
@@ -133,7 +136,7 @@ function connectSSE() {
 // ---------------------------------------------------------------------------
 
 async function loadAll() {
-  await Promise.all([loadUnassigned(), loadDesigners(), loadMyStuff(), loadEstimateGuide()]);
+  await Promise.all([loadUnassigned(), loadDesigners(), loadMyStuff(), loadEstimateGuide(), loadQaFeedbackBadge()]);
   await loadCalendar();
   updateLastUpdated();
   resetRefreshBtn();
@@ -1081,9 +1084,94 @@ function initTabs() {
       }
       if (tab === "qa") {
         renderQaMount();
+        loadQaActivity();
       }
     });
   });
+}
+
+// ---------------------------------------------------------------------------
+// QA Activity — Richard's feedback inbox, layered on top of the shared QA
+// checklist tool (shared.js). Every completed checklist that included
+// feedback for Richard shows up here as a card; unseen ones are highlighted
+// and drive the nav tab badge until dismissed with Mark as Seen. Feedback
+// text itself never reaches the public certificate — see main.py's
+// api_get_qa_certificate, which strips it before responding.
+// ---------------------------------------------------------------------------
+
+async function loadQaFeedbackBadge() {
+  const badge = document.getElementById("qa-tab-badge");
+  if (!badge) return;
+  const data = await fetchWithTimeout("/api/qa/feedback/unseen-count").then(r => r.json()).catch(() => null);
+  const count = data?.count || 0;
+  badge.hidden = count === 0;
+  badge.textContent = count > 99 ? "99+" : String(count);
+}
+
+let _qaCerts = [];
+
+async function loadQaActivity() {
+  const mount = document.getElementById("qa-activity-mount");
+  if (!mount) return;
+  _qaCerts = await fetchWithTimeout("/api/qa/certificates?limit=50").then(r => r.json()).catch(() => []);
+  renderQaActivity();
+}
+
+function renderQaActivity() {
+  const mount = document.getElementById("qa-activity-mount");
+  if (!mount) return;
+  const withFeedback = _qaCerts.filter(c => (c.feedback || "").trim());
+  if (!withFeedback.length) { mount.innerHTML = ""; return; }
+  // Unseen first, then most recent.
+  const sorted = [...withFeedback].sort((a, b) => {
+    const au = a.feedback_seen_at ? 1 : 0, bu = b.feedback_seen_at ? 1 : 0;
+    if (au !== bu) return au - bu;
+    return b.created_at - a.created_at;
+  });
+  mount.innerHTML = `
+    <div class="qa-activity-panel">
+      <div class="qa-activity-title">QA Feedback</div>
+      ${sorted.map(qaFeedbackCardHTML).join("")}
+    </div>
+  `;
+}
+
+function qaFeedbackCardHTML(c) {
+  const unseen = !c.feedback_seen_at;
+  const created = new Date(c.created_at * 1000);
+  const date = created.toLocaleDateString("en-US", { month: "short", day: "numeric", year: "numeric" });
+  const time = created.toLocaleTimeString("en-US", { hour: "numeric", minute: "2-digit" });
+  const naCount = (c.items || []).filter(i => i.state === "na").length;
+  const checkedCount = (c.items || []).length - naCount;
+  const summary = naCount > 0 ? `${checkedCount} passed, ${naCount} N/A` : `${checkedCount}/${checkedCount} passed`;
+  const who = c.completed_by || "Unknown";
+  const whatLine = [c.client_name, c.task_title].filter(Boolean).join(" — ");
+  return `
+    <div class="qa-feedback-card${unseen ? " unseen" : ""}">
+      <div class="qa-feedback-card-head">
+        <span class="qa-feedback-card-who">${esc(who)} &middot; ${esc(c.service)}</span>
+        ${unseen ? `<span class="qa-feedback-unseen-tag">Unseen</span>` : ""}
+      </div>
+      ${whatLine ? `<div class="qa-feedback-card-sub">"${esc(whatLine)}"</div>` : ""}
+      <div class="qa-feedback-card-sub">Submitted ${date} at ${time}</div>
+      <div class="qa-feedback-card-summary">Checklist: ${summary}</div>
+      <div class="qa-feedback-card-label">Feedback</div>
+      <div class="qa-feedback-card-body">${esc(c.feedback)}</div>
+      <div class="qa-feedback-card-actions">
+        ${unseen
+          ? `<button class="btn btn-ghost btn-sm" onclick="markQaFeedbackSeen('${c.id}')">Mark as Seen</button>`
+          : `<span class="qa-feedback-card-sub">Seen</span>`}
+      </div>
+    </div>
+  `;
+}
+
+async function markQaFeedbackSeen(certId) {
+  const cert = _qaCerts.find(c => c.id === certId);
+  if (cert) cert.feedback_seen_at = Date.now() / 1000; // optimistic
+  renderQaActivity();
+  await fetch(`/api/qa/certificates/${encodeURIComponent(certId)}/feedback-seen`, { method: "POST" }).catch(() => {});
+  loadQaFeedbackBadge();
 }
 
 // ---------------------------------------------------------------------------

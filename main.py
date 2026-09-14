@@ -24,10 +24,9 @@ DESIGNERS = [
     {"name": "Melany",   "bc_id": 46905124, "eh_id": 1367774,  "color": "#ef4444", "slack_id": "U07RXRYNEMQ", "avatar": "/static/img/avatars/46905124.jpg"},
 ]
 
-# QA checklist rollout — Gaby only for now, testing before the team-wide
-# turn-on. Add more bc_ids here (or swap the membership check for "always
-# True") when Richard's ready to activate it for everyone else.
-QA_ENABLED_BC_IDS = {46567979}  # Gaby
+# QA checklist rollout — was Gaby-only for testing; turned on for the
+# whole team 2026-09-14.
+QA_ENABLED_BC_IDS = {d["bc_id"] for d in DESIGNERS}
 
 # Richard's own todos — fetched through the same pipeline as designers for the
 # My Stuff tab, but kept out of designers_out so team analytics stay clean
@@ -1251,9 +1250,37 @@ async def api_set_qa_template(service: str, request: Request, pin: str = ""):
     return {"ok": True, "items": items}
 
 
+@app.post("/api/qa/templates/{service}/items")
+async def api_add_qa_template_item(service: str, request: Request):
+    # No PIN — anyone running the checklist (designer or Richard) can add a
+    # missing item the moment they notice a gap. The PUT above (full rewrite)
+    # stays PIN-gated for reorganizing or removing items.
+    body = await request.json()
+    item = str(body.get("item", "")).strip()[:300]
+    if not item:
+        return {"ok": False, "error": "Item text is required"}
+    items = store.add_qa_template_item(service, item)
+    return {"ok": True, "items": items}
+
+
 @app.get("/api/qa/certificates")
 async def api_get_recent_qa_certificates(limit: int = 30):
+    # Internal use only (the manager's QA Activity list) — includes the
+    # feedback/feedback_seen_at fields that the public cert page never gets.
     return store.get_recent_qa_certificates(limit)
+
+
+@app.get("/api/qa/feedback/unseen-count")
+async def api_qa_feedback_unseen_count():
+    return {"count": store.count_unseen_qa_feedback()}
+
+
+@app.post("/api/qa/certificates/{cert_id}/feedback-seen")
+async def api_mark_qa_feedback_seen(cert_id: str):
+    cert = store.mark_qa_feedback_seen(cert_id)
+    if not cert:
+        return Response(status_code=404)
+    return {"ok": True}
 
 
 @app.post("/api/qa/certificates")
@@ -1280,15 +1307,21 @@ async def api_create_qa_certificate(request: Request):
         # guarantees only those two values ever reach here.
         items=[{"text": str(i.get("text", "")), "state": i.get("state")} for i in items],
         notes=str(body.get("notes", "")).strip()[:2000],
+        feedback=str(body.get("feedback", "")).strip()[:2000],
     )
     return {"ok": True, "id": cert_id, "url": f"/qa/cert/{cert_id}"}
 
 
 @app.get("/api/qa/certificates/{cert_id}")
 async def api_get_qa_certificate(cert_id: str):
+    # Public, unauthenticated (this is the shareable Basecamp link) — strip
+    # the internal feedback fields even though the frontend never renders
+    # them, so the raw JSON response can't leak them either.
     cert = store.get_qa_certificate(cert_id)
     if not cert:
         return Response(status_code=404)
+    cert.pop("feedback", None)
+    cert.pop("feedback_seen_at", None)
     return cert
 
 
