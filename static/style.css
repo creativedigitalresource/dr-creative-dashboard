@@ -1477,8 +1477,26 @@ input.cal-filter-select { font-weight: 500; }
   color: var(--text-muted); border-top: 1px solid var(--border); padding-top: 10px; margin-bottom: 6px;
 }
 .qa-feedback-card-body { font-size: 13.5px; color: var(--text); white-space: pre-wrap; line-height: 1.5; margin-bottom: 10px; }
-.qa-feedback-card-actions { text-align: right; border-top: 1px solid var(--border); padding-top: 10px; }
+.qa-feedback-card-actions {
+  display: flex; align-items: center; justify-content: flex-end; gap: 10px;
+  border-top: 1px solid var(--border); padding-top: 10px;
+}
 .qa-activity-empty { font-size: 13px; color: var(--text-muted); }
+
+/* Archived QA feedback — collapsed by default, lives at the very bottom
+   of the QA Checklists tab, below the checklist tool itself. */
+.qa-archived-panel { margin-top: 28px; }
+.qa-archived-toggle {
+  display: flex; align-items: center; gap: 8px; width: 100%;
+  background: none; border: none; border-top: 1px solid var(--border);
+  padding: 14px 0; font-size: 13px; font-weight: 700; text-transform: uppercase;
+  letter-spacing: .04em; color: var(--text-muted); cursor: pointer; text-align: left;
+}
+.qa-archived-toggle:hover { color: var(--text); }
+.qa-archived-chevron { display: inline-block; transition: transform .15s ease; font-size: 11px; }
+.qa-archived-chevron.open { transform: rotate(90deg); }
+.qa-archived-list { margin-top: 10px; }
+.qa-feedback-card.archived { opacity: .7; }
 
 .qa-error { margin-top: 14px; color: var(--danger); font-size: 13px; font-weight: 600; }
 .qa-cert-success {

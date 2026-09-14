@@ -1287,6 +1287,22 @@ async def api_mark_qa_feedback_seen(cert_id: str):
     return {"ok": True}
 
 
+@app.post("/api/qa/certificates/{cert_id}/archive")
+async def api_archive_qa_feedback(cert_id: str):
+    cert = store.archive_qa_feedback(cert_id)
+    if not cert:
+        return Response(status_code=404)
+    return {"ok": True}
+
+
+@app.post("/api/qa/certificates/{cert_id}/unarchive")
+async def api_unarchive_qa_feedback(cert_id: str):
+    cert = store.unarchive_qa_feedback(cert_id)
+    if not cert:
+        return Response(status_code=404)
+    return {"ok": True}
+
+
 @app.post("/api/qa/certificates")
 async def api_create_qa_certificate(request: Request):
     import secrets
@@ -1326,6 +1342,7 @@ async def api_get_qa_certificate(cert_id: str):
         return Response(status_code=404)
     cert.pop("feedback", None)
     cert.pop("feedback_seen_at", None)
+    cert.pop("archived_at", None)
     return cert
 
 

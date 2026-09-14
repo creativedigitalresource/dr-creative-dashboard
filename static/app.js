@@ -1094,7 +1094,10 @@ function initTabs() {
 // QA Activity — Richard's feedback inbox, layered on top of the shared QA
 // checklist tool (shared.js). Every completed checklist that included
 // feedback for Richard shows up here as a card; unseen ones are highlighted
-// and drive the nav tab badge until dismissed with Mark as Seen. Feedback
+// and drive the nav tab badge until dismissed with Mark as Seen. Once seen,
+// a card can be Archived (never deleted) — it drops out of the active list
+// into a collapsed "Archived QA Feedback" section at the very bottom of the
+// tab, below the checklist tool itself, and can be Unarchived back. Feedback
 // text itself never reaches the public certificate — see main.py's
 // api_get_qa_certificate, which strips it before responding.
 // ---------------------------------------------------------------------------
@@ -1109,21 +1112,25 @@ async function loadQaFeedbackBadge() {
 }
 
 let _qaCerts = [];
+let _qaArchivedOpen = false;
 
 async function loadQaActivity() {
   const mount = document.getElementById("qa-activity-mount");
   if (!mount) return;
   _qaCerts = await fetchWithTimeout("/api/qa/certificates?limit=50").then(r => r.json()).catch(() => []);
   renderQaActivity();
+  renderQaArchived();
 }
 
 function renderQaActivity() {
   const mount = document.getElementById("qa-activity-mount");
   if (!mount) return;
-  const withFeedback = _qaCerts.filter(c => (c.feedback || "").trim());
-  if (!withFeedback.length) { mount.innerHTML = ""; return; }
+  // Archived feedback lives in its own collapsed section at the bottom —
+  // see renderQaArchived — not in this active list.
+  const active = _qaCerts.filter(c => (c.feedback || "").trim() && !c.archived_at);
+  if (!active.length) { mount.innerHTML = ""; return; }
   // Unseen first, then most recent.
-  const sorted = [...withFeedback].sort((a, b) => {
+  const sorted = [...active].sort((a, b) => {
     const au = a.feedback_seen_at ? 1 : 0, bu = b.feedback_seen_at ? 1 : 0;
     if (au !== bu) return au - bu;
     return b.created_at - a.created_at;
@@ -1131,12 +1138,36 @@ function renderQaActivity() {
   mount.innerHTML = `
     <div class="qa-activity-panel">
       <div class="qa-activity-title">QA Feedback</div>
-      ${sorted.map(qaFeedbackCardHTML).join("")}
+      ${sorted.map(c => qaFeedbackCardHTML(c, { archived: false })).join("")}
     </div>
   `;
 }
 
-function qaFeedbackCardHTML(c) {
+function renderQaArchived() {
+  const mount = document.getElementById("qa-archived-mount");
+  if (!mount) return;
+  const archived = _qaCerts.filter(c => (c.feedback || "").trim() && c.archived_at);
+  if (!archived.length) { mount.innerHTML = ""; return; }
+  const sorted = [...archived].sort((a, b) => b.archived_at - a.archived_at);
+  mount.innerHTML = `
+    <div class="qa-archived-panel">
+      <button class="qa-archived-toggle" onclick="toggleQaArchived()">
+        <span class="qa-archived-chevron${_qaArchivedOpen ? " open" : ""}">&#9656;</span>
+        Archived QA Feedback (${archived.length})
+      </button>
+      <div class="qa-archived-list" ${_qaArchivedOpen ? "" : "hidden"}>
+        ${sorted.map(c => qaFeedbackCardHTML(c, { archived: true })).join("")}
+      </div>
+    </div>
+  `;
+}
+
+function toggleQaArchived() {
+  _qaArchivedOpen = !_qaArchivedOpen;
+  renderQaArchived();
+}
+
+function qaFeedbackCardHTML(c, { archived }) {
   const unseen = !c.feedback_seen_at;
   const created = new Date(c.created_at * 1000);
   const date = created.toLocaleDateString("en-US", { month: "short", day: "numeric", year: "numeric" });
@@ -1146,22 +1177,27 @@ function qaFeedbackCardHTML(c) {
   const summary = naCount > 0 ? `${checkedCount} passed, ${naCount} N/A` : `${checkedCount}/${checkedCount} passed`;
   const who = c.completed_by || "Unknown";
   const whatLine = [c.client_name, c.task_title].filter(Boolean).join(" — ");
+  let actions;
+  if (archived) {
+    actions = `<button class="btn btn-ghost btn-sm" onclick="unarchiveQaFeedback('${c.id}')">Unarchive</button>`;
+  } else if (unseen) {
+    actions = `<button class="btn btn-primary btn-sm" onclick="markQaFeedbackSeen('${c.id}')">Mark as Seen</button>`;
+  } else {
+    actions = `<span class="qa-feedback-card-sub">Seen</span>
+      <button class="btn btn-ghost btn-sm" onclick="archiveQaFeedback('${c.id}')">Archive</button>`;
+  }
   return `
-    <div class="qa-feedback-card${unseen ? " unseen" : ""}">
+    <div class="qa-feedback-card${unseen && !archived ? " unseen" : ""}${archived ? " archived" : ""}">
       <div class="qa-feedback-card-head">
         <span class="qa-feedback-card-who">${esc(who)} &middot; ${esc(c.service)}</span>
-        ${unseen ? `<span class="qa-feedback-unseen-tag">Unseen</span>` : ""}
+        ${unseen && !archived ? `<span class="qa-feedback-unseen-tag">Unseen</span>` : ""}
       </div>
       ${whatLine ? `<div class="qa-feedback-card-sub">"${esc(whatLine)}"</div>` : ""}
       <div class="qa-feedback-card-sub">Submitted ${date} at ${time}</div>
       <div class="qa-feedback-card-summary">Checklist: ${summary}</div>
       <div class="qa-feedback-card-label">Feedback</div>
       <div class="qa-feedback-card-body">${esc(c.feedback)}</div>
-      <div class="qa-feedback-card-actions">
-        ${unseen
-          ? `<button class="btn btn-ghost btn-sm" onclick="markQaFeedbackSeen('${c.id}')">Mark as Seen</button>`
-          : `<span class="qa-feedback-card-sub">Seen</span>`}
-      </div>
+      <div class="qa-feedback-card-actions">${actions}</div>
     </div>
   `;
 }
@@ -1172,6 +1208,27 @@ async function markQaFeedbackSeen(certId) {
   renderQaActivity();
   await fetch(`/api/qa/certificates/${encodeURIComponent(certId)}/feedback-seen`, { method: "POST" }).catch(() => {});
   loadQaFeedbackBadge();
+}
+
+async function archiveQaFeedback(certId) {
+  const cert = _qaCerts.find(c => c.id === certId);
+  if (cert) {
+    const now = Date.now() / 1000;
+    cert.archived_at = now;
+    if (!cert.feedback_seen_at) cert.feedback_seen_at = now; // optimistic
+  }
+  renderQaActivity();
+  renderQaArchived();
+  await fetch(`/api/qa/certificates/${encodeURIComponent(certId)}/archive`, { method: "POST" }).catch(() => {});
+  loadQaFeedbackBadge();
+}
+
+async function unarchiveQaFeedback(certId) {
+  const cert = _qaCerts.find(c => c.id === certId);
+  if (cert) cert.archived_at = null; // optimistic
+  renderQaActivity();
+  renderQaArchived();
+  await fetch(`/api/qa/certificates/${encodeURIComponent(certId)}/unarchive`, { method: "POST" }).catch(() => {});
 }
 
 // ---------------------------------------------------------------------------

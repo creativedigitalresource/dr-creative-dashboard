@@ -255,6 +255,15 @@ def init_db():
         except sqlite3.OperationalError:
             pass  # column already exists
 
+        # Migration: archived_at — Richard can archive a piece of feedback
+        # once seen to get it out of the main QA Activity list, without
+        # deleting it. NULL means active; set means it lives in the
+        # collapsed Archived section instead.
+        try:
+            c.execute("ALTER TABLE qa_certificates ADD COLUMN archived_at REAL")
+        except sqlite3.OperationalError:
+            pass  # column already exists
+
 
 def set_token(key: str, value: str):
     with get_db() as c:
@@ -892,6 +901,25 @@ def mark_qa_feedback_seen(cert_id: str) -> dict | None:
         c.execute(
             "UPDATE qa_certificates SET feedback_seen_at = unixepoch() WHERE id=?",
             (cert_id,))
+    return get_qa_certificate(cert_id)
+
+
+def archive_qa_feedback(cert_id: str) -> dict | None:
+    # Also stamps feedback_seen_at if it's somehow still unset, so an
+    # archived item can never still count toward the unseen badge.
+    with get_db() as c:
+        c.execute("""
+            UPDATE qa_certificates
+            SET archived_at = unixepoch(),
+                feedback_seen_at = COALESCE(feedback_seen_at, unixepoch())
+            WHERE id=?
+        """, (cert_id,))
+    return get_qa_certificate(cert_id)
+
+
+def unarchive_qa_feedback(cert_id: str) -> dict | None:
+    with get_db() as c:
+        c.execute("UPDATE qa_certificates SET archived_at = NULL WHERE id=?", (cert_id,))
     return get_qa_certificate(cert_id)
 
 
