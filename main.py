@@ -1238,7 +1238,11 @@ async def api_get_qa_templates():
     return ordered
 
 
-@app.put("/api/qa/templates/{service}")
+# :path (not the default str converter) because most real service names
+# contain a literal "/" — e.g. "Branding/Logo - Creation/Edits" — which a
+# plain {service} segment can't match even URL-encoded; 8 of the 11
+# DEFAULT_QA_TEMPLATES keys have this. Same reason on the /items route below.
+@app.put("/api/qa/templates/{service:path}")
 async def api_set_qa_template(service: str, request: Request, pin: str = ""):
     if pin != "1868":
         return Response(status_code=403)
@@ -1250,7 +1254,7 @@ async def api_set_qa_template(service: str, request: Request, pin: str = ""):
     return {"ok": True, "items": items}
 
 
-@app.post("/api/qa/templates/{service}/items")
+@app.post("/api/qa/templates/{service:path}/items")
 async def api_add_qa_template_item(service: str, request: Request):
     # No PIN — anyone running the checklist (designer or Richard) can add a
     # missing item the moment they notice a gap. The PUT above (full rewrite)
