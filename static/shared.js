@@ -1110,7 +1110,8 @@ function toggleGuideSection(mountId, sectionId) {
 
 /* ---- QA Checklists — pick a service, check off items, get a shareable
    certificate. Shared by the manager's QA tab and a designer's own page
-   (both just need a <div id="qa-root">). ---- */
+   (both just need a <div id="qa-root">). Progress auto-saves as a draft —
+   see saveQaDraftNow — so a refresh or closed tab never loses it. ---- */
 
 let _qaTemplates = {};
 let _qaService = null;
@@ -1121,6 +1122,20 @@ let _qaItems = []; // [{text, state: "unchecked"|"checked"|"na"}]
 // then checking one more box would silently wipe what was typed.
 let _qaMeta = { task_title: "", client_name: "", completed_by: "", notes: "", feedback: "" };
 let _qaNewItemText = "";
+
+// Set by the host page before renderQaMount() ever runs: app.js sets
+// _qaIsAdmin=true and _qaPersonKey="manager"; designer.js leaves
+// _qaIsAdmin false and sets _qaPersonKey=TOKEN. Admin-only controls
+// (delete an item, rewrite the whole checklist) never render for a
+// designer — they use N/A + Feedback instead of removing anything.
+let _qaIsAdmin = false;
+let _qaPersonKey = null;
+
+let _qaDraftId = null;          // null until the in-progress checklist is first saved
+let _qaDraftCreatePromise = null; // in-flight draft-creation, so rapid clicks can't double-create
+let _qaDrafts = [];             // this person's other in-progress checklists
+let _qaHistory = [];            // this person's own past certificates
+let _qaHistoryOpen = false;
 
 // Entry point that's safe to call on every render of a page that also
 // redraws other things over time (e.g. a designer page's 90s poll) — it
@@ -1136,33 +1151,182 @@ function renderQaMount() {
 
 async function loadQaServices() {
   const root = document.getElementById("qa-root");
-  const data = await fetchWithTimeout("/api/qa/templates").then(r => r.json()).catch(() => null);
-  if (!data) { root.innerHTML = `<div class="loading-card">Couldn't load QA checklists.</div>`; return; }
-  _qaTemplates = data;
+  const [templates] = await Promise.all([
+    fetchWithTimeout("/api/qa/templates").then(r => r.json()).catch(() => null),
+    loadQaDraftsAndHistory(),
+  ]);
+  if (!templates) { root.innerHTML = `<div class="loading-card">Couldn't load QA checklists.</div>`; return; }
+  _qaTemplates = templates;
   renderQaServiceGrid();
+}
+
+async function loadQaDraftsAndHistory() {
+  if (!_qaPersonKey) return;
+  const key = encodeURIComponent(_qaPersonKey);
+  const [drafts, history] = await Promise.all([
+    fetchWithTimeout(`/api/qa/drafts?person_key=${key}`).then(r => r.json()).catch(() => []),
+    fetchWithTimeout(`/api/qa/certificates/mine?person_key=${key}`).then(r => r.json()).catch(() => []),
+  ]);
+  _qaDrafts = drafts || [];
+  _qaHistory = history || [];
 }
 
 function renderQaServiceGrid() {
   const root = document.getElementById("qa-root");
   const services = Object.keys(_qaTemplates);
   if (!services.length) { root.innerHTML = `<div class="loading-card">No QA checklists set up yet.</div>`; return; }
-  root.innerHTML = `<div class="qa-grid">` + services.map(s => `
-    <button class="qa-card" data-service="${esc(s)}">
-      <span class="qa-card-name">${esc(s)}</span>
-      <span class="qa-card-count">${_qaTemplates[s].length} checks</span>
-    </button>
-  `).join("") + `</div>`;
+  root.innerHTML = `
+    ${qaDraftsPanelHTML()}
+    <div class="qa-grid">${services.map(s => `
+      <button class="qa-card" data-service="${esc(s)}">
+        <span class="qa-card-name">${esc(s)}</span>
+        <span class="qa-card-count">${_qaTemplates[s].length} checks</span>
+      </button>
+    `).join("")}</div>
+    ${qaHistoryPanelHTML()}
+  `;
   root.querySelectorAll(".qa-card").forEach(btn => {
     btn.addEventListener("click", () => openQaChecklist(btn.dataset.service));
   });
 }
 
-function openQaChecklist(service) {
-  _qaService = service;
-  _qaItems = (_qaTemplates[service] || []).map(text => ({ text, state: "unchecked" }));
-  _qaMeta = { task_title: "", client_name: "", completed_by: "", notes: "", feedback: "" };
+function qaDraftsPanelHTML() {
+  if (!_qaDrafts.length) return "";
+  return `
+    <div class="qa-drafts-panel">
+      <div class="qa-activity-title">Continue a Draft</div>
+      ${_qaDrafts.map(qaDraftCardHTML).join("")}
+    </div>
+  `;
+}
+
+function qaDraftCardHTML(d) {
+  const whatLine = [d.client_name, d.task_title].filter(Boolean).join(" — ");
+  const doneCount = (d.items || []).filter(i => i.state !== "unchecked").length;
+  return `
+    <div class="qa-draft-card">
+      <div class="qa-draft-card-main" onclick="resumeQaDraft('${d.id}')">
+        <div class="qa-draft-card-service">${esc(d.service)}</div>
+        ${whatLine ? `<div class="qa-feedback-card-sub">"${esc(whatLine)}"</div>` : ""}
+        <div class="qa-feedback-card-sub">${doneCount} / ${(d.items || []).length} checked &middot; updated ${qaRelativeTime(d.updated_at)}</div>
+      </div>
+      <div class="qa-draft-card-actions">
+        <button class="btn btn-primary btn-sm" onclick="resumeQaDraft('${d.id}')">Continue</button>
+        <button class="btn btn-ghost btn-sm" onclick="discardQaDraft('${d.id}')">Discard</button>
+      </div>
+    </div>
+  `;
+}
+
+function qaRelativeTime(unixSeconds) {
+  if (!unixSeconds) return "";
+  const mins = Math.max(0, Math.round(Date.now() / 1000 - unixSeconds) / 60);
+  if (mins < 1) return "just now";
+  if (mins < 60) return `${Math.round(mins)}m ago`;
+  const hours = mins / 60;
+  if (hours < 24) return `${Math.round(hours)}h ago`;
+  return `${Math.round(hours / 24)}d ago`;
+}
+
+function qaHistoryPanelHTML() {
+  if (!_qaHistory.length) return "";
+  return `
+    <div class="qa-archived-panel">
+      <button class="qa-archived-toggle" onclick="toggleQaHistory()">
+        <span class="qa-archived-chevron${_qaHistoryOpen ? " open" : ""}">&#9656;</span>
+        My QA History (${_qaHistory.length})
+      </button>
+      <div class="qa-archived-list" ${_qaHistoryOpen ? "" : "hidden"}>
+        ${_qaHistory.map(qaHistoryRowHTML).join("")}
+      </div>
+    </div>
+  `;
+}
+
+function qaHistoryRowHTML(c) {
+  const date = new Date(c.created_at * 1000).toLocaleDateString("en-US", { month: "short", day: "numeric", year: "numeric" });
+  const whatLine = [c.client_name, c.task_title].filter(Boolean).join(" — ");
+  return `
+    <a class="qa-history-row" href="/qa/cert/${encodeURIComponent(c.id)}" target="_blank" rel="noopener">
+      <span class="qa-history-service">${esc(c.service)}</span>
+      <span class="qa-feedback-card-sub">${whatLine ? `"${esc(whatLine)}" &middot; ` : ""}${date}</span>
+    </a>
+  `;
+}
+
+function toggleQaHistory() {
+  _qaHistoryOpen = !_qaHistoryOpen;
+  renderQaServiceGrid();
+}
+
+function resumeQaDraft(draftId) {
+  const draft = _qaDrafts.find(d => d.id === draftId);
+  if (!draft) return;
+  openQaChecklist(draft.service, draft);
+}
+
+async function discardQaDraft(draftId) {
+  if (!confirm("Discard this draft? Its progress can't be recovered.")) return;
+  _qaDrafts = _qaDrafts.filter(d => d.id !== draftId);
+  renderQaServiceGrid();
+  await fetch(`/api/qa/drafts/${encodeURIComponent(draftId)}`, { method: "DELETE" }).catch(() => {});
+}
+
+function openQaChecklist(service, draft) {
+  if (draft) {
+    _qaDraftId = draft.id;
+    _qaService = draft.service;
+    _qaItems = draft.items;
+    _qaMeta = {
+      task_title: draft.task_title || "", client_name: draft.client_name || "",
+      completed_by: draft.completed_by || "", notes: draft.notes || "", feedback: draft.feedback || "",
+    };
+  } else {
+    _qaService = service;
+    _qaItems = (_qaTemplates[service] || []).map(text => ({ text, state: "unchecked" }));
+    _qaMeta = { task_title: "", client_name: "", completed_by: "", notes: "", feedback: "" };
+    _qaDraftId = null;
+  }
   _qaNewItemText = "";
   renderQaChecklistView();
+  if (!draft) saveQaDraftNow(); // create the draft row right away, before any edits
+}
+
+// Debounced (text fields) vs immediate (checkbox/item clicks) — see the
+// AskUserQuestion decision: autosave is always automatic, never a manual
+// "Save Draft" button, since a forgotten manual save wouldn't actually
+// fix the "refresh loses progress" problem.
+let _qaDraftSaveTimer = null;
+function scheduleQaDraftSave() {
+  clearTimeout(_qaDraftSaveTimer);
+  _qaDraftSaveTimer = setTimeout(saveQaDraftNow, 1000);
+}
+
+async function saveQaDraftNow() {
+  if (!_qaService || !_qaPersonKey) return;
+  const body = {
+    person_key: _qaPersonKey, service: _qaService, items: _qaItems,
+    task_title: _qaMeta.task_title, client_name: _qaMeta.client_name,
+    completed_by: _qaMeta.completed_by, notes: _qaMeta.notes, feedback: _qaMeta.feedback,
+  };
+  if (_qaDraftId) {
+    await fetch(`/api/qa/drafts/${encodeURIComponent(_qaDraftId)}`, {
+      method: "PUT", headers: { "Content-Type": "application/json" }, body: JSON.stringify(body),
+    }).catch(() => {});
+    return;
+  }
+  // Guards against two rapid saves (e.g. double-clicking Done) both racing
+  // to create a separate draft row before either request has resolved.
+  if (!_qaDraftCreatePromise) {
+    _qaDraftCreatePromise = fetch("/api/qa/drafts", {
+      method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(body),
+    }).then(r => r.json()).catch(() => null).then(res => {
+      _qaDraftId = res?.draft?.id || null;
+      _qaDraftCreatePromise = null;
+      return res;
+    });
+  }
+  await _qaDraftCreatePromise;
 }
 
 function renderQaChecklistView() {
@@ -1188,8 +1352,10 @@ function renderQaChecklistView() {
                 onclick="event.stopPropagation();setQaItemState(${i},'na')"
                 title="Not applicable to this stage or creative">N/A</button>
             </div>
+            ${_qaIsAdmin ? `
             <button class="qa-item-delete" title="Remove this item from the checklist (PIN required)"
               onclick="event.stopPropagation();deleteQaChecklistItem(${i})">&times;</button>
+            ` : ""}
           </div>
         </li>
       `).join("")}
@@ -1203,26 +1369,27 @@ function renderQaChecklistView() {
     </div>
     <div class="qa-meta-row">
       <input type="text" id="qa-task-title" class="priority-input" placeholder="Task / project title (optional)"
-        value="${esc(_qaMeta.task_title)}" oninput="_qaMeta.task_title=this.value" />
+        value="${esc(_qaMeta.task_title)}" oninput="_qaMeta.task_title=this.value;scheduleQaDraftSave()" />
       <input type="text" id="qa-client-name" class="priority-input" placeholder="Client name (optional)"
-        value="${esc(_qaMeta.client_name)}" oninput="_qaMeta.client_name=this.value" />
+        value="${esc(_qaMeta.client_name)}" oninput="_qaMeta.client_name=this.value;scheduleQaDraftSave()" />
     </div>
     <div class="qa-meta-row">
       <input type="text" id="qa-completed-by" class="priority-input" placeholder="Your name"
-        value="${esc(_qaMeta.completed_by)}" oninput="_qaMeta.completed_by=this.value" />
+        value="${esc(_qaMeta.completed_by)}" oninput="_qaMeta.completed_by=this.value;scheduleQaDraftSave()" />
     </div>
     <textarea id="qa-notes" class="qa-notes"
       placeholder="Notes (optional) — anything worth flagging even though everything passed. Shown on the certificate."
-      oninput="_qaMeta.notes=this.value">${esc(_qaMeta.notes)}</textarea>
+      oninput="_qaMeta.notes=this.value;scheduleQaDraftSave()">${esc(_qaMeta.notes)}</textarea>
     <textarea id="qa-feedback" class="qa-notes qa-feedback"
       placeholder="Feedback for Richard (optional) — thoughts on this checklist itself, e.g. an item that doesn't fit or something missing. Internal only, never shown on the certificate."
-      oninput="_qaMeta.feedback=this.value">${esc(_qaMeta.feedback)}</textarea>
+      oninput="_qaMeta.feedback=this.value;scheduleQaDraftSave()">${esc(_qaMeta.feedback)}</textarea>
     <div class="qa-actions">
       <button class="btn btn-primary btn-lg" ${allDone ? "" : "disabled"} onclick="submitQaCertificate()">
         Complete QA &amp; Get Certificate
       </button>
-      <button class="btn btn-ghost btn-sm" onclick="editQaTemplate()">Edit this checklist</button>
+      ${_qaIsAdmin ? `<button class="btn btn-ghost btn-sm" onclick="editQaTemplate()">Edit this checklist</button>` : ""}
     </div>
+    <div class="qa-draft-status" id="qa-draft-status">Progress saves automatically as you go.</div>
     <div id="qa-result"></div>
   `;
 }
@@ -1232,6 +1399,7 @@ function renderQaChecklistView() {
 function setQaItemState(i, state) {
   _qaItems[i].state = _qaItems[i].state === state ? "unchecked" : state;
   renderQaChecklistView();
+  saveQaDraftNow();
 }
 
 // No PIN — anyone running the checklist can add a missing item on the
@@ -1253,13 +1421,18 @@ async function addQaChecklistItem() {
   }
   _qaNewItemText = "";
   renderQaChecklistView();
+  saveQaDraftNow();
 }
 
-// PIN-gated (unlike adding) — removes one item from the shared template,
-// whether it's an original default, something Richard added, or something
-// a designer added via addQaChecklistItem. Fetches the current PIN each
-// call rather than caching it, same pattern as editQaTemplate.
+// PIN-gated (unlike adding) and admin-only — removes one item from the
+// shared template, whether it's an original default, something Richard
+// added, or something a designer added via addQaChecklistItem. Fetches
+// the current PIN each call rather than caching it, same pattern as
+// editQaTemplate. Never rendered for a designer (see renderQaChecklistView)
+// but double-checked here too since the API itself is still PIN-gated
+// regardless of who calls it.
 async function deleteQaChecklistItem(i) {
+  if (!_qaIsAdmin) return;
   const item = _qaItems[i];
   if (!item) return;
   if (!confirm(`Remove "${item.text}" from this checklist for everyone? This can't be undone.`)) return;
@@ -1275,11 +1448,17 @@ async function deleteQaChecklistItem(i) {
   _qaTemplates[_qaService] = res.items;
   _qaItems.splice(i, 1);
   renderQaChecklistView();
+  saveQaDraftNow();
 }
 
-function backToQaServices() {
+// Leaving for the grid doesn't discard the draft — it's already saved —
+// but does refresh Drafts/History so the just-parked checklist (and
+// anything submitted while it was open) shows up immediately.
+async function backToQaServices() {
   _qaService = null;
   _qaItems = [];
+  _qaDraftId = null;
+  await loadQaDraftsAndHistory();
   renderQaServiceGrid();
 }
 
@@ -1292,6 +1471,8 @@ async function submitQaCertificate() {
     completed_by: _qaMeta.completed_by,
     notes: _qaMeta.notes,
     feedback: _qaMeta.feedback,
+    person_key: _qaPersonKey,
+    draft_id: _qaDraftId,
   };
   const res = await fetch("/api/qa/certificates", {
     method: "POST",
@@ -1304,6 +1485,7 @@ async function submitQaCertificate() {
     resultEl.innerHTML = `<div class="qa-error">${esc(res?.error || "Couldn't create the certificate. Try again.")}</div>`;
     return;
   }
+  _qaDraftId = null; // the draft it came from (if any) was already deleted server-side
   const fullUrl = window.location.origin + res.url;
   resultEl.innerHTML = `
     <div class="qa-cert-success">
@@ -1316,6 +1498,7 @@ async function submitQaCertificate() {
       <div class="qa-cert-hint">Paste this link into the Basecamp to-do as your QA sign-off.</div>
     </div>
   `;
+  loadQaDraftsAndHistory(); // background refresh — next visit to the grid reflects this submission
 }
 
 function copyQaCertLink(url) {

@@ -1347,8 +1347,24 @@ async def api_create_qa_certificate(request: Request):
         items=[{"text": str(i.get("text", "")), "state": i.get("state")} for i in items],
         notes=str(body.get("notes", "")).strip()[:2000],
         feedback=str(body.get("feedback", "")).strip()[:2000],
+        # Whoever's browser actually submitted this — "manager" or a
+        # designer's own /my/{token} token — captured automatically so "My
+        # QA History" can filter reliably, unlike the free-typed
+        # completed_by name. Optional so a stray old client can't 400.
+        person_key=str(body.get("person_key", "")).strip()[:200] or None,
     )
+    # The draft this came from (if any) is now a real certificate — remove it.
+    draft_id = str(body.get("draft_id", "")).strip()
+    if draft_id:
+        store.delete_qa_draft(draft_id)
     return {"ok": True, "id": cert_id, "url": f"/qa/cert/{cert_id}"}
+
+
+@app.get("/api/qa/certificates/mine")
+async def api_get_my_qa_certificates(person_key: str, limit: int = 50):
+    # Only certificates submitted after person_key tracking shipped will
+    # show up here — see get_qa_certificates_for_person's docstring.
+    return store.get_qa_certificates_for_person(person_key, limit)
 
 
 @app.get("/api/qa/certificates/{cert_id}")
@@ -1362,6 +1378,7 @@ async def api_get_qa_certificate(cert_id: str):
     cert.pop("feedback", None)
     cert.pop("feedback_seen_at", None)
     cert.pop("archived_at", None)
+    cert.pop("person_key", None)
     return cert
 
 
@@ -1369,6 +1386,61 @@ async def api_get_qa_certificate(cert_id: str):
 async def qa_cert_page(cert_id: str):
     # Public, unauthenticated — this is the shareable link posted into Basecamp.
     return FileResponse("static/qa-cert.html", headers={"Cache-Control": "no-cache, must-revalidate"})
+
+
+# ---------------------------------------------------------------------------
+# QA drafts — auto-saved in-progress checklists (see store.py's QA drafts
+# section for the full rationale). No PIN: a draft is scoped to whoever's
+# person_key it was saved under, same trust level as everything else here.
+# ---------------------------------------------------------------------------
+
+@app.get("/api/qa/drafts")
+async def api_get_qa_drafts(person_key: str):
+    return store.get_qa_drafts_for_person(person_key)
+
+
+@app.post("/api/qa/drafts")
+async def api_create_qa_draft(request: Request):
+    import secrets
+    body = await request.json()
+    person_key = str(body.get("person_key", "")).strip()[:200]
+    service = str(body.get("service", "")).strip()
+    if not person_key or not service:
+        return Response(status_code=400)
+    draft_id = secrets.token_urlsafe(8)
+    draft = store.create_qa_draft(
+        draft_id=draft_id, person_key=person_key, service=service,
+        items=body.get("items", []),
+        task_title=str(body.get("task_title", "")).strip()[:300],
+        client_name=str(body.get("client_name", "")).strip()[:200],
+        completed_by=str(body.get("completed_by", "")).strip()[:100],
+        notes=str(body.get("notes", "")).strip()[:2000],
+        feedback=str(body.get("feedback", "")).strip()[:2000],
+    )
+    return {"ok": True, "draft": draft}
+
+
+@app.put("/api/qa/drafts/{draft_id}")
+async def api_update_qa_draft(draft_id: str, request: Request):
+    body = await request.json()
+    draft = store.update_qa_draft(
+        draft_id,
+        items=body.get("items", []),
+        task_title=str(body.get("task_title", "")).strip()[:300],
+        client_name=str(body.get("client_name", "")).strip()[:200],
+        completed_by=str(body.get("completed_by", "")).strip()[:100],
+        notes=str(body.get("notes", "")).strip()[:2000],
+        feedback=str(body.get("feedback", "")).strip()[:2000],
+    )
+    if not draft:
+        return Response(status_code=404)
+    return {"ok": True}
+
+
+@app.delete("/api/qa/drafts/{draft_id}")
+async def api_delete_qa_draft(draft_id: str):
+    store.delete_qa_draft(draft_id)
+    return {"ok": True}
 
 
 @app.put("/api/estimate-goals")

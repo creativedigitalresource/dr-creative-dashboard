@@ -378,6 +378,9 @@ async def get_designer_todos(designer_bc_id: int) -> list:
         ]
         creator = t.get("creator") or {}
 
+        # Computed once, reused below and in the result dict.
+        category = categorize_todo(t["content"])
+
         # Find the active step assigned to this designer — its due_on is the HDD
         steps = t.get("steps", [])
         designer_steps = [s for s in steps
@@ -386,7 +389,13 @@ async def get_designer_todos(designer_bc_id: int) -> list:
 
         # Revision limbo: designer finished all their steps but is still assigned to
         # the parent — the task came back (revisions) and has no real deadline yet.
-        in_revisions = bool(designer_steps) and designer_step is None
+        # Excludes Admin/Misc. — an ongoing internal container like "Lezly's DR
+        # Internal Tasks" (Meeting Hours, Self delegation, etc.) never gets a
+        # "next step" by design, so this heuristic falsely flagged it "back for
+        # revisions, waiting 55+ days" when it was never sent back for anything.
+        # Only real deliverable categories go through an actual review/revision
+        # cycle. Confirmed against live data 2026-09-16.
+        in_revisions = category not in ("Admin", "Misc.") and bool(designer_steps) and designer_step is None
         revisions_since = None
         if in_revisions:
             completions = [(s.get("completion") or {}).get("created_at")
@@ -426,7 +435,7 @@ async def get_designer_todos(designer_bc_id: int) -> list:
             "is_subtask": is_subtask,
             "is_misc": False,
             "is_complete": False,
-            "category": categorize_todo(t["content"]),
+            "category": category,
             "comment_authors": comment_authors,
             "creator_id": creator.get("id"),
             "creator_name": creator.get("name"),

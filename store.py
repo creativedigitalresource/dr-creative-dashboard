@@ -212,6 +212,26 @@ def init_db():
                 created_at REAL DEFAULT (unixepoch())
             );
 
+            -- QA: in-progress checklists, auto-saved as someone works through
+            -- them so a refresh or closed tab never loses progress. One
+            -- person (identified by person_key — "manager" for Richard, a
+            -- designer's own /my/{token} token for everyone else) can have
+            -- several open at once, browsable in the Drafts section.
+            -- Submitting deletes the draft and creates a real certificate.
+            CREATE TABLE IF NOT EXISTS qa_drafts (
+                id TEXT PRIMARY KEY,
+                person_key TEXT NOT NULL,
+                service TEXT NOT NULL,
+                task_title TEXT NOT NULL DEFAULT '',
+                client_name TEXT NOT NULL DEFAULT '',
+                completed_by TEXT NOT NULL DEFAULT '',
+                items TEXT NOT NULL,
+                notes TEXT NOT NULL DEFAULT '',
+                feedback TEXT NOT NULL DEFAULT '',
+                created_at REAL DEFAULT (unixepoch()),
+                updated_at REAL DEFAULT (unixepoch())
+            );
+
             -- At Risk Slack nudge: one row per todo per day it was surfaced,
             -- so the daily routine never re-pings the same task twice in a day
             -- even if it calls the endpoint more than once.
@@ -261,6 +281,16 @@ def init_db():
         # collapsed Archived section instead.
         try:
             c.execute("ALTER TABLE qa_certificates ADD COLUMN archived_at REAL")
+        except sqlite3.OperationalError:
+            pass  # column already exists
+
+        # Migration: person_key — who actually submitted this certificate,
+        # captured automatically from their session/token rather than the
+        # free-typed "completed_by" name (typo/nickname-prone). Powers "My
+        # QA History" reliably; only populated going forward, so history
+        # for certificates created before this ships won't show up in it.
+        try:
+            c.execute("ALTER TABLE qa_certificates ADD COLUMN person_key TEXT")
         except sqlite3.OperationalError:
             pass  # column already exists
 
@@ -906,13 +936,31 @@ def remove_qa_template_item(service: str, item: str) -> list:
 
 
 def create_qa_certificate(cert_id: str, service: str, task_title: str, client_name: str,
-                           completed_by: str, items: list, notes: str, feedback: str = "") -> dict:
+                           completed_by: str, items: list, notes: str, feedback: str = "",
+                           person_key: str | None = None) -> dict:
     with get_db() as c:
         c.execute("""
-            INSERT INTO qa_certificates (id, service, task_title, client_name, completed_by, items, notes, feedback)
-            VALUES (?, ?, ?, ?, ?, ?, ?, ?)
-        """, (cert_id, service, task_title, client_name, completed_by, json.dumps(items), notes, feedback))
+            INSERT INTO qa_certificates (id, service, task_title, client_name, completed_by, items, notes, feedback, person_key)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+        """, (cert_id, service, task_title, client_name, completed_by, json.dumps(items), notes, feedback, person_key))
     return get_qa_certificate(cert_id)
+
+
+def get_qa_certificates_for_person(person_key: str, limit: int = 50) -> list:
+    """Powers "My QA History" — only certificates created after person_key
+    tracking shipped will show up; older ones only have the free-typed
+    completed_by name, which isn't reliable enough to match on."""
+    with get_db() as c:
+        rows = c.execute(
+            "SELECT * FROM qa_certificates WHERE person_key=? ORDER BY created_at DESC LIMIT ?",
+            (person_key, limit)
+        ).fetchall()
+    out = []
+    for r in rows:
+        d = dict(r)
+        d["items"] = json.loads(d["items"])
+        out.append(d)
+    return out
 
 
 def mark_qa_feedback_seen(cert_id: str) -> dict | None:
@@ -971,3 +1019,59 @@ def get_recent_qa_certificates(limit: int = 30) -> list:
         d["items"] = json.loads(d["items"])
         out.append(d)
     return out
+
+
+# ---------------------------------------------------------------------------
+# QA drafts — auto-saved in-progress checklists, so a refresh or closed tab
+# never loses progress. One row per in-progress checklist; deleted once its
+# certificate is submitted (or explicitly discarded).
+# ---------------------------------------------------------------------------
+
+def create_qa_draft(draft_id: str, person_key: str, service: str, items: list,
+                     task_title: str = "", client_name: str = "", completed_by: str = "",
+                     notes: str = "", feedback: str = "") -> dict:
+    with get_db() as c:
+        c.execute("""
+            INSERT INTO qa_drafts (id, person_key, service, task_title, client_name, completed_by, items, notes, feedback)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+        """, (draft_id, person_key, service, task_title, client_name, completed_by, json.dumps(items), notes, feedback))
+    return get_qa_draft(draft_id)
+
+
+def update_qa_draft(draft_id: str, items: list, task_title: str = "", client_name: str = "",
+                     completed_by: str = "", notes: str = "", feedback: str = "") -> dict | None:
+    with get_db() as c:
+        c.execute("""
+            UPDATE qa_drafts
+            SET items=?, task_title=?, client_name=?, completed_by=?, notes=?, feedback=?, updated_at=unixepoch()
+            WHERE id=?
+        """, (json.dumps(items), task_title, client_name, completed_by, notes, feedback, draft_id))
+    return get_qa_draft(draft_id)
+
+
+def get_qa_draft(draft_id: str) -> dict | None:
+    with get_db() as c:
+        row = c.execute("SELECT * FROM qa_drafts WHERE id=?", (draft_id,)).fetchone()
+    if not row:
+        return None
+    d = dict(row)
+    d["items"] = json.loads(d["items"])
+    return d
+
+
+def get_qa_drafts_for_person(person_key: str) -> list:
+    with get_db() as c:
+        rows = c.execute(
+            "SELECT * FROM qa_drafts WHERE person_key=? ORDER BY updated_at DESC", (person_key,)
+        ).fetchall()
+    out = []
+    for r in rows:
+        d = dict(r)
+        d["items"] = json.loads(d["items"])
+        out.append(d)
+    return out
+
+
+def delete_qa_draft(draft_id: str):
+    with get_db() as c:
+        c.execute("DELETE FROM qa_drafts WHERE id=?", (draft_id,))

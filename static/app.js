@@ -2,6 +2,14 @@
    DR Creative Dashboard — Frontend
    ============================================================ */
 
+// Tells shared.js's QA checklist component this is the admin (manager)
+// dashboard — enables the per-item delete (×) and "Edit this checklist",
+// neither of which a designer's own page should ever show. "manager" is a
+// fixed identity (there's only one manager session) used to scope QA
+// Drafts/History, distinct from each designer's own /my/{token}.
+_qaIsAdmin = true;
+_qaPersonKey = "manager";
+
 // PIN gate
 (function() {
   const CORRECT = "1868";

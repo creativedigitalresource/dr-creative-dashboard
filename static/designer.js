@@ -11,6 +11,11 @@ const TOKEN = (() => {
   return m ? m[1] : new URLSearchParams(location.search).get("token");
 })();
 
+// Scopes this designer's QA Drafts/History to their own token — shared.js's
+// _qaIsAdmin stays false here (default), so the per-item delete (×) and
+// "Edit this checklist" never render on a designer's own page.
+_qaPersonKey = TOKEN;
+
 // This page's reference guide — see renderGuide/toggleGuideSection in
 // shared.js for the rendering mechanics. Content only lives here.
 const TEAM_GUIDE_SECTIONS = [
