@@ -1454,7 +1454,7 @@ input.cal-filter-select { font-weight: 500; }
    keeps it from being mistaken for the cert-visible Notes field above it. */
 .qa-feedback { background: var(--warning-light, #fff8e6); border-color: var(--warning, #d97706); }
 .qa-actions { display: flex; align-items: center; gap: 12px; flex-wrap: wrap; }
-.qa-draft-status { font-size: 11.5px; color: var(--text-muted); margin-top: -8px; margin-bottom: 4px; }
+.qa-draft-status { font-size: 11.5px; color: var(--text-muted); margin-top: 10px; }
 
 /* QA Drafts — in-progress checklists this person can resume. Sits above
    the service grid so it's the first thing seen, not tucked away. */
