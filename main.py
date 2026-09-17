@@ -244,6 +244,113 @@ def _compute_pipeline_forecast(offset: int = 0) -> dict:
             pool_hours += est
     return {"by_person": by_person, "design_pool_hours": round(pool_hours, 1)}
 
+
+# ---------------------------------------------------------------------------
+# To Delegate suggestions — designer/HDD/EST starting points for the Auto
+# Assign flow. Always overridable in the UI; a manager's manual pick (an
+# override, same table/pattern as category overrides) always wins over the
+# computed suggestion. Confirmed with Richard 2026-09-17: capacity-first,
+# not expertise-first — DELEGATION_GUIDELINES.md explicitly warns against
+# "the same task types always going to the same person," so history only
+# breaks ties between designers with similar room this week.
+# ---------------------------------------------------------------------------
+
+def _parse_timeline_days(timeline: str | None) -> int:
+    """CATEGORY_TIMELINE stores prose ("1-2 days", "3-5 days") — the upper
+    bound is the conservative suggested turnaround. Falls back to 2
+    business days for a category with no timeline yet (IPM) or that isn't
+    a real deliverable (Admin, Misc.)."""
+    if not timeline:
+        return 2
+    nums = [int(n) for n in re.findall(r"\d+", timeline)]
+    return max(nums) if nums else 2
+
+
+def _add_business_days(start: date, days: int) -> date:
+    d = start
+    added = 0
+    while added < days:
+        d += timedelta(days=1)
+        if d.weekday() < 5:  # Mon-Fri
+            added += 1
+    return d
+
+
+def _suggest_designer_bc_id(category: str) -> int | None:
+    """A CATEGORY_SOLE_ASSIGNEE category always goes to its one person. A
+    shared Design-pool category ranks the 4-person pool by who has the
+    most room this week (lowest capacity_pct, from the already-cached
+    /api/designers data), breaking ties by who has handled this category
+    least recently (analytics_category_volume) — spreading load and
+    variety on purpose, not specializing. Returns None for Admin/Misc./
+    anything outside the formal deliverable categories."""
+    if category in CATEGORY_SOLE_ASSIGNEE:
+        return CATEGORY_SOLE_ASSIGNEE[category]
+    if category not in DESIGN_POOL_CATEGORIES:
+        return None
+    design_eh_ids = set(CAPACITY_GROUPS.get("Design", []))
+    pool = [d for d in DESIGNERS if d.get("eh_id") in design_eh_ids]
+    if not pool:
+        return None
+    cap_by_bc_id = {str(d["bc_id"]): d.get("capacity_pct", 0) for d in _cached_data.get("designers", [])}
+    history = defaultdict(int)
+    for r in store.get_analytics_category_volume():
+        if r.get("category") == category:
+            history[str(r["designer_bc_id"])] += r.get("task_count", 0)
+    pool_sorted = sorted(pool, key=lambda d: (
+        cap_by_bc_id.get(str(d["bc_id"]), 0),
+        history.get(str(d["bc_id"]), 0),
+    ))
+    return pool_sorted[0]["bc_id"]
+
+
+def _suggest_est_hours(category: str, title: str, designer_bc_id: int | None) -> float:
+    """An EST already typed into the title wins (rare pre-assignment, but
+    respected everywhere else in this app). Otherwise the suggested
+    designer's own historical median for this category, once there's
+    enough of their own data (ESTIMATE_GUIDE_MIN_N) — falling back to the
+    company-wide median, then the confirmed per-category default."""
+    parsed = parse_est(title)
+    if parsed:
+        return parsed
+    if designer_bc_id:
+        entry = _compute_estimate_guide(str(designer_bc_id)).get(category)
+        if entry:
+            if entry.get("personal_n", 0) >= ESTIMATE_GUIDE_MIN_N and entry.get("personal_median"):
+                return entry["personal_median"]
+            if entry.get("company_median"):
+                return entry["company_median"]
+    return CATEGORY_HISTORICAL_EST_HOURS.get(category, 0) or 0
+
+
+def _attach_unassigned_suggestions(unassigned: list, overrides: dict):
+    """Category (existing behavior) plus suggested_designer_bc_id/
+    suggested_hdd/suggested_est, and chosen_* — the suggestion, or the
+    manager's manual override when one exists (delegate_designer/
+    delegate_hdd/delegate_est overrides, same store.set_override table
+    and pattern as category). chosen_* is what Auto Assign actually acts
+    on; suggested_* is what the UI resets to if an override is cleared."""
+    today = date.today()
+    for t in unassigned:
+        ov = overrides.get(str(t["id"]), {})
+        t["category"] = ov.get("category") or categorize_todo(t.get("title", ""))
+        t["overrides"] = list(ov.keys())
+
+        suggested_designer = _suggest_designer_bc_id(t["category"])
+        suggested_hdd = _add_business_days(
+            today, _parse_timeline_days(CATEGORY_TIMELINE.get(t["category"]))
+        ).isoformat()
+        suggested_est = _suggest_est_hours(t["category"], t.get("title", ""), suggested_designer)
+
+        t["suggested_designer_bc_id"] = suggested_designer
+        t["suggested_hdd"] = suggested_hdd
+        t["suggested_est"] = suggested_est
+
+        t["chosen_designer_bc_id"] = int(ov["delegate_designer"]) if ov.get("delegate_designer") else suggested_designer
+        t["chosen_hdd"] = ov.get("delegate_hdd") or suggested_hdd
+        t["chosen_est"] = float(ov["delegate_est"]) if ov.get("delegate_est") else suggested_est
+
+
 # QA checklist templates, one per deliverable service (mirrors CATEGORIES,
 # minus Misc./Admin which aren't QA'd). Seeded into the DB once; after that
 # the DB copy is authoritative and editable from the QA tab.
@@ -713,10 +820,7 @@ async def _do_refresh():
         print(f"[refresh] unassigned error: {type(e).__name__}: {e}")
         unassigned = _cached_data.get("unassigned", [])
 
-    for t in unassigned:
-        ov = overrides.get(str(t["id"]), {})
-        t["category"] = ov.get("category") or categorize_todo(t.get("title", ""))
-        t["overrides"] = list(ov.keys())
+    _attach_unassigned_suggestions(unassigned, overrides)
 
     designers_out = []
     for d in DESIGNERS:
@@ -855,14 +959,114 @@ async def api_unassigned_refresh():
     except Exception as e:
         return {"ok": False, "error": f"{type(e).__name__}: {e}"}
 
-    for t in unassigned:
-        ov = overrides.get(str(t["id"]), {})
-        t["category"] = ov.get("category") or categorize_todo(t.get("title", ""))
-        t["overrides"] = list(ov.keys())
+    _attach_unassigned_suggestions(unassigned, overrides)
     unassigned.sort(key=lambda t: t.get("created_at") or "")
 
     _cached_data["unassigned"] = unassigned
     _record_queue_tracking(unassigned, time.time())
+    return {"ok": True}
+
+
+@app.put("/api/unassigned/{todo_id}/delegation")
+async def api_set_delegation_choice(todo_id: str, request: Request):
+    """Manual override of the suggested designer/HDD/EST for one To
+    Delegate row — same store.set_override table/pattern as category.
+    Pass null for any field to clear that override back to the computed
+    suggestion. Updates the live cache in place so the UI reflects it
+    immediately, without waiting on a full refresh."""
+    body = await request.json()
+    todo = next((t for t in _cached_data.get("unassigned", []) if str(t["id"]) == str(todo_id)), None)
+    if not todo:
+        return Response(status_code=404)
+
+    if "designer_bc_id" in body:
+        val = body["designer_bc_id"]
+        if val:
+            store.set_override(todo_id, "delegate_designer", str(val))
+            todo["chosen_designer_bc_id"] = int(val)
+        else:
+            store.delete_override(todo_id, "delegate_designer")
+            todo["chosen_designer_bc_id"] = todo.get("suggested_designer_bc_id")
+    if "hdd" in body:
+        val = body["hdd"]
+        if val:
+            store.set_override(todo_id, "delegate_hdd", str(val))
+            todo["chosen_hdd"] = val
+        else:
+            store.delete_override(todo_id, "delegate_hdd")
+            todo["chosen_hdd"] = todo.get("suggested_hdd")
+    if "est" in body:
+        val = body["est"]
+        if val:
+            store.set_override(todo_id, "delegate_est", str(val))
+            todo["chosen_est"] = float(val)
+        else:
+            store.delete_override(todo_id, "delegate_est")
+            todo["chosen_est"] = todo.get("suggested_est")
+
+    return {"ok": True, "chosen_designer_bc_id": todo.get("chosen_designer_bc_id"),
+            "chosen_hdd": todo.get("chosen_hdd"), "chosen_est": todo.get("chosen_est")}
+
+
+@app.post("/api/unassigned/{todo_id}/auto-assign")
+async def api_auto_assign(todo_id: str):
+    """Delegates a To Delegate row in one action: creates a Basecamp step
+    with the chosen due date and assignee, sets the Everhour estimate, and
+    posts a heads-up comment on the to-do. Plain-text "@Name" in the
+    comment for now, not a real Basecamp mention — see bc.post_comment's
+    docstring; a real mention needs a people-endpoint fetch this app
+    doesn't have yet (confirmed with Richard 2026-09-17: ship plain text
+    now, real mention as a fast follow)."""
+    todo = next((t for t in _cached_data.get("unassigned", []) if str(t["id"]) == str(todo_id)), None)
+    if not todo:
+        return {"ok": False, "error": "Task not found in the To Delegate queue — try refreshing."}
+
+    designer_bc_id = todo.get("chosen_designer_bc_id")
+    hdd = todo.get("chosen_hdd")
+    est = todo.get("chosen_est")
+    if not designer_bc_id:
+        return {"ok": False, "error": "Pick a designer before Auto Assign."}
+    if not hdd:
+        return {"ok": False, "error": "Pick a due date before Auto Assign."}
+    designer = next((d for d in DESIGNERS if d["bc_id"] == int(designer_bc_id)), None)
+    if not designer:
+        return {"ok": False, "error": "Unknown designer."}
+
+    step = await bc.create_step(
+        todo["bucket_id"], todo_id, todo.get("category") or "Design",
+        due_on=hdd, assignee_ids=[int(designer_bc_id)],
+    )
+    if not step:
+        return {"ok": False, "error": "Couldn't create the step in Basecamp. Try again."}
+
+    if est:
+        eh_id = designer.get("eh_id")
+        if eh_id:
+            wrote = False
+            for attempt in range(3):  # Everhour rate-limits under load — same retry pattern used elsewhere
+                if await eh.set_user_estimate(todo_id, eh_id, float(est)):
+                    wrote = True
+                    break
+                await asyncio.sleep(1.5 * (attempt + 1))
+            if not wrote:
+                print(f"[auto-assign] Everhour estimate write failed for todo {todo_id} after retries")
+
+    import html
+    comment = (
+        f"<div>Hey @{html.escape(designer['name'])}! Sending this one your way. "
+        f"HDD: {html.escape(hdd)} &middot; EST: {est}h.<br>"
+        f"Please let me know if you have any questions before or during the project. Thank you!</div>"
+    )
+    await bc.post_comment(todo["bucket_id"], todo_id, comment)
+
+    # It's assigned now — out of the queue, and its delegation scratch
+    # overrides (not the category override, which is still meaningful)
+    # are no longer needed.
+    _cached_data["unassigned"] = [t for t in _cached_data.get("unassigned", []) if str(t["id"]) != str(todo_id)]
+    store.delete_override(todo_id, "delegate_designer")
+    store.delete_override(todo_id, "delegate_hdd")
+    store.delete_override(todo_id, "delegate_est")
+
     return {"ok": True}
 
 

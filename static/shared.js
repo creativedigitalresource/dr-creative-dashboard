@@ -653,6 +653,11 @@ function sortableTh(label, key, sort, sortFnName, tooltip) {
    ids, so this one implementation drives both). ---- */
 let _unassignedData = [];
 let _unassignedSort = { key: null, dir: "asc" };
+// The full team roster, for the suggested-designer dropdown — fetched once
+// (it barely changes) rather than depending on whichever host-specific
+// global (app.js's _designerData, designer.js's _pulseDesignerData) happens
+// to be loaded, so this component works the same on both pages.
+let _delegationRoster = [];
 
 function setUnassignedSort(key) {
   _unassignedSort = _unassignedSort.key === key
@@ -662,11 +667,19 @@ function setUnassignedSort(key) {
 }
 
 async function loadUnassigned() {
-  const todos = await fetchWithTimeout("/api/unassigned").then(r => r.json()).catch(() => []);
+  const [todos] = await Promise.all([
+    fetchWithTimeout("/api/unassigned").then(r => r.json()).catch(() => []),
+    loadDelegationRoster(),
+  ]);
   _unassignedData = todos;
   document.getElementById("unassigned-count").textContent = todos.length || "";
   renderUnassigned();
   loadPipelinePoolNote();
+}
+
+async function loadDelegationRoster() {
+  if (_delegationRoster.length) return;
+  _delegationRoster = await fetchWithTimeout("/api/designers").then(r => r.json()).catch(() => []);
 }
 
 // Design-pool forecast note: hours due this week in categories with no
@@ -689,23 +702,122 @@ function renderUnassigned() {
     return;
   }
   const sorted = sortTodos(todos, _unassignedSort.key, _unassignedSort.dir);
-  const th = (label, key) => sortableTh(label, key, _unassignedSort.key ? _unassignedSort : null, "setUnassignedSort");
+  const th = (label, key, tooltip) => sortableTh(label, key, _unassignedSort.key ? _unassignedSort : null, "setUnassignedSort", tooltip);
   const rows = sorted.map(t => {
     const due = t.due_on ? formatDue(t.due_on) : "";
     const titleHtml = t.url
       ? `<a href="${t.url}" target="_blank">${esc(t.title)}</a>`
       : esc(t.title);
     return `<tr>
+      <td>${esc(cleanClient(t.bucket_name))}</td>
       <td><div class="todo-title">${titleHtml}</div></td>
       <td>${selCategory(t)}</td>
       <td><span class="due-date ${dueCls(t.due_on)}">${due}</span></td>
-      <td>${t.url ? `<a href="${t.url}" target="_blank" class="link-btn" title="Open in Basecamp">↗</a>` : ""}</td>
+      <td>${selDelegateDesigner(t)}</td>
+      <td>${inputDelegateHdd(t)}</td>
+      <td>${inputDelegateEst(t)}</td>
+      <td><button class="btn btn-primary btn-sm" data-autoassign="${t.id}" onclick="autoAssignUnassigned('${t.id}')">Auto Assign</button></td>
     </tr>`;
   }).join("");
   root.innerHTML = `<table class="data-table">
-    <thead><tr>${th("Task", "task")}${th("Category", "category")}${th("Due Date", "date")}<th></th></tr></thead>
+    <thead><tr>
+      ${th("Client", "client")}
+      ${th("Task", "task")}
+      ${th("Category", "category")}
+      ${th("Due Date", "date")}
+      ${th("Designer", null, "Suggested by who has the most room this week — change to override")}
+      <th>HDD</th>
+      <th>EST</th>
+      <th></th>
+    </tr></thead>
     <tbody>${rows}</tbody>
   </table>`;
+}
+
+// Highlights a suggestion that's been manually overridden, same visual
+// language as the category dropdown's "overridden" state.
+function selDelegateDesigner(t) {
+  if (!_delegationRoster.length) return `<span class="loading-cell">…</span>`;
+  const chosen = t.chosen_designer_bc_id;
+  const overridden = chosen !== t.suggested_designer_bc_id;
+  const blank = chosen ? "" : `<option value="">— pick —</option>`;
+  const options = _delegationRoster.map(d =>
+    `<option value="${d.bc_id}"${d.bc_id === chosen ? " selected" : ""}>${esc(d.name)}</option>`
+  ).join("");
+  return `<select class="category-select${overridden ? " overridden" : ""}"
+    onchange="saveDelegateDesigner('${t.id}', this.value)"
+    title="Suggested by capacity — change to override">${blank}${options}</select>`;
+}
+
+async function saveDelegateDesigner(todoId, value) {
+  const bcId = value ? parseInt(value, 10) : null;
+  await fetch(`/api/unassigned/${encodeURIComponent(todoId)}/delegation`, {
+    method: "PUT", headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ designer_bc_id: bcId }),
+  }).catch(() => {});
+  const t = _unassignedData.find(x => String(x.id) === String(todoId));
+  if (t) t.chosen_designer_bc_id = bcId || t.suggested_designer_bc_id;
+  renderUnassigned();
+}
+
+function inputDelegateHdd(t) {
+  const overridden = t.chosen_hdd !== t.suggested_hdd;
+  return `<input type="date" class="priority-input${overridden ? " overridden" : ""}" style="min-width:130px"
+    value="${t.chosen_hdd || ""}" onchange="saveDelegateHdd('${t.id}', this.value)" />`;
+}
+
+async function saveDelegateHdd(todoId, value) {
+  await fetch(`/api/unassigned/${encodeURIComponent(todoId)}/delegation`, {
+    method: "PUT", headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ hdd: value || null }),
+  }).catch(() => {});
+  const t = _unassignedData.find(x => String(x.id) === String(todoId));
+  if (t) t.chosen_hdd = value || t.suggested_hdd;
+  renderUnassigned();
+}
+
+function inputDelegateEst(t) {
+  const overridden = t.chosen_est !== t.suggested_est;
+  const val = t.chosen_est != null ? t.chosen_est : "";
+  return `<input type="number" step="0.5" min="0" style="width:64px" class="priority-input${overridden ? " overridden" : ""}"
+    value="${val}" onchange="saveDelegateEst('${t.id}', this.value)" />`;
+}
+
+async function saveDelegateEst(todoId, value) {
+  const num = value === "" ? null : parseFloat(value);
+  await fetch(`/api/unassigned/${encodeURIComponent(todoId)}/delegation`, {
+    method: "PUT", headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ est: num }),
+  }).catch(() => {});
+  const t = _unassignedData.find(x => String(x.id) === String(todoId));
+  if (t) t.chosen_est = num != null ? num : t.suggested_est;
+  renderUnassigned();
+}
+
+// Creates the Basecamp step (due date + assignee), sets the Everhour
+// estimate, and posts the heads-up comment — see api_auto_assign's
+// docstring on the backend for exactly what runs.
+async function autoAssignUnassigned(todoId) {
+  const t = _unassignedData.find(x => String(x.id) === String(todoId));
+  if (!t) return;
+  if (!t.chosen_designer_bc_id) { alert("Pick a designer before Auto Assign."); return; }
+  if (!t.chosen_hdd) { alert("Pick a due date before Auto Assign."); return; }
+  const designerName = _delegationRoster.find(d => d.bc_id === t.chosen_designer_bc_id)?.name || "this designer";
+  if (!confirm(`Assign "${t.title}" to ${designerName}?\n\nHDD: ${t.chosen_hdd}\nEST: ${t.chosen_est || 0}h\n\nThis creates a step in Basecamp and posts a comment on the to-do.`)) return;
+
+  const btn = document.querySelector(`button[data-autoassign="${CSS.escape(String(todoId))}"]`);
+  if (btn) { btn.disabled = true; btn.textContent = "Assigning…"; }
+  const res = await fetch(`/api/unassigned/${encodeURIComponent(todoId)}/auto-assign`, { method: "POST" })
+    .then(r => r.json()).catch(() => null);
+  if (!res || !res.ok) {
+    alert(res?.error || "Couldn't auto-assign. Try again.");
+    if (btn) { btn.disabled = false; btn.textContent = "Auto Assign"; }
+    return;
+  }
+  _unassignedData = _unassignedData.filter(x => String(x.id) !== String(todoId));
+  const countEl = document.getElementById("unassigned-count");
+  if (countEl) countEl.textContent = _unassignedData.length || "";
+  renderUnassigned();
 }
 
 /* ---- Team Spotlight — replaces Standups (2026-08-20). No posting step,

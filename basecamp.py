@@ -242,6 +242,34 @@ async def create_step(bucket_id: str, todo_id: str, title: str,
     return None
 
 
+async def post_comment(bucket_id: str, recording_id: str, content: str) -> dict | None:
+    """Post a comment on any Basecamp recording (a to-do, in this app's
+    only current use). content is rich-text HTML — plain text works fine
+    wrapped in a <p>. No @mention support here: a real Basecamp mention
+    needs the person's attachable_sgid (via a people endpoint this app
+    doesn't call anywhere yet), so callers currently send the designer's
+    name as plain text rather than a real mention."""
+    token = get_token("access_token")
+    if not token:
+        return None
+    headers = {
+        "Authorization": f"Bearer {token}",
+        "User-Agent": USER_AGENT,
+        "Content-Type": "application/json",
+    }
+    import json as _json
+    payload = {"content": content}
+    r = await get_http().post(
+        f"{BC_BASE}/buckets/{bucket_id}/recordings/{recording_id}/comments.json",
+        headers=headers,
+        content=_json.dumps(payload),
+    )
+    if r.status_code in (200, 201):
+        return r.json()
+    print(f"[bc] post_comment failed {r.status_code}: {r.text[:200]}")
+    return None
+
+
 async def update_todo_due(bucket_id: str, todo_id: str, due_on: str, title: str = "") -> bool:
     """Update a todo's due_on date in Basecamp, preserving existing assignees."""
     token = get_token("access_token")
