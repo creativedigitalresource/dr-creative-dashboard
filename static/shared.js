@@ -407,12 +407,47 @@ function pillLogged(t, ehId) {
   return `<span class="logged-cell">${loggedPill}${everhourBtn}</span>`;
 }
 
+// One distinct, legible-as-text color per category (13 total, matching
+// parsers.py's CATEGORIES) so the category column/badge is scannable at a
+// glance without reading every label. Admin/Misc. get muted greys —
+// they're the non-deliverable categories excluded from QA, revisions
+// tracking, and delegation suggestions elsewhere in the app, and look the
+// part here too. Where a category rolls up to a service that already has
+// an established color in the Capacity chart (Multi/IPM/Email — see
+// app.js's CAP_SERIES), this reuses that same color for consistency.
+const CATEGORY_COLORS = {
+  "Branding/Logo - Creation/Edits": "#7c3aed",
+  "Print - Collateral/Packaging": "#db2777",
+  "Web - Sites/Applications/UI": "#2563eb",
+  "Web - Maintenance": "#0891b2",
+  "Email - Campaigns/Signatures": "#008300",
+  "LP - New": "#ea580c",
+  "LP - Maintenance": "#b45309",
+  "Digital - Banner/Display Ads": "#65a30d",
+  "Multi - Photo/Video/Edits": "#1baf7a",
+  "IPM - Campaigns/Reports": "#eda100",
+  "SM - templates/graphics/reels": "#e11d48",
+  "Misc.": "#78716c",
+  "Admin": "#57534e",
+};
+function categoryColor(cat) { return CATEGORY_COLORS[cat] || "#78716c"; }
+
+// Light tint background + solid color text/border — same "badge" language
+// as .category-badge already used elsewhere, just per-category instead of
+// one flat accent color for every category.
+function categoryBadgeHTML(cat) {
+  const c = categoryColor(cat);
+  return `<span class="category-badge" style="background:${c}22;color:${c};border:1px solid ${c}55">${esc(cat || "")}</span>`;
+}
+
 function selCategory(t) {
   const catOptions = CATEGORIES.map(c =>
     `<option value="${c}"${c === (t.category || "") ? " selected" : ""}>${c}</option>`
   ).join("");
   const cls = (t.overrides || []).includes("category") ? "category-select overridden" : "category-select";
-  return `<select class="${cls}" onchange="saveCategory('${t.id}', this.value)" title="Task category">${catOptions}</select>`;
+  const c = categoryColor(t.category);
+  return `<select class="${cls}" style="background:${c}22;color:${c};border-color:${c}55"
+    onchange="saveCategory('${t.id}', this.value)" title="Task category">${catOptions}</select>`;
 }
 
 // Progress against the stable allocation window max(est, true_est) —
@@ -736,17 +771,26 @@ function renderUnassigned() {
 
 // Highlights a suggestion that's been manually overridden, same visual
 // language as the category dropdown's "overridden" state.
+// Flags anyone OOO today right in the option label — the suggestion
+// itself already excludes them server-side (see main.py's
+// _suggest_designer_bc_id), but a manual override could still pick
+// someone out, so this is a visible heads-up rather than a hard block.
+function _isRosterOOOToday(d) {
+  const today = localISO(new Date());
+  return (d.pto || []).some(p => p.date === today);
+}
+
 function selDelegateDesigner(t) {
   if (!_delegationRoster.length) return `<span class="loading-cell">…</span>`;
   const chosen = t.chosen_designer_bc_id;
   const overridden = chosen !== t.suggested_designer_bc_id;
   const blank = chosen ? "" : `<option value="">— pick —</option>`;
   const options = _delegationRoster.map(d =>
-    `<option value="${d.bc_id}"${d.bc_id === chosen ? " selected" : ""}>${esc(d.name)}</option>`
+    `<option value="${d.bc_id}"${d.bc_id === chosen ? " selected" : ""}>${esc(d.name)}${_isRosterOOOToday(d) ? " (OOO today)" : ""}</option>`
   ).join("");
   return `<select class="category-select${overridden ? " overridden" : ""}"
     onchange="saveDelegateDesigner('${t.id}', this.value)"
-    title="Suggested by capacity — change to override">${blank}${options}</select>`;
+    title="Suggested by capacity, excluding anyone OOO today — change to override">${blank}${options}</select>`;
 }
 
 async function saveDelegateDesigner(todoId, value) {

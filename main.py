@@ -276,20 +276,36 @@ def _add_business_days(start: date, days: int) -> date:
     return d
 
 
+def _is_ooo_today(bc_id, pto: dict) -> bool:
+    today_str = date.today().isoformat()
+    return any(p.get("date") == today_str for p in pto.get(str(bc_id), []))
+
+
 def _suggest_designer_bc_id(category: str) -> int | None:
-    """A CATEGORY_SOLE_ASSIGNEE category always goes to its one person. A
-    shared Design-pool category ranks the 4-person pool by who has the
-    most room this week (lowest capacity_pct, from the already-cached
-    /api/designers data), breaking ties by who has handled this category
-    least recently (analytics_category_volume) — spreading load and
-    variety on purpose, not specializing. Returns None for Admin/Misc./
-    anything outside the formal deliverable categories."""
+    """A CATEGORY_SOLE_ASSIGNEE category always goes to its one person,
+    unless they're OOO today (then no suggestion — there's no backup for
+    a sole-assignee category). A shared Design-pool category ranks the
+    pool, minus anyone OOO today, by who has the most room this week
+    (lowest capacity_pct, from the already-cached /api/designers data),
+    breaking ties by who has handled this category least recently
+    (analytics_category_volume) — spreading load and variety on purpose,
+    not specializing. Returns None for Admin/Misc./anything outside the
+    formal deliverable categories.
+
+    The OOO check matters even beyond "don't hand work to someone who's
+    out": a designer on extended leave has capacity_pct=0 (zero assigned
+    work) precisely because they're out, which the capacity-first ranking
+    would otherwise read as "the most available person" and suggest them
+    first. Confirmed live 2026-09-17 — Lezly, on maternity leave with
+    capacity_pct=0, was being suggested for every open Design-pool task."""
+    pto = store.get_all_pto()
     if category in CATEGORY_SOLE_ASSIGNEE:
-        return CATEGORY_SOLE_ASSIGNEE[category]
+        sole = CATEGORY_SOLE_ASSIGNEE[category]
+        return None if _is_ooo_today(sole, pto) else sole
     if category not in DESIGN_POOL_CATEGORIES:
         return None
     design_eh_ids = set(CAPACITY_GROUPS.get("Design", []))
-    pool = [d for d in DESIGNERS if d.get("eh_id") in design_eh_ids]
+    pool = [d for d in DESIGNERS if d.get("eh_id") in design_eh_ids and not _is_ooo_today(d["bc_id"], pto)]
     if not pool:
         return None
     cap_by_bc_id = {str(d["bc_id"]): d.get("capacity_pct", 0) for d in _cached_data.get("designers", [])}

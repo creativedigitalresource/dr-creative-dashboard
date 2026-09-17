@@ -2236,7 +2236,7 @@ function renderAnalyticsSection(section) {
         <td>${c.url
           ? `<a href="${c.url}" target="_blank" title="Open in Basecamp">${esc(truncate(c.title, 48))}</a>`
           : esc(truncate(c.title, 48))}</td>
-        <td><span class="category-badge">${esc(c.category)}</span></td>
+        <td>${categoryBadgeHTML(c.category)}</td>
         <td>${c.est_hours != null ? c.est_hours + "h" : "—"}</td>
         <td>${c.logged_hours > 0 ? c.logged_hours + "h" : "—"}</td>
         <td ${varCls}>${variance !== "—" ? (parseFloat(variance) > 0 ? "+" : "") + variance + "h" : "—"}</td>
@@ -2290,7 +2290,7 @@ function renderAnalyticsSection(section) {
     const rows = category_volume.map(v => `<tr>
       <td>${fmtDate(v.week_start)}</td>
       <td>${esc(v.designer_name)}</td>
-      <td><span class="category-badge">${esc(v.category)}</span></td>
+      <td>${categoryBadgeHTML(v.category)}</td>
       <td>${v.task_count}</td>
     </tr>`).join("");
     el.innerHTML = `<div class="table-wrap"><table class="data-table">
