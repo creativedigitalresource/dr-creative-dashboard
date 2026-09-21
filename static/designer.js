@@ -146,7 +146,19 @@ async function loadMe() {
    "guide" isn't delegate-gated — it's reachable by every designer via the
    header button (#my-tab-nav itself stays hidden unless delegate_enabled,
    but this function works the same regardless of which button called it). ---- */
+// Tracked so myRefresh() knows what's actually on screen — the visible
+// Refresh button used to always refresh "My Week" data (/api/my/{token})
+// no matter which of these tabs was open, so e.g. To Delegate could look
+// current after a click while quietly showing a stale snapshot from
+// before someone else delegated a task elsewhere. Confirmed live
+// 2026-09-21: a task already reassigned to Dexter was still showing as
+// undelegated on Gaby's page — the data itself was fine (a fresh fetch
+// confirmed Basecamp and the server cache both already had it right),
+// it just hadn't reached her tab yet.
+let _activeMyTab = "week";
+
 function switchMyTab(tab) {
+  _activeMyTab = tab;
   document.querySelectorAll("#my-tab-nav .tab-btn").forEach(b => b.classList.toggle("active", b.dataset.mytab === tab));
   document.getElementById("my-root").style.display = tab === "week" ? "" : "none";
   ["delegate", "pulse", "spotlight", "guide"].forEach(t =>
@@ -175,15 +187,25 @@ function renderMyPulse() {
   gridEl.innerHTML = renderAttention(stats);
 }
 
+// Same scoped-refresh idea as app.js's _SCOPED_TAB_REFRESH: refresh
+// whatever's actually on screen, not always "My Week" regardless of which
+// delegate-coverage tab is open.
+const _SCOPED_MY_REFRESH = {
+  delegate: () => fetch("/api/unassigned/refresh", { method: "POST" }).then(loadUnassigned),
+  pulse: () => loadMyPulse(),
+  spotlight: () => loadTeamSpotlight(),
+};
+
 function myRefresh() {
   const btn = document.getElementById("refresh-btn");
   if (btn) { btn.disabled = true; btn.innerHTML = `<span class="refresh-spin">&#8635;</span> Refreshing…`; }
-  fetch(`/api/my/${TOKEN}/refresh`, { method: "POST" })
-    .then(loadMe)
-    .catch(() => loadMe())
-    .finally(() => {
-      if (btn) { btn.disabled = false; btn.innerHTML = "&#8635; Refresh"; }
-    });
+  const scoped = _SCOPED_MY_REFRESH[_activeMyTab];
+  const done = scoped
+    ? Promise.resolve(scoped()).catch(() => {})
+    : fetch(`/api/my/${TOKEN}/refresh`, { method: "POST" }).then(loadMe).catch(() => loadMe());
+  done.finally(() => {
+    if (btn) { btn.disabled = false; btn.innerHTML = "&#8635; Refresh"; }
+  });
 }
 
 function renderMe() {
