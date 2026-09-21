@@ -194,10 +194,18 @@ async def get_person(person_id: int | str) -> dict | None:
     return await _get(f"/people/{person_id}.json")
 
 
-async def assign_todo(bucket_id: str, todo_id: str, assignee_ids: list) -> bool:
+async def assign_todo(bucket_id: str, todo_id: str, assignee_ids: list, due_on: str | None = None) -> bool:
     """Sets a todo's assignees to exactly assignee_ids (replaces whoever's
     there now — delegating a task should make it clearly theirs, not add
-    to a pre-existing group assignment). Basecamp PUT clears any field not
+    to a pre-existing group assignment). Optionally sets due_on in the
+    same PUT — used by Auto Assign to move the parent to-do's due date to
+    today the moment it's delegated (the real deadline lives on the step's
+    due_on, which is authoritative over this — see get_designer_todos'
+    "HDD priority" comment — so this is a bookkeeping/visibility signal,
+    not the actual deadline). One combined PUT rather than a second call
+    into update_todo_due, which would instead preserve the old (group)
+    assignees — the two functions' field-preservation would fight each
+    other if used together here. Basecamp PUT clears any field not
     included, so content is re-sent from a fresh fetch to preserve it,
     same pattern as update_todo_due."""
     token = get_token("access_token")
@@ -212,6 +220,8 @@ async def assign_todo(bucket_id: str, todo_id: str, assignee_ids: list) -> bool:
     content = (detail or {}).get("content", "")
     import json as _json
     payload = {"content": content, "assignee_ids": assignee_ids}
+    if due_on:
+        payload["due_on"] = due_on
     r = await get_http().put(
         f"{BC_BASE}/buckets/{bucket_id}/todos/{todo_id}.json",
         headers=headers,

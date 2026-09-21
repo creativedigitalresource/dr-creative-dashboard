@@ -1027,14 +1027,15 @@ async def api_set_delegation_choice(todo_id: str, request: Request):
 @app.post("/api/unassigned/{todo_id}/auto-assign")
 async def api_auto_assign(todo_id: str):
     """Delegates a To Delegate row in one action: assigns the parent to-do
-    to the designer, creates a Basecamp step with the chosen due date and
-    assignee, sets the Everhour estimate, and posts a heads-up comment
-    with a real @mention. Confirmed live 2026-09-21 after Richard caught
-    two gaps in the first version: the to-do itself was never assigned
-    (only the step was), and the comment's "@Name" was plain text, not a
-    real mention — Basecamp actually notify-pings someone only via a
-    <bc-attachment sgid="..."> in the rich text, built here from
-    bc.get_person()."""
+    to the designer and moves its due_on to today (the day it's picked up
+    — not the real deadline, which lives on the step below), creates a
+    Basecamp step with the chosen HDD and assignee, sets the Everhour
+    estimate, and posts a heads-up comment with a real @mention.
+    Confirmed live 2026-09-21 after Richard caught two gaps in the first
+    version: the to-do itself was never assigned (only the step was), and
+    the comment's "@Name" was plain text, not a real mention — Basecamp
+    actually notify-pings someone only via a <bc-attachment sgid="..."> in
+    the rich text, built here from bc.get_person()."""
     todo = next((t for t in _cached_data.get("unassigned", []) if str(t["id"]) == str(todo_id)), None)
     if not todo:
         return {"ok": False, "error": "Task not found in the To Delegate queue — try refreshing."}
@@ -1050,7 +1051,9 @@ async def api_auto_assign(todo_id: str):
     if not designer:
         return {"ok": False, "error": "Unknown designer."}
 
-    assigned = await bc.assign_todo(todo["bucket_id"], todo_id, [int(designer_bc_id)])
+    assigned = await bc.assign_todo(
+        todo["bucket_id"], todo_id, [int(designer_bc_id)], due_on=date.today().isoformat()
+    )
     if not assigned:
         return {"ok": False, "error": "Couldn't assign the to-do in Basecamp. Try again."}
 
