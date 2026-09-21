@@ -187,6 +187,41 @@ async def get_todo_detail(bucket_id: str, todo_id: str) -> dict | None:
     return await _get(f"/buckets/{bucket_id}/todos/{todo_id}.json")
 
 
+async def get_person(person_id: int | str) -> dict | None:
+    """Fetch a Basecamp person record — used for its attachable_sgid, the
+    id a real rich-text @mention needs (see post_comment's docstring).
+    Global endpoint, not project-scoped: /people/{id}.json."""
+    return await _get(f"/people/{person_id}.json")
+
+
+async def assign_todo(bucket_id: str, todo_id: str, assignee_ids: list) -> bool:
+    """Sets a todo's assignees to exactly assignee_ids (replaces whoever's
+    there now — delegating a task should make it clearly theirs, not add
+    to a pre-existing group assignment). Basecamp PUT clears any field not
+    included, so content is re-sent from a fresh fetch to preserve it,
+    same pattern as update_todo_due."""
+    token = get_token("access_token")
+    if not token:
+        return False
+    headers = {
+        "Authorization": f"Bearer {token}",
+        "User-Agent": USER_AGENT,
+        "Content-Type": "application/json",
+    }
+    detail = await get_todo_detail(bucket_id, todo_id)
+    content = (detail or {}).get("content", "")
+    import json as _json
+    payload = {"content": content, "assignee_ids": assignee_ids}
+    r = await get_http().put(
+        f"{BC_BASE}/buckets/{bucket_id}/todos/{todo_id}.json",
+        headers=headers,
+        content=_json.dumps(payload),
+    )
+    if r.status_code not in (200, 201):
+        print(f"[bc] assign_todo failed {r.status_code}: {r.text[:200]}")
+    return r.status_code in (200, 201)
+
+
 async def update_step_due(bucket_id: str, step_id: str, due_on: str, step: dict | None = None) -> bool:
     """Update a step's due date in Basecamp, preserving existing title and assignees."""
     token = get_token("access_token")
@@ -245,10 +280,10 @@ async def create_step(bucket_id: str, todo_id: str, title: str,
 async def post_comment(bucket_id: str, recording_id: str, content: str) -> dict | None:
     """Post a comment on any Basecamp recording (a to-do, in this app's
     only current use). content is rich-text HTML — plain text works fine
-    wrapped in a <p>. No @mention support here: a real Basecamp mention
-    needs the person's attachable_sgid (via a people endpoint this app
-    doesn't call anywhere yet), so callers currently send the designer's
-    name as plain text rather than a real mention."""
+    wrapped in a <p>. A real @mention is a caller's job to build first:
+    <bc-attachment sgid="..."></bc-attachment> using the person's
+    attachable_sgid from get_person() (confirmed live 2026-09-21) — see
+    main.py's api_auto_assign for the one place that does this."""
     token = get_token("access_token")
     if not token:
         return None

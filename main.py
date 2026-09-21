@@ -1026,13 +1026,15 @@ async def api_set_delegation_choice(todo_id: str, request: Request):
 
 @app.post("/api/unassigned/{todo_id}/auto-assign")
 async def api_auto_assign(todo_id: str):
-    """Delegates a To Delegate row in one action: creates a Basecamp step
-    with the chosen due date and assignee, sets the Everhour estimate, and
-    posts a heads-up comment on the to-do. Plain-text "@Name" in the
-    comment for now, not a real Basecamp mention — see bc.post_comment's
-    docstring; a real mention needs a people-endpoint fetch this app
-    doesn't have yet (confirmed with Richard 2026-09-17: ship plain text
-    now, real mention as a fast follow)."""
+    """Delegates a To Delegate row in one action: assigns the parent to-do
+    to the designer, creates a Basecamp step with the chosen due date and
+    assignee, sets the Everhour estimate, and posts a heads-up comment
+    with a real @mention. Confirmed live 2026-09-21 after Richard caught
+    two gaps in the first version: the to-do itself was never assigned
+    (only the step was), and the comment's "@Name" was plain text, not a
+    real mention — Basecamp actually notify-pings someone only via a
+    <bc-attachment sgid="..."> in the rich text, built here from
+    bc.get_person()."""
     todo = next((t for t in _cached_data.get("unassigned", []) if str(t["id"]) == str(todo_id)), None)
     if not todo:
         return {"ok": False, "error": "Task not found in the To Delegate queue — try refreshing."}
@@ -1047,6 +1049,10 @@ async def api_auto_assign(todo_id: str):
     designer = next((d for d in DESIGNERS if d["bc_id"] == int(designer_bc_id)), None)
     if not designer:
         return {"ok": False, "error": "Unknown designer."}
+
+    assigned = await bc.assign_todo(todo["bucket_id"], todo_id, [int(designer_bc_id)])
+    if not assigned:
+        return {"ok": False, "error": "Couldn't assign the to-do in Basecamp. Try again."}
 
     step = await bc.create_step(
         todo["bucket_id"], todo_id, todo.get("category") or "Design",
@@ -1068,8 +1074,14 @@ async def api_auto_assign(todo_id: str):
                 print(f"[auto-assign] Everhour estimate write failed for todo {todo_id} after retries")
 
     import html
+    person = await bc.get_person(int(designer_bc_id))
+    sgid = (person or {}).get("attachable_sgid")
+    # Falls back to plain text only if the person fetch fails for some
+    # reason — every real designer has an sgid, this isn't the normal path.
+    mention = f'<bc-attachment sgid="{html.escape(sgid)}"></bc-attachment>' if sgid \
+        else f"@{html.escape(designer['name'])}"
     comment = (
-        f"<div>Hey @{html.escape(designer['name'])}! Sending this one your way. "
+        f"<div>Hey {mention}! Sending this one your way. "
         f"HDD: {html.escape(hdd)} &middot; EST: {est}h.<br>"
         f"Please let me know if you have any questions before or during the project. Thank you!</div>"
     )
