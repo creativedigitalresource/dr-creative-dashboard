@@ -131,16 +131,18 @@ function truncate(str, n) {
   return str && str.length > n ? str.slice(0, n) + "…" : str;
 }
 
+// M/DD — month with no leading zero, day always two digits (the day
+// string straight off an ISO date is already zero-padded, so only the
+// month needs unpadding). Confirmed as the standard short-date format
+// 2026-09-21; formatDue used to show "Sep 21" instead, now unified here.
 function fmtDate(iso) {
   if (!iso) return "";
   const [y, m, d] = iso.split("-");
-  return `${parseInt(m)}/${parseInt(d)}`;
+  return `${parseInt(m)}/${d}`;
 }
 
 function formatDue(iso) {
-  if (!iso) return "";
-  const d = new Date(iso + "T12:00:00");
-  return d.toLocaleDateString("en-US", { month: "short", day: "numeric" });
+  return fmtDate(iso);
 }
 
 // Remaining hours on a task (est minus what's already logged), same
