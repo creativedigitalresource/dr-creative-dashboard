@@ -731,6 +731,80 @@ async function loadPipelinePoolNote() {
   el.textContent = hours ? `Design pool: +${hours}h due this week (unassigned)` : "";
 }
 
+// Live capacity gauge above the table — one column per designer, one bar
+// per weekday, filling as HDDs get picked in the queue below (even before
+// Auto Assign runs) so a manager can see who's getting loaded up on which
+// day while still delegating everything by hand. Bar height/color is
+// (that designer's existing real workload due that day) + (whatever's
+// currently chosen for them in the visible queue for that day) against
+// the standard 6.5h/day. Deliberately the *inverse* of the day planner's
+// capRing color language: there, green means "lots of room"; here, green
+// means "day's nicely packed" — the goal of delegating is filling days,
+// not emptying them. Confirmed with Richard 2026-09-21: no auto-scheduling
+// anywhere in this — purely a read-out to guide manual decisions.
+function renderDelegationCapacityStrip() {
+  if (!_delegationRoster.length) return "";
+  const { start } = getWeekBounds(0);
+  const startD = new Date(start + "T12:00:00");
+  const days = [];
+  for (let i = 0; i < 5; i++) {
+    const day = new Date(startD);
+    day.setDate(startD.getDate() + i);
+    days.push(localISO(day));
+  }
+  const dayLetters = ["M", "T", "W", "T", "F"];
+
+  const cards = _delegationRoster.map(d => {
+    const ptoDates = new Set((d.pto || []).map(p => p.date));
+    const hoursByDay = {};
+    days.forEach(dt => hoursByDay[dt] = 0);
+
+    // Existing real workload — same "remaining hours due this day" math
+    // used everywhere else in the app.
+    for (const t of d.todos || []) {
+      if (t.is_complete || t.in_revisions) continue;
+      if (t.hdd && hoursByDay[t.hdd] !== undefined) {
+        hoursByDay[t.hdd] += Math.max(0, (t.total_hours || 0) - (t.logged || 0));
+      }
+    }
+    // Plus anything currently chosen for this designer in the visible
+    // queue, whether or not Auto Assign has been clicked yet.
+    for (const t of _unassignedData) {
+      if (t.chosen_designer_bc_id === d.bc_id && t.chosen_hdd && hoursByDay[t.chosen_hdd] !== undefined) {
+        hoursByDay[t.chosen_hdd] += t.chosen_est || 0;
+      }
+    }
+
+    const bars = days.map((dt, i) => {
+      const ooo = ptoDates.has(dt);
+      const hrs = hoursByDay[dt];
+      const pct = Math.min(100, (hrs / WORK_HOURS) * 100);
+      const over = hrs > WORK_HOURS * 1.15;
+      const full = !over && hrs >= WORK_HOURS * 0.9;
+      const cls = ooo ? "cap-bar-ooo" : over ? "cap-bar-over" : full ? "cap-bar-full" : hrs > 0 ? "cap-bar-partial" : "cap-bar-empty";
+      const tip = ooo ? `${esc(d.name)} — ${dayLetters[i]} ${fmtDate(dt)}: Out of office`
+        : `${esc(d.name)} — ${dayLetters[i]} ${fmtDate(dt)}: ${hrs.toFixed(1)}h / ${WORK_HOURS}h`;
+      return `
+        <div class="cap-bar-cell" title="${tip}">
+          <div class="cap-bar-track ${cls}">
+            <div class="cap-bar-fill" style="height:${ooo ? 0 : pct}%"></div>
+          </div>
+          <div class="cap-bar-label">${dayLetters[i]}</div>
+          <div class="cap-bar-hours">${ooo ? "OOO" : (hrs > 0 ? Math.round(hrs * 10) / 10 : "–")}</div>
+        </div>`;
+    }).join("");
+
+    return `
+      <div class="cap-designer-card">
+        <img class="cap-avatar" src="${d.avatar || ""}" alt="${esc(d.name)}" onerror="this.style.visibility='hidden'" />
+        <div class="cap-designer-name">${esc(d.name)}</div>
+        <div class="cap-bars-row">${bars}</div>
+      </div>`;
+  }).join("");
+
+  return `<div class="cap-strip">${cards}</div>`;
+}
+
 function renderUnassigned() {
   const root = document.getElementById("unassigned-list");
   const todos = _unassignedData;
@@ -756,7 +830,9 @@ function renderUnassigned() {
       <td><button class="btn btn-primary btn-sm" data-autoassign="${t.id}" onclick="autoAssignUnassigned('${t.id}')">Auto Assign</button></td>
     </tr>`;
   }).join("");
-  root.innerHTML = `<table class="data-table">
+  root.innerHTML = `
+    ${renderDelegationCapacityStrip()}
+    <table class="data-table">
     <thead><tr>
       ${th("Client", "client")}
       ${th("Task", "task")}

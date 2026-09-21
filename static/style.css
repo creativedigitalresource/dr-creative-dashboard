@@ -218,6 +218,35 @@ body { min-height: 100vh; }
   font-size: 12px; font-weight: 700; min-width: 28px;
 }
 
+/* ---- Delegation capacity strip — live gauge above the To Delegate
+   table. Deliberately inverted from the day planner's ring colors: green
+   here means "day's nicely packed," not "lots of room left." ---- */
+.cap-strip {
+  display: flex; flex-wrap: wrap; gap: 20px; padding: 16px 18px; margin-bottom: 14px;
+  background: var(--surface); border: 1px solid var(--border); border-radius: var(--radius);
+  box-shadow: var(--shadow-sm);
+}
+.cap-designer-card { display: flex; flex-direction: column; align-items: center; gap: 5px; min-width: 84px; }
+.cap-avatar { width: 26px; height: 26px; border-radius: 50%; object-fit: cover; background: var(--surface2); }
+.cap-designer-name { font-size: 11px; font-weight: 700; color: var(--text); white-space: nowrap; }
+.cap-bars-row { display: flex; gap: 4px; align-items: flex-end; }
+.cap-bar-cell { display: flex; flex-direction: column; align-items: center; gap: 2px; width: 16px; }
+.cap-bar-track {
+  position: relative; width: 12px; height: 30px; background: var(--surface2);
+  border: 1px solid var(--border); border-radius: 3px; overflow: hidden;
+  display: flex; align-items: flex-end;
+}
+.cap-bar-fill { width: 100%; border-radius: 2px 2px 0 0; transition: height .2s ease; }
+.cap-bar-track.cap-bar-empty .cap-bar-fill { background: transparent; }
+.cap-bar-track.cap-bar-partial .cap-bar-fill { background: var(--warning); }
+.cap-bar-track.cap-bar-full .cap-bar-fill { background: var(--success); }
+.cap-bar-track.cap-bar-over .cap-bar-fill { background: var(--danger); }
+.cap-bar-track.cap-bar-ooo {
+  background: repeating-linear-gradient(45deg, var(--border), var(--border) 3px, var(--surface2) 3px, var(--surface2) 6px);
+}
+.cap-bar-label { font-size: 9px; color: var(--text-muted); font-weight: 700; text-transform: uppercase; }
+.cap-bar-hours { font-size: 9px; color: var(--text-muted); }
+
 /* ---- Table (To Delegate) ---- */
 .table-wrap { overflow-x: auto; border-radius: var(--radius); border: 1px solid var(--border); box-shadow: var(--shadow-sm); }
 .data-table { width: 100%; border-collapse: collapse; background: var(--surface); }
