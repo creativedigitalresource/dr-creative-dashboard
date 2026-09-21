@@ -276,6 +276,40 @@ def _add_business_days(start: date, days: int) -> date:
     return d
 
 
+def _business_days_between(start: date, end: date) -> int:
+    """Business days from start to end (0 if end isn't after start) — the
+    inverse of _add_business_days, used to turn a chosen HDD back into a
+    day-count comparable with the suggested one for delegation learning."""
+    if end <= start:
+        return 0
+    d, count = start, 0
+    while d < end:
+        d += timedelta(days=1)
+        if d.weekday() < 5:
+            count += 1
+    return count
+
+
+def _categorize_with_learning(title: str) -> str:
+    """Checks corrections you've made before (exact title, then a learned
+    keyword) before falling back to the static keyword list in
+    parsers.categorize_todo. See store.record_category_correction/
+    get_learned_category for how those get learned."""
+    learned = store.get_learned_category(title)
+    return learned or categorize_todo(title)
+
+
+def _suggested_timeline_days(category: str) -> int:
+    """The learned turnaround for this category (median of your past HDD
+    corrections, once there are enough of them) beats the static
+    CATEGORY_TIMELINE guess — same "learned overrides static" pattern as
+    _suggest_est_hours."""
+    learned = store.get_learned_category_default(category, "timeline_days", DELEGATION_LEARNING_MIN_N)
+    if learned:
+        return round(learned["value"])
+    return _parse_timeline_days(CATEGORY_TIMELINE.get(category))
+
+
 def _is_ooo_today(bc_id, pto: dict) -> bool:
     today_str = date.today().isoformat()
     return any(p.get("date") == today_str for p in pto.get(str(bc_id), []))
@@ -325,7 +359,11 @@ def _suggest_est_hours(category: str, title: str, designer_bc_id: int | None) ->
     respected everywhere else in this app). Otherwise the suggested
     designer's own historical median for this category, once there's
     enough of their own data (ESTIMATE_GUIDE_MIN_N) — falling back to the
-    company-wide median, then the confirmed per-category default."""
+    company-wide median, then your learned correction default (once
+    there's enough of it), then the confirmed per-category default.
+    Real logged-hours medians rank above the learned-from-corrections
+    value on purpose: what actually happened is a stronger signal than a
+    quick guess made at delegation time, before the work even starts."""
     parsed = parse_est(title)
     if parsed:
         return parsed
@@ -336,6 +374,9 @@ def _suggest_est_hours(category: str, title: str, designer_bc_id: int | None) ->
                 return entry["personal_median"]
             if entry.get("company_median"):
                 return entry["company_median"]
+    learned = store.get_learned_category_default(category, "est_hours", DELEGATION_LEARNING_MIN_N)
+    if learned:
+        return learned["value"]
     return CATEGORY_HISTORICAL_EST_HOURS.get(category, 0) or 0
 
 
@@ -349,13 +390,11 @@ def _attach_unassigned_suggestions(unassigned: list, overrides: dict):
     today = date.today()
     for t in unassigned:
         ov = overrides.get(str(t["id"]), {})
-        t["category"] = ov.get("category") or categorize_todo(t.get("title", ""))
+        t["category"] = ov.get("category") or _categorize_with_learning(t.get("title", ""))
         t["overrides"] = list(ov.keys())
 
         suggested_designer = _suggest_designer_bc_id(t["category"])
-        suggested_hdd = _add_business_days(
-            today, _parse_timeline_days(CATEGORY_TIMELINE.get(t["category"]))
-        ).isoformat()
+        suggested_hdd = _add_business_days(today, _suggested_timeline_days(t["category"])).isoformat()
         suggested_est = _suggest_est_hours(t["category"], t.get("title", ""), suggested_designer)
 
         t["suggested_designer_bc_id"] = suggested_designer
@@ -486,6 +525,12 @@ DEFAULT_QA_TEMPLATES = {
 
 CAPACITY_HISTORY_START = (2025, 1)
 ESTIMATE_GUIDE_MIN_N = 5  # fewer samples than this = "not enough data yet"
+# Lower bar than ESTIMATE_GUIDE_MIN_N on purpose: that guide has years of
+# real completions behind it already; delegation-correction learning is
+# starting from zero, so requiring 5 corrections before it ever kicks in
+# would make it feel like it's not working for weeks. 3 still smooths out
+# one-off noise without taking forever to activate.
+DELEGATION_LEARNING_MIN_N = 3
 CACHE_TTL = 300  # 5 minutes
 
 
@@ -1050,6 +1095,17 @@ async def api_auto_assign(todo_id: str):
     designer = next((d for d in DESIGNERS if d["bc_id"] == int(designer_bc_id)), None)
     if not designer:
         return {"ok": False, "error": "Unknown designer."}
+
+    # Learning signal, logged here (the moment the values are committed to)
+    # regardless of whether the Basecamp/Everhour calls below succeed —
+    # what Richard chose is real either way. See store.record_delegation_correction.
+    category = todo.get("category") or "Misc."
+    if est is not None:
+        store.record_delegation_correction(todo_id, category, "est_hours", todo.get("suggested_est"), float(est))
+    suggested_hdd = todo.get("suggested_hdd")
+    suggested_days = _business_days_between(date.today(), date.fromisoformat(suggested_hdd)) if suggested_hdd else None
+    chosen_days = _business_days_between(date.today(), date.fromisoformat(hdd))
+    store.record_delegation_correction(todo_id, category, "timeline_days", suggested_days, float(chosen_days))
 
     assigned = await bc.assign_todo(
         todo["bucket_id"], todo_id, [int(designer_bc_id)], due_on=date.today().isoformat()
@@ -1928,11 +1984,22 @@ async def set_todo_fields(todo_id: str, request: Request):
     # Not assigned to anyone yet (To Delegate tab) — only category edits
     # reach here, but still patch the live cache so it doesn't get
     # clobbered by the auto-guessed category until the next full refresh.
+    is_unassigned = False
     if cached_todo is None:
         for t in _cached_data.get("unassigned", []):
             if str(t["id"]) == str(todo_id):
                 cached_todo = t
+                is_unassigned = True
                 break
+
+    # Category learning only applies to the To Delegate queue — this is
+    # what the delegation-suggestion engine reads (_categorize_with_learning),
+    # not a general recategorization of already-assigned work.
+    if is_unassigned and cached_todo and "category" in body:
+        new_category = body["category"]
+        old_category = cached_todo.get("category")
+        if new_category and old_category and new_category != old_category:
+            store.record_category_correction(cached_todo.get("title", ""), old_category, new_category)
 
     return await _apply_todo_fields(todo_id, body, cached_todo, cached_designer)
 

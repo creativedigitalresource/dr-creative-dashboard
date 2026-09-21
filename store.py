@@ -1,4 +1,5 @@
-import sqlite3, json, os, time
+import sqlite3, json, os, re, time, statistics
+from collections import defaultdict
 from contextlib import contextmanager
 
 DB_PATH = os.environ.get("DB_PATH", "dashboard.db")
@@ -240,6 +241,76 @@ def init_db():
                 date TEXT NOT NULL,
                 notified_at REAL DEFAULT (unixepoch()),
                 PRIMARY KEY (todo_id, date)
+            );
+
+            -- To Delegate learning (confirmed with Richard 2026-09-21:
+            -- automatic, no approval step). Every raw correction is kept
+            -- forever as the audit trail; the "learned_*" tables are the
+            -- derived, currently-active values the suggestion engine
+            -- actually reads — always recomputed from the full correction
+            -- history, never hand-edited.
+
+            -- Every time a category is changed on a still-unassigned to-do,
+            -- away from what the app guessed/last suggested.
+            CREATE TABLE IF NOT EXISTS category_corrections (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                title TEXT NOT NULL,
+                from_category TEXT NOT NULL,
+                to_category TEXT NOT NULL,
+                corrected_at REAL DEFAULT (unixepoch())
+            );
+
+            -- Exact-title memory — one correction is enough to trust this,
+            -- since an identical title recurring (common for templated
+            -- to-dos like recurring ad-platform tasks) is an unambiguous
+            -- signal, not a pattern needing repetition to confirm.
+            CREATE TABLE IF NOT EXISTS learned_category_titles (
+                title_normalized TEXT PRIMARY KEY,
+                category TEXT NOT NULL,
+                learned_at REAL DEFAULT (unixepoch())
+            );
+
+            -- Word-level memory — promoted only once a word has shown up in
+            -- 2+ distinct corrected titles that all agree on the same
+            -- category (see store.record_category_correction), so one
+            -- unusual correction can't mislabel every future to-do sharing
+            -- one common word.
+            CREATE TABLE IF NOT EXISTS learned_category_keywords (
+                keyword TEXT PRIMARY KEY,
+                category TEXT NOT NULL,
+                support_count INTEGER NOT NULL DEFAULT 1,
+                learned_at REAL DEFAULT (unixepoch())
+            );
+
+            -- Every time an EST or HDD is changed away from its suggestion,
+            -- logged at Auto Assign (the moment the value is actually
+            -- used) rather than on every keystroke while still editing.
+            -- field is 'est_hours' or 'timeline_days' (business days from
+            -- today to the HDD, so it's comparable/averageable the same
+            -- way EST hours are).
+            CREATE TABLE IF NOT EXISTS delegation_corrections (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                todo_id TEXT NOT NULL,
+                category TEXT NOT NULL,
+                field TEXT NOT NULL,
+                suggested_value REAL,
+                chosen_value REAL NOT NULL,
+                corrected_at REAL DEFAULT (unixepoch())
+            );
+
+            -- The currently-active learned default per category+field —
+            -- the median of every chosen_value in delegation_corrections
+            -- for that category, recomputed on every new correction.
+            -- Read by the suggestion engine only once sample_count meets
+            -- DELEGATION_LEARNING_MIN_N (main.py) — a couple of corrections
+            -- shouldn't overrule the confirmed static default yet.
+            CREATE TABLE IF NOT EXISTS learned_category_defaults (
+                category TEXT NOT NULL,
+                field TEXT NOT NULL,
+                value REAL NOT NULL,
+                sample_count INTEGER NOT NULL,
+                updated_at REAL DEFAULT (unixepoch()),
+                PRIMARY KEY (category, field)
             );
         """)
         # Migration: first_posted_at was added after standups shipped, so an
@@ -1075,3 +1146,122 @@ def get_qa_drafts_for_person(person_key: str) -> list:
 def delete_qa_draft(draft_id: str):
     with get_db() as c:
         c.execute("DELETE FROM qa_drafts WHERE id=?", (draft_id,))
+
+
+# ---------------------------------------------------------------------------
+# To Delegate learning — see the category_corrections/delegation_corrections
+# schema comments in init_db for the overall design. Automatic, no approval
+# step (confirmed with Richard 2026-09-21).
+# ---------------------------------------------------------------------------
+
+_CATEGORY_LEARNING_STOPWORDS = {
+    "assets", "needed", "write", "design", "edit", "edits", "editing",
+    "create", "created", "update", "updated", "review", "adding", "page",
+    "pages", "with", "from", "this", "that", "your", "team", "have", "will",
+}
+
+
+def _significant_words(title: str) -> set:
+    words = re.findall(r"[a-z]+", (title or "").lower())
+    return {w for w in words if len(w) >= 4 and w not in _CATEGORY_LEARNING_STOPWORDS}
+
+
+def record_category_correction(title: str, from_category: str, to_category: str):
+    """Logs the correction, then re-derives both learned lookups from the
+    full history. Cheap enough to recompute from scratch every time given
+    the expected data volume (a handful of corrections per category, not
+    thousands of rows)."""
+    if not title or from_category == to_category:
+        return
+    with get_db() as c:
+        c.execute(
+            "INSERT INTO category_corrections (title, from_category, to_category) VALUES (?, ?, ?)",
+            (title, from_category, to_category))
+
+        # Exact title — one correction is enough (see schema comment).
+        c.execute(
+            "INSERT OR REPLACE INTO learned_category_titles (title_normalized, category, learned_at) "
+            "VALUES (?, ?, unixepoch())",
+            (title.strip().lower(), to_category))
+
+        # Word-level — only once a word agrees across 2+ distinct titles
+        # corrected to the SAME category, and has never been corrected to
+        # a different one (an ambiguous word is left alone).
+        rows = c.execute("SELECT title, to_category FROM category_corrections").fetchall()
+        word_categories = defaultdict(set)
+        word_titles = defaultdict(set)
+        for r in rows:
+            for w in _significant_words(r["title"]):
+                word_categories[w].add(r["to_category"])
+                word_titles[w].add(r["title"].strip().lower())
+        for w, cats in word_categories.items():
+            if len(cats) != 1:
+                continue
+            support = len(word_titles[w])
+            if support >= 2:
+                c.execute(
+                    "INSERT OR REPLACE INTO learned_category_keywords (keyword, category, support_count, learned_at) "
+                    "VALUES (?, ?, ?, unixepoch())",
+                    (w, next(iter(cats)), support))
+
+
+def get_learned_category(title: str) -> str | None:
+    """Exact-title memory wins; otherwise the first learned keyword found
+    in the title. None means "no learned override — use the static
+    categorize_todo() guess."""
+    if not title:
+        return None
+    with get_db() as c:
+        row = c.execute(
+            "SELECT category FROM learned_category_titles WHERE title_normalized=?",
+            (title.strip().lower(),)
+        ).fetchone()
+        if row:
+            return row["category"]
+        words = _significant_words(title)
+        if not words:
+            return None
+        placeholders = ",".join("?" * len(words))
+        row = c.execute(
+            f"SELECT category FROM learned_category_keywords WHERE keyword IN ({placeholders}) LIMIT 1",
+            tuple(words)
+        ).fetchone()
+        return row["category"] if row else None
+
+
+def record_delegation_correction(todo_id: str, category: str, field: str,
+                                  suggested_value, chosen_value: float):
+    """Logs an EST/HDD correction and recomputes that category+field's
+    learned default as the median of every chosen_value on record."""
+    if suggested_value is not None and abs(float(suggested_value) - float(chosen_value)) < 1e-9:
+        return  # not actually a correction
+    with get_db() as c:
+        c.execute(
+            "INSERT INTO delegation_corrections (todo_id, category, field, suggested_value, chosen_value) "
+            "VALUES (?, ?, ?, ?, ?)",
+            (todo_id, category, field,
+             float(suggested_value) if suggested_value is not None else None, float(chosen_value)))
+        rows = c.execute(
+            "SELECT chosen_value FROM delegation_corrections WHERE category=? AND field=?",
+            (category, field)
+        ).fetchall()
+        values = [r["chosen_value"] for r in rows]
+        median = statistics.median(values)
+        c.execute(
+            "INSERT OR REPLACE INTO learned_category_defaults (category, field, value, sample_count, updated_at) "
+            "VALUES (?, ?, ?, ?, unixepoch())",
+            (category, field, median, len(values)))
+
+
+def get_learned_category_default(category: str, field: str, min_n: int) -> dict | None:
+    """None if there isn't at least min_n corrections behind it yet — a
+    couple of one-off edits shouldn't overrule the confirmed static
+    default."""
+    with get_db() as c:
+        row = c.execute(
+            "SELECT value, sample_count FROM learned_category_defaults WHERE category=? AND field=?",
+            (category, field)
+        ).fetchone()
+    if not row or row["sample_count"] < min_n:
+        return None
+    return {"value": row["value"], "sample_count": row["sample_count"]}
