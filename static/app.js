@@ -1094,6 +1094,9 @@ function initTabs() {
         renderQaMount();
         loadQaActivity();
       }
+      if (tab === "timesheets") {
+        loadTimesheets();
+      }
     });
   });
 }
@@ -1237,6 +1240,130 @@ async function unarchiveQaFeedback(certId) {
   renderQaActivity();
   renderQaArchived();
   await fetch(`/api/qa/certificates/${encodeURIComponent(certId)}/unarchive`, { method: "POST" }).catch(() => {});
+}
+
+// ---------------------------------------------------------------------------
+// Timesheets — read-only daily logged-hours check, straight from Everhour's
+// own time records (same call the historical capacity chart already uses,
+// just bucketed by day instead of month). Deliberately not editable and
+// deliberately measured against 8h/day + 40h/week, not the 6.5h "capacity"
+// number used everywhere else — that's assigned workload, this is actual
+// logged time, and conflating the two would misrepresent both. Confirmed
+// with Richard 2026-09-22.
+// ---------------------------------------------------------------------------
+
+let _timesheetsWeekOffset = 0;
+let _timesheetsData = null;
+let _timesheetsExpanded = new Set(); // bc_ids currently expanded
+
+function setTimesheetsWeek(offset) {
+  if (offset > 0) return; // no future weeks — nothing's logged yet
+  _timesheetsWeekOffset = offset;
+  loadTimesheets();
+}
+
+async function loadTimesheets() {
+  const root = document.getElementById("timesheets-root");
+  root.innerHTML = `<div class="loading-cell">Loading…</div>`;
+  const data = await fetchWithTimeout(`/api/timesheets?week_offset=${_timesheetsWeekOffset}`, {}, 30000)
+    .then(r => r.json()).catch(() => null);
+  if (!data) { root.innerHTML = `<div class="loading-cell">Couldn't load timesheets. Try again.</div>`; return; }
+  _timesheetsData = data;
+  updateTimesheetsWeekNav();
+  renderTimesheets();
+}
+
+function updateTimesheetsWeekNav() {
+  const prevBtn = document.getElementById("ts-week-prev-btn");
+  const nextBtn = document.getElementById("ts-week-next-btn");
+  const labelEl = document.getElementById("ts-week-label");
+  if (nextBtn) nextBtn.disabled = (_timesheetsWeekOffset === 0);
+  if (labelEl) {
+    const fmt = s => new Date(s + "T12:00:00").toLocaleDateString("en-US", { month: "short", day: "numeric" });
+    labelEl.textContent = _timesheetsWeekOffset === 0
+      ? "Current Week"
+      : `${fmt(_timesheetsData.week_start)} – ${fmt(_timesheetsData.week_end)}`;
+  }
+}
+
+const TIMESHEETS_DAY_TARGET = 8;
+const TIMESHEETS_WEEK_TARGET = 40;
+
+function _tsHoursCls(hours, target) {
+  if (hours <= 0) return "ts-none";
+  const pct = hours / target;
+  if (pct >= 0.9) return "ts-good";
+  if (pct >= 0.6) return "ts-warn";
+  return "ts-low";
+}
+
+function renderTimesheets() {
+  const root = document.getElementById("timesheets-root");
+  const data = _timesheetsData;
+  if (!data || !data.designers.length) { root.innerHTML = `<div class="loading-cell">No data.</div>`; return; }
+
+  const dayLabels = data.days.map(dt =>
+    new Date(dt + "T12:00:00").toLocaleDateString("en-US", { weekday: "short", month: "numeric", day: "numeric" }));
+
+  const rows = data.designers.map(d => {
+    const expanded = _timesheetsExpanded.has(d.bc_id);
+    const dayCells = data.days.map(dt => {
+      const day = d.days[dt];
+      const cls = _tsHoursCls(day.hours, TIMESHEETS_DAY_TARGET);
+      return `<td class="ts-hours-cell ${cls}">${day.hours > 0 ? day.hours.toFixed(2) + "h" : "–"}</td>`;
+    }).join("");
+    const weekCls = _tsHoursCls(d.week_total, TIMESHEETS_WEEK_TARGET);
+
+    const detailRow = expanded ? `
+      <tr class="ts-detail-row">
+        <td colspan="${data.days.length + 2}">
+          <div class="ts-detail-grid">
+            ${data.days.map((dt, i) => {
+              const day = d.days[dt];
+              if (!day.tasks.length) return `<div class="ts-detail-day"><div class="ts-detail-day-label">${dayLabels[i]}</div><div class="ts-detail-empty">Nothing logged</div></div>`;
+              return `<div class="ts-detail-day">
+                <div class="ts-detail-day-label">${dayLabels[i]}</div>
+                ${day.tasks.map(t => `
+                  <div class="ts-detail-task">
+                    ${t.url ? `<a href="${t.url}" target="_blank">${esc(t.name)}</a>` : `<span>${esc(t.name)}</span>`}
+                    <span class="ts-detail-task-hours">${t.hours.toFixed(2)}h</span>
+                  </div>
+                `).join("")}
+              </div>`;
+            }).join("")}
+          </div>
+        </td>
+      </tr>` : "";
+
+    return `
+      <tr class="ts-row" onclick="toggleTimesheetRow(${d.bc_id})">
+        <td>
+          <div class="ts-person">
+            <span class="ts-expand-arrow">${expanded ? "▾" : "▸"}</span>
+            ${d.avatar ? `<img class="ts-avatar" src="${d.avatar}" alt="" />` : ""}
+            <span class="ts-name">${esc(d.name)}</span>
+          </div>
+        </td>
+        ${dayCells}
+        <td class="ts-hours-cell ts-total ${weekCls}">${d.week_total > 0 ? d.week_total.toFixed(2) + "h" : "–"}</td>
+      </tr>
+      ${detailRow}`;
+  }).join("");
+
+  root.innerHTML = `<table class="data-table ts-table">
+    <thead><tr>
+      <th>Team Member</th>
+      ${dayLabels.map(l => `<th>${l}</th>`).join("")}
+      <th>Total</th>
+    </tr></thead>
+    <tbody>${rows}</tbody>
+  </table>`;
+}
+
+function toggleTimesheetRow(bcId) {
+  if (_timesheetsExpanded.has(bcId)) _timesheetsExpanded.delete(bcId);
+  else _timesheetsExpanded.add(bcId);
+  renderTimesheets();
 }
 
 // ---------------------------------------------------------------------------

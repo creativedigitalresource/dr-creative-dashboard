@@ -2306,6 +2306,64 @@ async def api_capacity_analytics(refresh: int = 0):
     return data
 
 
+async def _compute_timesheets(week_offset: int) -> dict:
+    """Read-only daily timesheet per designer, Mon-Fri, sourced straight
+    from Everhour's own time records (eh.get_user_time_records) — the
+    same call already used for the capacity chart, just bucketed by day
+    instead of by month. This is deliberately the same ground truth
+    Everhour's own Team Timesheet page reads, so the two can never
+    actually disagree (confirmed 2026-09-22: an apparent Dexter
+    discrepancy turned out to be a different metric entirely — a
+    per-task lifetime total, not a per-day total — not a real sync bug).
+    A time record's `task` is None for non-task entries (PTO, "Misc",
+    "Lunch", etc. logged as a plain comment instead)."""
+    monday = date.fromisoformat(_week_start(date.today() + timedelta(weeks=week_offset)))
+    friday = monday + timedelta(days=4)
+    day_isos = [(monday + timedelta(days=i)).isoformat() for i in range(5)]
+
+    async def fetch_one(d: dict) -> dict:
+        records = await eh.get_user_time_records(d["eh_id"], monday.isoformat(), friday.isoformat())
+        days = {dt: {"hours": 0.0, "tasks": {}} for dt in day_isos}
+        for r in records:
+            rdate = r.get("date")
+            bucket = days.get(rdate)
+            hrs = round((r.get("time") or 0) / 3600, 2)
+            if not bucket or hrs <= 0:
+                continue
+            task = r.get("task")
+            label = (task or {}).get("name") or r.get("comment") or "(unlabeled)"
+            url = (task or {}).get("url")
+            entry = bucket["tasks"].setdefault(label, {"hours": 0.0, "url": url})
+            entry["hours"] = round(entry["hours"] + hrs, 2)
+            bucket["hours"] = round(bucket["hours"] + hrs, 2)
+        for dt in days:
+            days[dt]["tasks"] = sorted(
+                [{"name": k, **v} for k, v in days[dt]["tasks"].items()],
+                key=lambda t: -t["hours"])
+        week_total = round(sum(v["hours"] for v in days.values()), 2)
+        return {"bc_id": d["bc_id"], "name": d["name"], "avatar": d.get("avatar"),
+                "color": d.get("color"), "days": days, "week_total": week_total}
+
+    results = await asyncio.gather(*[fetch_one(d) for d in DESIGNERS])
+    return {"week_start": monday.isoformat(), "week_end": friday.isoformat(),
+            "days": day_isos, "designers": list(results)}
+
+
+@app.get("/api/timesheets")
+async def api_timesheets(week_offset: int = 0, refresh: int = 0):
+    # Cached briefly (Everhour rate-limits under load, same concern
+    # documented elsewhere in this app) — short enough to stay close to
+    # real-time for a "did they log today" check, long enough that
+    # switching tabs or weeks repeatedly doesn't hammer Everhour.
+    cache_key = f"timesheets_{week_offset}"
+    cached = store.cache_get(cache_key)
+    if cached and not refresh:
+        return cached
+    data = await _compute_timesheets(week_offset)
+    store.cache_set(cache_key, data, ttl_seconds=300)
+    return data
+
+
 # Basecamp project names already carry "(tier)(AM initials)" as a suffix —
 # e.g. "Franklin Family Dental-TN(1)(BW)" — the same tagging cleanClient()
 # in shared.js strips for display. This is a search, not an end anchor, so
