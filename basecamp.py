@@ -206,8 +206,16 @@ async def assign_todo(bucket_id: str, todo_id: str, assignee_ids: list, due_on: 
     into update_todo_due, which would instead preserve the old (group)
     assignees — the two functions' field-preservation would fight each
     other if used together here. Basecamp PUT clears any field not
-    included, so content is re-sent from a fresh fetch to preserve it,
-    same pattern as update_todo_due."""
+    included, so content AND description are re-sent from a fresh fetch
+    to preserve them, same pattern as update_todo_due.
+
+    BUG FIX 2026-09-22: this function preserved content but never
+    description, so every Auto Assign silently blanked out the to-do's
+    description the entire time this feature existed. Caught when
+    Richard reported a real to-do's description got wiped. The identical
+    bug also existed in update_todo_due below (present since 2026-06-22,
+    hit any time anyone edited a due date via the app's date pill) — both
+    are fixed together here."""
     token = get_token("access_token")
     if not token:
         return False
@@ -218,8 +226,9 @@ async def assign_todo(bucket_id: str, todo_id: str, assignee_ids: list, due_on: 
     }
     detail = await get_todo_detail(bucket_id, todo_id)
     content = (detail or {}).get("content", "")
+    description = (detail or {}).get("description", "")
     import json as _json
-    payload = {"content": content, "assignee_ids": assignee_ids}
+    payload = {"content": content, "description": description, "assignee_ids": assignee_ids}
     if due_on:
         payload["due_on"] = due_on
     r = await get_http().put(
@@ -316,7 +325,15 @@ async def post_comment(bucket_id: str, recording_id: str, content: str) -> dict 
 
 
 async def update_todo_due(bucket_id: str, todo_id: str, due_on: str, title: str = "") -> bool:
-    """Update a todo's due_on date in Basecamp, preserving existing assignees."""
+    """Update a todo's due_on date in Basecamp, preserving existing
+    assignees, content, and description.
+
+    BUG FIX 2026-09-22: this preserved assignees and content but never
+    description — Basecamp PUT clears any field not included, so every
+    call here (this function backs the app's ordinary editable due-date
+    pill, used since 2026-06-22) silently blanked out whatever was in
+    the to-do's description. Caught via assign_todo's identical bug;
+    fixed the same way here."""
     token = get_token("access_token")
     if not token:
         return False
@@ -325,12 +342,14 @@ async def update_todo_due(bucket_id: str, todo_id: str, due_on: str, title: str 
         "User-Agent": USER_AGENT,
         "Content-Type": "application/json",
     }
-    # Fetch current todo to preserve assignees — PUT clears unspecified fields
+    # Fetch current todo to preserve assignees/description — PUT clears
+    # unspecified fields.
     detail = await get_todo_detail(bucket_id, todo_id)
     assignee_ids = [a["id"] for a in (detail or {}).get("assignees", []) if a.get("id")]
     content = title or (detail or {}).get("content", "")
+    description = (detail or {}).get("description", "")
     import json as _json
-    payload = {"content": content, "due_on": due_on}
+    payload = {"content": content, "description": description, "due_on": due_on}
     if assignee_ids:
         payload["assignee_ids"] = assignee_ids
     r = await get_http().put(
