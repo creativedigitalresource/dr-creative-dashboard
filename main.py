@@ -326,16 +326,28 @@ def _is_ooo_today(bc_id, pto: dict) -> bool:
     return any(p.get("date") == today_str for p in pto.get(str(bc_id), []))
 
 
-def _suggest_designer_bc_id(category: str) -> int | None:
+def _suggest_designer_bc_id(category: str, pto: dict, designers_cache: dict,
+                             history: dict, running_load: dict) -> int | None:
     """A CATEGORY_SOLE_ASSIGNEE category always goes to its one person,
     unless they're OOO today (then no suggestion — there's no backup for
     a sole-assignee category). A shared Design-pool category ranks the
-    pool, minus anyone OOO today, by who has the most room this week
-    (lowest capacity_pct, from the already-cached /api/designers data),
-    breaking ties by who has handled this category least recently
-    (analytics_category_volume) — spreading load and variety on purpose,
-    not specializing. Returns None for Admin/Misc./anything outside the
-    formal deliverable categories.
+    pool, minus anyone OOO today, by who has the most *adjusted* room
+    this week — real remaining capacity (weekly_cap − weekly_est) minus
+    running_load, hours this same _attach_unassigned_suggestions pass has
+    already tentatively piled onto them — breaking ties by who has
+    handled this category least recently (analytics_category_volume).
+    Returns None for Admin/Misc./anything outside the formal deliverable
+    categories.
+
+    BUG FIX 2026-09-23: previously ranked every row in the queue off the
+    same static capacity_pct snapshot, so every row independently
+    concluded "the same person has the most room" and suggested them —
+    confirmed live, Dexter had 25 suggested tasks (90+ hours) piled onto
+    him in one batch, none of it real. running_load (populated by the
+    caller as it works through the queue) is what fixes this: each
+    person's adjusted room actually decreases as this function keeps
+    picking them, so the next task naturally spills over to whoever's
+    next most available, same as a human distributing work by hand would.
 
     The OOO check matters even beyond "don't hand work to someone who's
     out": a designer on extended leave has capacity_pct=0 (zero assigned
@@ -343,7 +355,6 @@ def _suggest_designer_bc_id(category: str) -> int | None:
     would otherwise read as "the most available person" and suggest them
     first. Confirmed live 2026-09-17 — Lezly, on maternity leave with
     capacity_pct=0, was being suggested for every open Design-pool task."""
-    pto = store.get_all_pto()
     if category in CATEGORY_SOLE_ASSIGNEE:
         sole = CATEGORY_SOLE_ASSIGNEE[category]
         return None if _is_ooo_today(sole, pto) else sole
@@ -353,14 +364,17 @@ def _suggest_designer_bc_id(category: str) -> int | None:
     pool = [d for d in DESIGNERS if d.get("eh_id") in design_eh_ids and not _is_ooo_today(d["bc_id"], pto)]
     if not pool:
         return None
-    cap_by_bc_id = {str(d["bc_id"]): d.get("capacity_pct", 0) for d in _cached_data.get("designers", [])}
-    history = defaultdict(int)
-    for r in store.get_analytics_category_volume():
-        if r.get("category") == category:
-            history[str(r["designer_bc_id"])] += r.get("task_count", 0)
+
+    def adjusted_remaining(bc_id) -> float:
+        cached = designers_cache.get(str(bc_id), {})
+        weekly_cap = cached.get("weekly_cap", WEEKLY_CAP)
+        weekly_est = cached.get("weekly_est", 0)
+        return (weekly_cap - weekly_est) - running_load.get(str(bc_id), 0)
+
+    cat_history = history.get(category, {})
     pool_sorted = sorted(pool, key=lambda d: (
-        cap_by_bc_id.get(str(d["bc_id"]), 0),
-        history.get(str(d["bc_id"]), 0),
+        -adjusted_remaining(d["bc_id"]),
+        cat_history.get(str(d["bc_id"]), 0),
     ))
     return pool_sorted[0]["bc_id"]
 
@@ -423,14 +437,30 @@ def _attach_unassigned_suggestions(unassigned: list, overrides: dict):
     manager's manual override when one exists (delegate_designer/
     delegate_hdd/delegate_est overrides, same store.set_override table
     and pattern as category). chosen_* is what Auto Assign actually acts
-    on; suggested_* is what the UI resets to if an override is cleared."""
+    on; suggested_* is what the UI resets to if an override is cleared.
+
+    Builds the running-allocation state _suggest_designer_bc_id needs
+    once here (designer capacity snapshot + category-history counts),
+    then threads it through the whole pass so each successive suggestion
+    reflects everything already tentatively assigned earlier in this same
+    batch — see that function's docstring for why. A manual override
+    still counts against the running total for the rest of the pass
+    (it's a real decision, not a guess), which is also why this only
+    accumulates AFTER computing chosen_designer_bc_id, not before."""
     today = date.today()
+    pto = store.get_all_pto()
+    designers_cache = {str(d["bc_id"]): d for d in _cached_data.get("designers", [])}
+    history: dict = defaultdict(lambda: defaultdict(int))
+    for r in store.get_analytics_category_volume():
+        history[r.get("category")][str(r["designer_bc_id"])] += r.get("task_count", 0)
+    running_load: dict = defaultdict(float)
+
     for t in unassigned:
         ov = overrides.get(str(t["id"]), {})
         t["category"] = ov.get("category") or _categorize_with_learning(t.get("title", ""))
         t["overrides"] = list(ov.keys())
 
-        suggested_designer = _suggest_designer_bc_id(t["category"])
+        suggested_designer = _suggest_designer_bc_id(t["category"], pto, designers_cache, history, running_load)
         suggested_hdd = _add_business_days(today, _suggested_timeline_days(t["category"])).isoformat()
         suggested_est = _suggest_est_hours(t["category"], t.get("title", ""), suggested_designer)
 
@@ -441,6 +471,9 @@ def _attach_unassigned_suggestions(unassigned: list, overrides: dict):
         t["chosen_designer_bc_id"] = int(ov["delegate_designer"]) if ov.get("delegate_designer") else suggested_designer
         t["chosen_hdd"] = ov.get("delegate_hdd") or suggested_hdd
         t["chosen_est"] = float(ov["delegate_est"]) if ov.get("delegate_est") else suggested_est
+
+        if t["chosen_designer_bc_id"]:
+            running_load[str(t["chosen_designer_bc_id"])] += t["chosen_est"] or 0
 
 
 # QA checklist templates, one per deliverable service (mirrors CATEGORIES,

@@ -732,16 +732,27 @@ async function loadPipelinePoolNote() {
 }
 
 // Live capacity gauge above the table — one column per designer, one bar
-// per weekday, filling as HDDs get picked in the queue below (even before
-// Auto Assign runs) so a manager can see who's getting loaded up on which
-// day while still delegating everything by hand. Bar height/color is
-// (that designer's existing real workload due that day) + (whatever's
-// currently chosen for them in the visible queue for that day) against
-// the standard 6.5h/day. Deliberately the *inverse* of the day planner's
-// capRing color language: there, green means "lots of room"; here, green
-// means "day's nicely packed" — the goal of delegating is filling days,
-// not emptying them. Confirmed with Richard 2026-09-21: no auto-scheduling
-// anywhere in this — purely a read-out to guide manual decisions.
+// per weekday, filling as Richard actually assigns rows to that person
+// (picks them in the Designer dropdown) so he knows when to stop loading
+// someone up for a given day. Bar height/color is (that designer's
+// existing real workload due that day) + (rows he's explicitly picked
+// them for in this session) against the standard 6.5h/day.
+//
+// BUG FIX 2026-09-23: originally this second part counted EVERY row the
+// suggestion engine had defaulted to that person, not just ones Richard
+// had actually acted on — so the bar reflected dozens of untouched
+// algorithm guesses as if they were real decisions. Confirmed live:
+// Dexter showed 33.8h Thursday / 64h Friday from 25 unreviewed queue
+// rows, when his real assigned work those days was 2h / 0h. Now only
+// counts a row once its "delegate_designer" override actually exists
+// (the dropdown's been touched) — an untouched suggestion contributes
+// nothing until he decides to act on it.
+//
+// Deliberately the *inverse* of the day planner's capRing color
+// language: there, green means "lots of room"; here, green means "day's
+// nicely packed" — the goal of delegating is filling days, not emptying
+// them. Confirmed with Richard 2026-09-21: no auto-scheduling anywhere in
+// this — purely a read-out to guide manual decisions.
 function renderDelegationCapacityStrip() {
   if (!_delegationRoster.length) return "";
   const { start } = getWeekBounds(0);
@@ -767,10 +778,19 @@ function renderDelegationCapacityStrip() {
         hoursByDay[t.hdd] += Math.max(0, (t.total_hours || 0) - (t.logged || 0));
       }
     }
-    // Plus anything currently chosen for this designer in the visible
-    // queue, whether or not Auto Assign has been clicked yet.
+    // Plus anything YOU'VE actually assigned in this session (picked a
+    // designer for that row via the dropdown) — not the algorithm's
+    // untouched default suggestion for every other row in the queue.
+    // Confirmed with Richard 2026-09-23: this bar is meant to fill up as
+    // he assigns things, one decision at a time, so he knows when to stop
+    // loading someone up for a given day — not to reflect what the
+    // suggestion engine has tentatively guessed across dozens of rows
+    // nobody's looked at yet. "overrides" includes "delegate_designer"
+    // only once that row's dropdown has actually been changed (see
+    // api_set_delegation_choice on the backend).
     for (const t of _unassignedData) {
-      if (t.chosen_designer_bc_id === d.bc_id && t.chosen_hdd && hoursByDay[t.chosen_hdd] !== undefined) {
+      const youAssignedThis = (t.overrides || []).includes("delegate_designer");
+      if (youAssignedThis && t.chosen_designer_bc_id === d.bc_id && t.chosen_hdd && hoursByDay[t.chosen_hdd] !== undefined) {
         hoursByDay[t.chosen_hdd] += t.chosen_est || 0;
       }
     }
