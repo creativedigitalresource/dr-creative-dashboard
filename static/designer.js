@@ -211,7 +211,6 @@ function myRefresh() {
 function renderMe() {
   const d = _me;
   const root = document.getElementById("my-root");
-  const egWasOpen = document.getElementById("estimate-guide-panel")?.classList.contains("open");
   document.getElementById("my-subtitle").textContent = `My Week · ${d.name}`;
   const { weekly_est, cap, pct, pto_days } = calcCapacity(d.todos, d.pto, 0);
   const free = Math.round((cap - weekly_est) * 10) / 10;
@@ -258,11 +257,6 @@ function renderMe() {
         ehId: d.eh_id,
       })}</div>
     </div>
-    <div class="pulse-panel">
-      <div class="cap-chart-title" style="margin-bottom:4px">This Week</div>
-      <div class="cap-chart-sub" style="margin-bottom:12px">Drag a task onto a day to schedule it — the due date updates in Basecamp.</div>
-      <div class="my-planner" id="my-planner"></div>
-    </div>
     <div class="attention-grid" id="my-attention"></div>
     <div class="pulse-panel">
       <div class="cap-chart-title" style="margin-bottom:4px">Notepad</div>
@@ -270,10 +264,6 @@ function renderMe() {
       <textarea id="my-notes" class="my-notes" placeholder="Scratch space: links, to-dos, reminders…">${esc(d.notes || "")}</textarea>
       <div class="my-notes-status" id="my-notes-status"></div>
     </div>
-    ${estimateGuidePanelHTML(
-      buildEstimateGuide(d.estimate_guide, { personal: true }),
-      "How long each type of work should take, and your own pace against it. Use this when you're self-delegating or scoping a revision."
-    )}
     ${d.qa_enabled ? `
     <div class="pulse-panel">
       <div class="cap-chart-title" style="margin-bottom:4px">QA Checklist</div>
@@ -282,8 +272,11 @@ function renderMe() {
         <div class="loading-card">Loading checklists…</div>
       </div>
     </div>` : ""}`;
-  if (egWasOpen) document.getElementById("estimate-guide-panel")?.classList.add("open");
-  renderMyPlanner();
+  // "This Week" drag-and-drop day planner retired 2026-09-22 (per Richard —
+  // Auto Assign + the delegation capacity strip now make most of these day
+  // placement decisions upstream, before a designer ever sees the task).
+  // renderMyPlanner() and its drag/drop handlers are left defined below,
+  // unused, in case it's worth reviving later.
   renderMyAttention(active, d.color);
   initNotes();
   initKudosWheel();

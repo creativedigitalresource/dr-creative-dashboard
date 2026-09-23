@@ -354,6 +354,25 @@ def _suggest_designer_bc_id(category: str) -> int | None:
     return pool_sorted[0]["bc_id"]
 
 
+def _add_qa_time(hours: float) -> float:
+    """Every suggested EST now covers a QA pass at the end, not just the
+    creative work — confirmed with Richard 2026-09-22, since QA checklists
+    are now a required step: +30min for anything over 2h, +15min for 2h
+    and under (the exact boundary wasn't specified; 2h itself falls in the
+    smaller-pad bucket, the more conservative reading). Applied once, at
+    the very end of _suggest_est_hours, regardless of which branch
+    produced the base number — a title-parsed EST, a real logged-hours
+    median, a learned correction default, and the static per-category
+    fallback all represent "how long the creative work takes" and all
+    need the same QA tail added. Deliberately NOT applied to the
+    Estimate Guide's own historical medians (main.py's
+    _compute_estimate_guide) — those describe what already happened and
+    padding them would misrepresent real history."""
+    if hours <= 0:
+        return hours
+    return round(hours + (0.5 if hours > 2 else 0.25), 2)
+
+
 def _suggest_est_hours(category: str, title: str, designer_bc_id: int | None) -> float:
     """An EST already typed into the title wins (rare pre-assignment, but
     respected everywhere else in this app). Otherwise the suggested
@@ -363,7 +382,14 @@ def _suggest_est_hours(category: str, title: str, designer_bc_id: int | None) ->
     there's enough of it), then the confirmed per-category default.
     Real logged-hours medians rank above the learned-from-corrections
     value on purpose: what actually happened is a stronger signal than a
-    quick guess made at delegation time, before the work even starts."""
+    quick guess made at delegation time, before the work even starts.
+    Whatever the source, _add_qa_time pads the result before it's
+    returned."""
+    base = _suggest_est_hours_base(category, title, designer_bc_id)
+    return _add_qa_time(base)
+
+
+def _suggest_est_hours_base(category: str, title: str, designer_bc_id: int | None) -> float:
     parsed = parse_est(title)
     if parsed:
         return parsed
