@@ -572,6 +572,8 @@ async function myDrop(evt, targetDate) {
   await _placeTask(id, targetDate, null);
 }
 
+_updateHeaderHeightVar();
+
 if (!TOKEN) {
   document.getElementById("my-root").innerHTML =
     `<div class="loading-card">Missing access token.</div>`;

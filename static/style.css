@@ -227,13 +227,17 @@ body { min-height: 100vh; }
    make its sticky positioning unreliable (an overflow-anything ancestor
    can turn "stick to the page" into "stick to this box," which never
    scrolls internally here, so it'd effectively stop sticking at all).
-   top matches .app-header's own height (see .main-content's calc(100vh
-   - 57px)) so the strip parks directly below it, not underneath it. ---- */
+   --header-height is measured live off the real .app-header by
+   shared.js's _updateHeaderHeightVar (called at boot + on resize) so the
+   strip always parks exactly below it — a hardcoded guess here (57px)
+   was a few px short once already, confirmed live 2026-09-24: it left
+   the strip's avatar/name row hidden behind the header with only the
+   bars peeking out below it. 64px is just the pre-JS fallback. ---- */
 .cap-strip {
   display: flex; flex-wrap: wrap; gap: 20px; padding: 16px 18px; margin-bottom: 14px;
   background: var(--surface); border: 1px solid var(--border); border-radius: var(--radius);
   box-shadow: var(--shadow-sm);
-  position: sticky; top: 57px; z-index: 20;
+  position: sticky; top: var(--header-height, 64px); z-index: 20;
 }
 .cap-designer-card { display: flex; flex-direction: column; align-items: center; gap: 5px; min-width: 84px; }
 .cap-avatar { width: 26px; height: 26px; border-radius: 50%; object-fit: cover; background: var(--surface2); }

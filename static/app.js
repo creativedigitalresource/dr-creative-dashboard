@@ -89,6 +89,7 @@ async function boot() {
     }
     hide("login-screen");
     show("main-content");
+    _updateHeaderHeightVar();
     startClock();
     initTabs();
     initCalendar();

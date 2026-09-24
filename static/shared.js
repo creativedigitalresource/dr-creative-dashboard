@@ -760,17 +760,31 @@ async function loadPipelinePoolNote() {
 // nicely packed" — the goal of delegating is filling days, not emptying
 // them. Confirmed with Richard 2026-09-21: no auto-scheduling anywhere in
 // this — purely a read-out to guide manual decisions.
+// Rolling 5-business-day window starting today, not the fixed Mon-Fri of
+// the calendar week — confirmed with Richard 2026-09-24: on a Thursday he
+// wants to see Thursday/Friday then next Monday-Wednesday, not
+// Monday-Wednesday days that have already passed. A weekend "today" rolls
+// forward to the next Monday naturally (the weekday check just keeps
+// skipping Sat/Sun until it finds one). Letters are derived from each
+// date's real weekday (not a hardcoded M-T-W-T-F) since the window can
+// span two different calendar weeks.
+function _rollingBusinessDays(n) {
+  const days = [];
+  const cursor = new Date();
+  cursor.setHours(12, 0, 0, 0); // avoid DST/midnight edge cases
+  while (days.length < n) {
+    const dow = cursor.getDay(); // 0=Sun..6=Sat
+    if (dow !== 0 && dow !== 6) days.push(localISO(cursor));
+    cursor.setDate(cursor.getDate() + 1);
+  }
+  return days;
+}
+
 function renderDelegationCapacityStrip() {
   if (!_delegationRoster.length) return "";
-  const { start } = getWeekBounds(0);
-  const startD = new Date(start + "T12:00:00");
-  const days = [];
-  for (let i = 0; i < 5; i++) {
-    const day = new Date(startD);
-    day.setDate(startD.getDate() + i);
-    days.push(localISO(day));
-  }
-  const dayLetters = ["M", "T", "W", "T", "F"];
+  const days = _rollingBusinessDays(5);
+  const WEEKDAY_LETTERS = ["S", "M", "T", "W", "T", "F", "S"]; // matches Date.getDay()
+  const dayLetters = days.map(dt => WEEKDAY_LETTERS[new Date(dt + "T12:00:00").getDay()]);
 
   const cards = _delegationRoster.map(d => {
     const ptoDates = new Set((d.pto || []).map(p => p.date));
@@ -1798,3 +1812,18 @@ function editQaTemplate() {
     openQaChecklist(_qaService);
   }).catch(() => alert("Couldn't save."));
 }
+
+// Feeds .cap-strip's sticky `top` (see style.css) so it parks exactly
+// below the real .app-header instead of a hardcoded pixel guess — a
+// guess that was wrong once already (57px was a few px short, leaving
+// the strip's avatar/name row hidden behind the header while only the
+// bars peeked out below it, confirmed live 2026-09-24). Self-corrects if
+// the header's content or a responsive breakpoint ever changes its
+// actual rendered height. Called once at boot by both app.js and
+// designer.js, plus on resize.
+function _updateHeaderHeightVar() {
+  const header = document.querySelector(".app-header");
+  if (!header) return;
+  document.documentElement.style.setProperty("--header-height", header.getBoundingClientRect().height + "px");
+}
+window.addEventListener("resize", _updateHeaderHeightVar);
