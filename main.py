@@ -1224,6 +1224,23 @@ async def api_auto_assign(todo_id: str):
     store.delete_override(todo_id, "delegate_hdd")
     store.delete_override(todo_id, "delegate_est")
 
+    # BUG FIX 2026-09-24: without this, the designer's cached todo list
+    # (what /api/designers serves, what the capacity strip reads) has no
+    # idea this task exists until the next full background refresh —
+    # confirmed live, a designer's capacity bar didn't reflect a task
+    # assigned minutes earlier. Append a minimal but correctly-shaped
+    # entry now so the very next /api/designers fetch already reflects it.
+    for cached_designer in _cached_data.get("designers", []):
+        if cached_designer.get("bc_id") == int(designer_bc_id):
+            cached_designer.setdefault("todos", []).append({
+                "id": todo_id, "title": todo.get("title", ""),
+                "bucket_name": todo.get("bucket_name", ""), "category": todo.get("category"),
+                "hdd": hdd, "due_on": date.today().isoformat(),
+                "total_hours": float(est) if est else 0, "logged": 0,
+                "is_complete": False, "in_revisions": False, "url": todo.get("url", ""),
+            })
+            break
+
     return {"ok": True}
 
 

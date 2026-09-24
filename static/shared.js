@@ -715,8 +715,15 @@ async function loadUnassigned() {
 }
 
 async function loadDelegationRoster() {
-  if (_delegationRoster.length) return;
-  _delegationRoster = await fetchWithTimeout("/api/designers").then(r => r.json()).catch(() => []);
+  // BUG FIX 2026-09-24: this used to fetch once per page load and cache
+  // forever ("avatars/colors barely change" — true, but this same object
+  // also carries each designer's live task list, which changes constantly,
+  // especially right after an Auto Assign). Confirmed live: a designer's
+  // capacity bar didn't reflect a task assigned minutes earlier because
+  // this was never re-fetched. /api/designers is server-cached already
+  // (not a live Basecamp hit), so refetching here on every loadUnassigned()
+  // call is cheap.
+  _delegationRoster = await fetchWithTimeout("/api/designers").then(r => r.json()).catch(() => _delegationRoster);
 }
 
 // Design-pool forecast note: hours due this week in categories with no
@@ -959,6 +966,12 @@ async function autoAssignUnassigned(todoId) {
   _unassignedData = _unassignedData.filter(x => String(x.id) !== String(todoId));
   const countEl = document.getElementById("unassigned-count");
   if (countEl) countEl.textContent = _unassignedData.length || "";
+  // BUG FIX 2026-09-24: re-fetch the roster so the just-assigned task's
+  // real hours show up in the capacity strip immediately — otherwise the
+  // strip keeps using whatever was loaded at page-open, unaware anything
+  // happened. Backend patches its own designer cache in the same request
+  // this call resolves, so this fetch already sees it.
+  await loadDelegationRoster();
   renderUnassigned();
 }
 
