@@ -112,6 +112,64 @@ function setMySort(key) {
   renderMe();
 }
 
+// Completed Tasks — collapsed by default, same buildTaskTable used for
+// active work, so sort-by-column (client/task/date/HDD/EST/category),
+// "open in Basecamp", and the editable Logged-hours pill all come for
+// free instead of needing a second implementation of any of them.
+let _myCompletedOpen = false;
+let _myCompletedSort = { key: null, dir: "asc" };
+let _myCompletedFilter = "";
+
+function toggleMyCompleted() {
+  _myCompletedOpen = !_myCompletedOpen;
+  renderMe();
+}
+
+function setMyCompletedSort(key) {
+  _myCompletedSort = _myCompletedSort.key === key
+    ? { key, dir: _myCompletedSort.dir === "asc" ? "desc" : "asc" }
+    : { key, dir: "asc" };
+  renderMe();
+}
+
+function setMyCompletedFilter(value) {
+  _myCompletedFilter = value;
+  renderMe();
+}
+
+// One text box searching client + task + category rather than six
+// separate per-column filter widgets — sorting (already free via
+// buildTaskTable) covers precise ordering by any of those fields, this
+// covers narrowing down a long list.
+function myCompletedTasksHTML(allTodos, color, ehId) {
+  const completed = (allTodos || []).filter(t => t.is_complete);
+  if (!completed.length) return "";
+  const q = _myCompletedFilter.trim().toLowerCase();
+  const filtered = q ? completed.filter(t =>
+    (t.title || "").toLowerCase().includes(q) ||
+    cleanClient(t.bucket_name || "").toLowerCase().includes(q) ||
+    (t.category || "").toLowerCase().includes(q)
+  ) : completed;
+  const sorted = sortTodos(filtered, _myCompletedSort.key, _myCompletedSort.dir);
+  return `
+    <div class="pulse-panel">
+      <button class="qa-archived-toggle" onclick="toggleMyCompleted()">
+        <span class="qa-archived-chevron${_myCompletedOpen ? " open" : ""}">&#9656;</span>
+        Completed Tasks (${completed.length})
+      </button>
+      ${_myCompletedOpen ? `
+        <input type="text" class="priority-input" style="max-width:280px;margin:12px 0 10px"
+          placeholder="Filter by client, task, or category…"
+          value="${esc(_myCompletedFilter)}" oninput="setMyCompletedFilter(this.value)" />
+        <div class="my-table-wrap">${buildTaskTable(sorted, color, {
+          sort: _myCompletedSort.key ? _myCompletedSort : null,
+          sortFn: "setMyCompletedSort",
+          ehId,
+        })}</div>
+      ` : ""}
+    </div>`;
+}
+
 async function loadMe() {
   const r = await fetch(`/api/my/${TOKEN}`);
   if (!r.ok) {
@@ -257,6 +315,7 @@ function renderMe() {
         ehId: d.eh_id,
       })}</div>
     </div>
+    ${myCompletedTasksHTML(d.todos, d.color, d.eh_id)}
     <div class="attention-grid" id="my-attention"></div>
     <div class="pulse-panel">
       <div class="cap-chart-title" style="margin-bottom:4px">Notepad</div>
