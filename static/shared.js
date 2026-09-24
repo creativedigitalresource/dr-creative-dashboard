@@ -835,8 +835,10 @@ function renderDelegationCapacityStrip() {
 function renderUnassigned() {
   const root = document.getElementById("unassigned-list");
   const todos = _unassignedData;
+  const capMount = document.getElementById("delegation-capacity-mount");
   if (!todos.length) {
     root.innerHTML = `<div class="loading-cell">Fetching from Basecamp — may take up to 60s on first load…</div>`;
+    if (capMount) capMount.innerHTML = "";
     return;
   }
   const sorted = sortTodos(todos, _unassignedSort.key, _unassignedSort.dir);
@@ -857,8 +859,8 @@ function renderUnassigned() {
       <td><button class="btn btn-primary btn-sm" data-autoassign="${t.id}" onclick="autoAssignUnassigned('${t.id}')">Auto Assign</button></td>
     </tr>`;
   }).join("");
+  if (capMount) capMount.innerHTML = renderDelegationCapacityStrip();
   root.innerHTML = `
-    ${renderDelegationCapacityStrip()}
     <table class="data-table">
     <thead><tr>
       ${th("Client", "client")}
