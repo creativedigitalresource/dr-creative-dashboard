@@ -51,43 +51,36 @@ function _capacityPriorityCompare(a, b) {
   return (a.hdd || "9999-99-99").localeCompare(b.hdd || "9999-99-99");
 }
 
-// Greedy day-by-day fill: walk each designer's active todos in priority
-// order and drop each one's remaining hours into the earliest day in the
-// window that still has room (skipping OOO days, which have 0 room).
-// Anything already overdue or due today can't be pushed any earlier —
-// it's counted in full against today even if that pushes today over
-// 100%, so a genuine overload still shows red instead of being quietly
-// smoothed onto tomorrow. Everything else (due later, or with no HDD at
-// all) is flexible: it fills whatever room is left, starting from today,
-// exactly like a human triaging a backlog would work on it ASAP rather
-// than waiting until the day it's due. Bug this replaced: hours were only
-// ever placed on the exact date matching a task's HDD, so anything
-// overdue (HDD before the window) or due past the 5-day window just
-// disappeared from every bar instead of showing up as real workload.
+// Greedy day-by-day fill: walk every active todo in priority order
+// (overdue/soonest-due first, same order calcCapacity uses) and drop
+// each one's remaining hours into the earliest day in the window that
+// still has room, capped at WORK_HOURS/day — even work that's already
+// overdue rolls into the next open day once today fills up, rather than
+// piling onto today past what's realistically achievable. Confirmed with
+// Richard 2026-09-25: if it's due Friday and Friday's already full,
+// realistically it slides to Monday — the bar should show that forecast,
+// not flag Friday red and call it done. If total queued work is bigger
+// than the whole window can hold, whatever doesn't fit spills onto the
+// last visible day uncapped, so a real backlog still shows as "over"
+// there instead of silently vanishing past the edge of the window. Bug
+// this replaced: hours were only ever placed on the exact date matching
+// a task's HDD, so anything overdue (HDD before the window) or due past
+// the 5-day window just disappeared from every bar instead of showing up
+// as real workload.
 function _scheduleHoursByDay(todos, days, ptoDates) {
   const hoursByDay = {};
   const capacity = {};
   days.forEach(dt => { hoursByDay[dt] = 0; capacity[dt] = ptoDates.has(dt) ? 0 : WORK_HOURS; });
   if (!days.length) return hoursByDay;
-  const today = days[0];
+  const lastDay = days[days.length - 1];
 
   const eligible = (todos || []).filter(t =>
     !t.is_complete && !t.is_misc && !t.in_revisions && !t.reply_needed && t.total_hours > 0);
   const sorted = [...eligible].sort(_capacityPriorityCompare);
 
-  const flexible = [];
   for (const t of sorted) {
-    const remaining = Math.max(0, t.total_hours - (t.logged || 0));
+    let remaining = Math.max(0, t.total_hours - (t.logged || 0));
     if (remaining <= 0) continue;
-    if (t.hdd && t.hdd <= today) {
-      hoursByDay[today] += remaining;
-    } else {
-      flexible.push(remaining);
-    }
-  }
-  capacity[today] = Math.max(0, capacity[today] - hoursByDay[today]);
-
-  for (let remaining of flexible) {
     for (const dt of days) {
       if (remaining <= 0) break;
       const room = capacity[dt];
@@ -97,6 +90,10 @@ function _scheduleHoursByDay(todos, days, ptoDates) {
       capacity[dt] -= take;
       remaining -= take;
     }
+    // Doesn't fit anywhere in the window — dump it on the last day
+    // uncapped so a genuine backlog overflow still shows red instead of
+    // quietly disappearing past the edge of the visible window.
+    if (remaining > 0) hoursByDay[lastDay] += remaining;
   }
   return hoursByDay;
 }
