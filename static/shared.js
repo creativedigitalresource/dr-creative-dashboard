@@ -32,6 +32,75 @@ function getWeekBounds(offset = 0) {
   };
 }
 
+// Shared priority order for "what gets worked on first" — used both by
+// calcCapacity's weekly bucket-fill and by _scheduleHoursByDay's per-day
+// fill, so the Overview week % and the To Delegate day-by-day bars can
+// never disagree about which tasks come first. Client work before
+// internal DR work, then soonest due_on, then whichever has a real HDD,
+// then soonest HDD. Confirmed with Richard 2026-09-25: work should be
+// scheduled ASAP in this same order everywhere capacity is shown.
+function _isDRInternal(bn) { const s = (bn || "").toLowerCase(); return s.includes("digital resource") || s.includes("dr team"); }
+
+function _capacityPriorityCompare(a, b) {
+  const ia = _isDRInternal(a.bucket_name) ? 1 : 0, ib = _isDRInternal(b.bucket_name) ? 1 : 0;
+  if (ia !== ib) return ia - ib;
+  const da = (a.due_on || "9999-99-99").localeCompare(b.due_on || "9999-99-99");
+  if (da !== 0) return da;
+  const ha = a.has_hdd ? 0 : 1, hb = b.has_hdd ? 0 : 1;
+  if (ha !== hb) return ha - hb;
+  return (a.hdd || "9999-99-99").localeCompare(b.hdd || "9999-99-99");
+}
+
+// Greedy day-by-day fill: walk each designer's active todos in priority
+// order and drop each one's remaining hours into the earliest day in the
+// window that still has room (skipping OOO days, which have 0 room).
+// Anything already overdue or due today can't be pushed any earlier —
+// it's counted in full against today even if that pushes today over
+// 100%, so a genuine overload still shows red instead of being quietly
+// smoothed onto tomorrow. Everything else (due later, or with no HDD at
+// all) is flexible: it fills whatever room is left, starting from today,
+// exactly like a human triaging a backlog would work on it ASAP rather
+// than waiting until the day it's due. Bug this replaced: hours were only
+// ever placed on the exact date matching a task's HDD, so anything
+// overdue (HDD before the window) or due past the 5-day window just
+// disappeared from every bar instead of showing up as real workload.
+function _scheduleHoursByDay(todos, days, ptoDates) {
+  const hoursByDay = {};
+  const capacity = {};
+  days.forEach(dt => { hoursByDay[dt] = 0; capacity[dt] = ptoDates.has(dt) ? 0 : WORK_HOURS; });
+  if (!days.length) return hoursByDay;
+  const today = days[0];
+
+  const eligible = (todos || []).filter(t =>
+    !t.is_complete && !t.is_misc && !t.in_revisions && !t.reply_needed && t.total_hours > 0);
+  const sorted = [...eligible].sort(_capacityPriorityCompare);
+
+  const flexible = [];
+  for (const t of sorted) {
+    const remaining = Math.max(0, t.total_hours - (t.logged || 0));
+    if (remaining <= 0) continue;
+    if (t.hdd && t.hdd <= today) {
+      hoursByDay[today] += remaining;
+    } else {
+      flexible.push(remaining);
+    }
+  }
+  capacity[today] = Math.max(0, capacity[today] - hoursByDay[today]);
+
+  for (let remaining of flexible) {
+    for (const dt of days) {
+      if (remaining <= 0) break;
+      const room = capacity[dt];
+      if (room <= 0) continue;
+      const take = Math.min(remaining, room);
+      hoursByDay[dt] += take;
+      capacity[dt] -= take;
+      remaining -= take;
+    }
+  }
+  return hoursByDay;
+}
+
 function calcCapacity(todos, pto, offset = 0) {
   const { start, end } = getWeekBounds(offset);
 
@@ -58,16 +127,7 @@ function calcCapacity(todos, pto, offset = 0) {
   // Tasks due this week always count. Tasks due later fill any remaining capacity,
   // so a designer's free hours are never shown as empty when real work is queued.
   const activeTodos = (todos || []).filter(t => !t.is_complete && !t.is_misc);
-  const _isDRInternal = bn => { const s = (bn || "").toLowerCase(); return s.includes("digital resource") || s.includes("dr team"); };
-  const sorted = [...activeTodos].sort((a, b) => {
-    const ia = _isDRInternal(a.bucket_name) ? 1 : 0, ib = _isDRInternal(b.bucket_name) ? 1 : 0;
-    if (ia !== ib) return ia - ib;
-    const da = (a.due_on || "9999-99-99").localeCompare(b.due_on || "9999-99-99");
-    if (da !== 0) return da;
-    const ha = a.has_hdd ? 0 : 1, hb = b.has_hdd ? 0 : 1;
-    if (ha !== hb) return ha - hb;
-    return (a.hdd || "9999-99-99").localeCompare(b.hdd || "9999-99-99");
-  });
+  const sorted = [...activeTodos].sort(_capacityPriorityCompare);
 
   let bucket = cap;
   let weekly_est = 0;
@@ -788,17 +848,7 @@ function renderDelegationCapacityStrip() {
 
   const cards = _delegationRoster.map(d => {
     const ptoDates = new Set((d.pto || []).map(p => p.date));
-    const hoursByDay = {};
-    days.forEach(dt => hoursByDay[dt] = 0);
 
-    // Existing real workload — same "remaining hours due this day" math
-    // used everywhere else in the app.
-    for (const t of d.todos || []) {
-      if (t.is_complete || t.in_revisions) continue;
-      if (t.hdd && hoursByDay[t.hdd] !== undefined) {
-        hoursByDay[t.hdd] += Math.max(0, (t.total_hours || 0) - (t.logged || 0));
-      }
-    }
     // Plus anything YOU'VE actually assigned in this session (picked a
     // designer for that row via the dropdown) — not the algorithm's
     // untouched default suggestion for every other row in the queue.
@@ -808,13 +858,22 @@ function renderDelegationCapacityStrip() {
     // suggestion engine has tentatively guessed across dozens of rows
     // nobody's looked at yet. "overrides" includes "delegate_designer"
     // only once that row's dropdown has actually been changed (see
-    // api_set_delegation_choice on the backend).
-    for (const t of _unassignedData) {
-      const youAssignedThis = (t.overrides || []).includes("delegate_designer");
-      if (youAssignedThis && t.chosen_designer_bc_id === d.bc_id && t.chosen_hdd && hoursByDay[t.chosen_hdd] !== undefined) {
-        hoursByDay[t.chosen_hdd] += t.chosen_est || 0;
-      }
-    }
+    // api_set_delegation_choice on the backend). Fed through the same
+    // scheduler as real todos (below) so a freshly-picked assignment gets
+    // the same ASAP/spread treatment as everything already on the books.
+    const pendingPicks = _unassignedData
+      .filter(t => (t.overrides || []).includes("delegate_designer") && t.chosen_designer_bc_id === d.bc_id && t.chosen_hdd)
+      .map(t => ({
+        bucket_name: t.bucket_name,
+        hdd: t.chosen_hdd,
+        has_hdd: true,
+        total_hours: t.chosen_est || 0,
+        logged: 0,
+        is_complete: false,
+        is_misc: false,
+      }));
+
+    const hoursByDay = _scheduleHoursByDay([...(d.todos || []), ...pendingPicks], days, ptoDates);
 
     const bars = days.map((dt, i) => {
       const ooo = ptoDates.has(dt);
