@@ -1,7 +1,8 @@
 import asyncio, json, os, re, time, statistics
 from collections import Counter, defaultdict
-from datetime import date, timedelta
+from datetime import date, datetime, timedelta
 from contextlib import asynccontextmanager
+from zoneinfo import ZoneInfo
 
 from fastapi import FastAPI, Request, Response
 from fastapi.responses import FileResponse, HTMLResponse, RedirectResponse, StreamingResponse
@@ -923,6 +924,128 @@ def _is_dr_internal(bucket_name: str) -> bool:
     return "digital resource" in bn or "dr team" in bn
 
 
+# ---------------------------------------------------------------------------
+# Richard-only Slack alerts (2026-09-25): spotlight tasks with no hours
+# logged by 1pm/EOD, HDD due today, past due, needs a decision. Everyone
+# but Melany and Lezly works 8:45am-5pm ET; those two work 9am-6pm ET, so
+# their Spotlight deadline and end-of-day check both shift later. The
+# 1pm midday check is the same for everyone regardless of start time.
+# ---------------------------------------------------------------------------
+EST = ZoneInfo("America/New_York")
+
+
+def _est_now() -> datetime:
+    return datetime.now(EST)
+
+
+_ALERT_SCHEDULE_LATE = {"spotlight_deadline": "09:30", "day_end": "18:00"}
+_ALERT_SCHEDULE_DEFAULT = {"spotlight_deadline": "08:45", "day_end": "17:00"}
+_ALERT_SCHEDULE_LATE_BC_IDS = {46905124, 45896266}  # Melany, Lezly
+RICHARD_ALERT_MIDDAY = "13:00"
+
+
+def _alert_schedule(bc_id: int) -> dict:
+    return _ALERT_SCHEDULE_LATE if bc_id in _ALERT_SCHEDULE_LATE_BC_IDS else _ALERT_SCHEDULE_DEFAULT
+
+
+def _hhmm_passed(hhmm: str, now: datetime) -> bool:
+    h, m = map(int, hhmm.split(":"))
+    return (now.hour, now.minute) >= (h, m)
+
+
+def _effective_spotlight_todos(d: dict, todos: list, now: datetime) -> list:
+    """Real Spotlight picks if the designer has set any; otherwise, once
+    their spotlight deadline has passed for the day, fall back to the
+    single highest-priority open task (todos are already _todo_sort_key
+    order) as a stand-in. Confirmed with Richard 2026-09-25: this default
+    exists purely so the alert pipeline always has something to check
+    hours against — it's not a requirement that anyone actually use it."""
+    real = [t for t in todos if t.get("is_spotlighted") and not t.get("is_complete")]
+    if real:
+        return real
+    sched = _alert_schedule(d["bc_id"])
+    if not _hhmm_passed(sched["spotlight_deadline"], now):
+        return []
+    eligible = [t for t in todos if not t.get("is_complete") and not t.get("is_misc")
+                and not t.get("in_revisions") and not t.get("reply_needed")]
+    return eligible[:1]
+
+
+async def _logged_today_task_ids(eh_id, today: str) -> set:
+    """Everhour task ids (format 'b3:<basecamp_todo_id>') with any time
+    logged today, straight from the same per-user time-records call the
+    Timesheets tab already uses — just narrowed to a single day."""
+    if not eh_id:
+        return set()
+    try:
+        records = await asyncio.wait_for(eh.get_user_time_records(eh_id, today, today), timeout=10.0)
+    except Exception:
+        return set()
+    return {r["task"]["id"] for r in records if r.get("task") and (r.get("time") or 0) > 0}
+
+
+async def _compute_richard_alerts() -> dict:
+    now = _est_now()
+    today = now.date().isoformat()
+    pto = store.get_all_pto()
+    designers = _cached_data.get("designers", [])
+
+    logged_sets = await asyncio.gather(*[
+        _logged_today_task_ids(d.get("eh_id"), today) for d in designers
+    ])
+
+    spotlight_midday, spotlight_eod, hdd_today, past_due, needs_decision = [], [], [], [], []
+    midday_open = _hhmm_passed(RICHARD_ALERT_MIDDAY, now)
+
+    for d, logged_ids in zip(designers, logged_sets):
+        if _is_ooo_today(d["bc_id"], pto):
+            continue
+        todos = d.get("todos", [])
+        sched = _alert_schedule(d["bc_id"])
+        eod_open = _hhmm_passed(sched["day_end"], now)
+
+        for t in _effective_spotlight_todos(d, todos, now):
+            if f"b3:{t['id']}" in logged_ids:
+                continue
+            item = {
+                "todo_id": str(t["id"]), "title": t.get("title"), "url": t.get("url"),
+                "bucket_name": t.get("bucket_name"),
+                "designer_bc_id": d["bc_id"], "designer_name": d["name"],
+                "designer_slack_id": d.get("slack_id"),
+            }
+            if midday_open:
+                spotlight_midday.append(item)
+            if eod_open:
+                spotlight_eod.append(item)
+
+        for t in todos:
+            if t.get("is_complete") or t.get("is_misc"):
+                continue
+            base = {
+                "todo_id": str(t["id"]), "title": t.get("title"), "url": t.get("url"),
+                "bucket_name": t.get("bucket_name"), "hdd": t.get("hdd"),
+                "designer_bc_id": d["bc_id"], "designer_name": d["name"],
+                "designer_slack_id": d.get("slack_id"),
+            }
+            if t.get("reply_needed") or t.get("hdd_stale") or t.get("in_revisions"):
+                reason = ("reply_needed" if t.get("reply_needed")
+                          else "hdd_stale" if t.get("hdd_stale") else "in_revisions")
+                needs_decision.append({**base, "reason": reason})
+            hdd = t.get("hdd")
+            if hdd == today:
+                hdd_today.append(base)
+            elif hdd and hdd < today:
+                past_due.append(base)
+
+    return {
+        "spotlight_midday": spotlight_midday,
+        "spotlight_eod": spotlight_eod,
+        "hdd_today": hdd_today,
+        "past_due": past_due,
+        "needs_decision": needs_decision,
+    }
+
+
 def _todo_sort_key(t: dict):
     return (
         1 if _is_dr_internal(t.get("bucket_name", "")) else 0,
@@ -1551,6 +1674,27 @@ async def api_at_risk():
             })
     claimed = set(store.claim_at_risk_notifications([c["todo_id"] for c in candidates], today))
     return [c for c in candidates if c["todo_id"] in claimed]
+
+
+@app.get("/api/richard-alerts")
+async def api_richard_alerts(test: int = 0):
+    """Fed by the Slack-alert routine that DMs Richard only (never
+    designers): five conditions — spotlight task with no hours logged
+    today by 1pm/EOD, HDD due today, past due, needs a decision. Each
+    item is claimed (deduped) per alert type per day in this same call,
+    so a caller that polls every 15-30 min and DMs each result can't
+    double-send. Pass test=1 to preview without claiming/consuming the
+    daily dedupe (used for one-off previews of what an alert would say)."""
+    raw = await _compute_richard_alerts()
+    if test:
+        return raw
+    today = date.today().isoformat()
+    out = {}
+    for alert_type, items in raw.items():
+        ids = [it["todo_id"] for it in items]
+        claimed = set(store.claim_richard_alerts(ids, alert_type, today))
+        out[alert_type] = [it for it in items if it["todo_id"] in claimed]
+    return out
 
 
 @app.get("/api/priority-todos")

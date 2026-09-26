@@ -243,6 +243,18 @@ def init_db():
                 PRIMARY KEY (todo_id, date)
             );
 
+            -- Richard-only Slack alerts (spotlight/hours-logged, HDD today,
+            -- past due, needs a decision): one row per todo per alert type
+            -- per day, so the polling routine never re-sends the same
+            -- alert twice in a day even if it checks every 15 minutes.
+            CREATE TABLE IF NOT EXISTS richard_alert_notified (
+                todo_id TEXT NOT NULL,
+                alert_type TEXT NOT NULL,
+                date TEXT NOT NULL,
+                notified_at REAL DEFAULT (unixepoch()),
+                PRIMARY KEY (todo_id, alert_type, date)
+            );
+
             -- To Delegate learning (confirmed with Richard 2026-09-21:
             -- automatic, no approval step). Every raw correction is kept
             -- forever as the audit trail; the "learned_*" tables are the
@@ -868,6 +880,25 @@ def claim_at_risk_notifications(todo_ids: list, day: str) -> list:
                 claimed.append(str(tid))
             except sqlite3.IntegrityError:
                 pass  # already notified today
+    return claimed
+
+
+def claim_richard_alerts(todo_ids: list, alert_type: str, day: str) -> list:
+    """Same dedupe pattern as claim_at_risk_notifications, generalized
+    across Richard's five alert conditions (spotlight_midday,
+    spotlight_eod, hdd_today, past_due, needs_decision) so each gets its
+    own once-per-day-per-todo claim even though the routine polling
+    needs_decision runs every 15-30 minutes."""
+    with get_db() as c:
+        claimed = []
+        for tid in todo_ids:
+            try:
+                c.execute(
+                    "INSERT INTO richard_alert_notified (todo_id, alert_type, date) VALUES (?, ?, ?)",
+                    (str(tid), alert_type, day))
+                claimed.append(str(tid))
+            except sqlite3.IntegrityError:
+                pass  # already notified today for this alert type
     return claimed
 
 
