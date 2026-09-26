@@ -984,8 +984,8 @@ async def _logged_today_task_ids(eh_id, today: str) -> set:
     return {r["task"]["id"] for r in records if r.get("task") and (r.get("time") or 0) > 0}
 
 
-async def _compute_richard_alerts() -> dict:
-    now = _est_now()
+async def _compute_richard_alerts(now: datetime | None = None) -> dict:
+    now = now or _est_now()
     today = now.date().isoformat()
     pto = store.get_all_pto()
     designers = _cached_data.get("designers", [])
@@ -1677,15 +1677,24 @@ async def api_at_risk():
 
 
 @app.get("/api/richard-alerts")
-async def api_richard_alerts(test: int = 0):
+async def api_richard_alerts(test: int = 0, as_of: str = ""):
     """Fed by the Slack-alert routine that DMs Richard only (never
     designers): five conditions — spotlight task with no hours logged
     today by 1pm/EOD, HDD due today, past due, needs a decision. Each
     item is claimed (deduped) per alert type per day in this same call,
     so a caller that polls every 15-30 min and DMs each result can't
     double-send. Pass test=1 to preview without claiming/consuming the
-    daily dedupe (used for one-off previews of what an alert would say)."""
-    raw = await _compute_richard_alerts()
+    daily dedupe. Pass as_of=HH:MM (ET, today) alongside test=1 to preview
+    what a later checkpoint (e.g. end of day) would look like right now,
+    using today's real live data, without waiting for the clock."""
+    now = None
+    if as_of:
+        try:
+            h, m = map(int, as_of.split(":"))
+            now = _est_now().replace(hour=h, minute=m, second=0, microsecond=0)
+        except ValueError:
+            now = None
+    raw = await _compute_richard_alerts(now)
     if test:
         return raw
     today = date.today().isoformat()
