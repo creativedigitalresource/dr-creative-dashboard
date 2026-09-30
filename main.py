@@ -774,9 +774,16 @@ async def _detect_and_archive_completions(designer_bc_id, old_todos: list, new_t
     """Basecamp's assigned-todos report has no 'completed' filter and
     there's no account-wide 'things this person finished' report at all
     — so the only signal available is a todo dropping out of someone's
-    open list between refreshes. That can also mean it was reassigned or
-    trashed, not finished, so each disappearance gets a direct detail
-    fetch to confirm completed=True before it's archived as done."""
+    open list between refreshes. Confirmed with Richard 2026-09-30: a
+    completed checkbox isn't the bar here — their multi-step handoff
+    workflow means a designer's action item is done the moment it's
+    reassigned to the next person (reviewer/QA), not only when the whole
+    todo is eventually checked off. get_designer_todos already resolves
+    both direct-todo and step-based assignment before returning, so if a
+    todo genuinely dropped out of new_todos, this designer's part of it
+    — whichever form it took — is done. The one real exclusion is a
+    trashed/deleted todo, which isn't completed work; a direct detail
+    fetch tells the two apart."""
     new_ids = {str(t["id"]) for t in new_todos}
     disappeared = [t for t in old_todos if str(t["id"]) not in new_ids]
     for t in disappeared:
@@ -787,8 +794,8 @@ async def _detect_and_archive_completions(designer_bc_id, old_todos: list, new_t
             detail = await asyncio.wait_for(bc.get_todo_detail(bucket_id, str(t["id"])), timeout=8.0)
         except Exception:
             continue
-        if not detail or not detail.get("completed"):
-            continue
+        if not detail:
+            continue  # trashed/deleted — no real work product to archive
         store.archive_completed_todo(designer_bc_id, str(t["id"]), {
             "title": t.get("title"), "bucket_name": t.get("bucket_name"),
             "url": t.get("url"), "category": t.get("category"),

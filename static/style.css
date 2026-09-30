@@ -191,7 +191,12 @@ body { min-height: 100vh; }
 .tab-btn:hover { color: var(--text); background: var(--surface2); }
 .tab-btn.active { color: var(--accent); border-bottom-color: var(--accent); background: var(--accent-light); }
 
-.tab-panel { display: none; padding: 24px 28px; flex: 1; }
+/* min-height: 0 overrides the flex-item default of min-height: auto —
+   without it, a flex item sized by its content's intrinsic height can
+   make a sticky descendant's positioning unreliable inside a flex
+   column ancestor (.main-content, manager dashboard only — designer
+   pages aren't nested in a flex wrapper, so they never hit this). */
+.tab-panel { display: none; padding: 24px 28px; flex: 1; min-height: 0; }
 .tab-panel.active { display: block; }
 
 /* ---- Panel header ---- */
