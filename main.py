@@ -1375,6 +1375,9 @@ async def api_designers():
     for d in designers:
         # Attach PTO so client can calculate real capacity
         d["pto"] = pto_map.get(str(d["bc_id"]), [])
+        # Personal dashboard link — lets the manager view (capacity strip
+        # avatar, etc.) jump straight to a designer's own /my/{token} page.
+        d["link"] = f"/my/{store.ensure_designer_token(d['bc_id'])}"
         # Forecasted hours headed their way from the still-unassigned queue
         # (due this week, deterministic-assignee categories only)
         d["pipeline_hours"] = pipeline["by_person"].get(str(d["bc_id"]), 0)

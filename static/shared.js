@@ -891,9 +891,14 @@ function renderDelegationCapacityStrip() {
         </div>`;
     }).join("");
 
+    const avatarImg = `<img class="cap-avatar" src="${d.avatar || ""}" alt="${esc(d.name)}" onerror="this.style.visibility='hidden'" />`;
+    const avatar = d.link
+      ? `<a href="${d.link}" target="_blank" title="Open ${esc(d.name)}'s dashboard">${avatarImg}</a>`
+      : avatarImg;
+
     return `
       <div class="cap-designer-card">
-        <img class="cap-avatar" src="${d.avatar || ""}" alt="${esc(d.name)}" onerror="this.style.visibility='hidden'" />
+        ${avatar}
         <div class="cap-designer-name">${esc(d.name)}</div>
         <div class="cap-bars-row">${bars}</div>
       </div>`;
