@@ -770,6 +770,33 @@ async def _refresh_all():
         _refresh_running = False
 
 
+async def _detect_and_archive_completions(designer_bc_id, old_todos: list, new_todos: list):
+    """Basecamp's assigned-todos report has no 'completed' filter and
+    there's no account-wide 'things this person finished' report at all
+    — so the only signal available is a todo dropping out of someone's
+    open list between refreshes. That can also mean it was reassigned or
+    trashed, not finished, so each disappearance gets a direct detail
+    fetch to confirm completed=True before it's archived as done."""
+    new_ids = {str(t["id"]) for t in new_todos}
+    disappeared = [t for t in old_todos if str(t["id"]) not in new_ids]
+    for t in disappeared:
+        bucket_id = t.get("bucket_id")
+        if not bucket_id:
+            continue
+        try:
+            detail = await asyncio.wait_for(bc.get_todo_detail(bucket_id, str(t["id"])), timeout=8.0)
+        except Exception:
+            continue
+        if not detail or not detail.get("completed"):
+            continue
+        store.archive_completed_todo(designer_bc_id, str(t["id"]), {
+            "title": t.get("title"), "bucket_name": t.get("bucket_name"),
+            "url": t.get("url"), "category": t.get("category"),
+            "total_hours": t.get("total_hours"), "logged": t.get("logged"),
+            "hdd": t.get("hdd"),
+        })
+
+
 async def _fetch_person(d: dict, overrides: dict, week_end: str) -> dict:
     """Fetch and enrich one person's assigned todos. Used for every designer
     and for Richard's My Stuff view — one pipeline, so the numbers never drift."""
@@ -1086,9 +1113,15 @@ async def _do_refresh():
     designers_out = []
     for d in DESIGNERS:
         print(f"[refresh] fetching {d['name']}...")
+        old_todos = next((p["todos"] for p in _cached_data.get("designers", [])
+                           if p["bc_id"] == d["bc_id"]), [])
         try:
             person = await _fetch_person(d, overrides, week_end)
             designers_out.append(person)
+            try:
+                await _detect_and_archive_completions(d["bc_id"], old_todos, person["todos"])
+            except Exception as e:
+                print(f"[refresh] completion-archive error for {d['name']}: {type(e).__name__}: {e}")
             print(f"[refresh] {d['name']}: {len(person['todos'])} todos")
         except asyncio.TimeoutError:
             print(f"[refresh] {d['name']} timed out")
@@ -1445,6 +1478,29 @@ def _public_todos(d: dict) -> list:
             "designer_step": {"completed": bool((t.get("designer_step") or {}).get("completed"))} if t.get("designer_step") else None,
             "is_spotlighted": str(t["id"]) in spotlight_ids,
         })
+    # Completed-todos archive (last 30 days) — these dropped out of the
+    # live open list once finished, so they only exist here, not in
+    # d["todos"] above. Same shape as an active todo, just frozen at
+    # whatever EST/logged/HDD it had when it was archived, with
+    # is_complete always true.
+    for a in store.get_completed_todos(d["bc_id"], days=30):
+        todos.append({
+            "id": a["todo_id"], "title": a["title"], "bucket_name": a["bucket_name"],
+            "url": a["url"], "due_on": a["hdd"], "hdd": a["hdd"],
+            "has_hdd": bool(a["hdd"]), "hdd_stale": False,
+            "est": a["total_hours"], "true_est": None,
+            "logged": a["logged"], "over_by": 0,
+            "total_hours": a["total_hours"],
+            "progress": 100, "category": a["category"],
+            "reply_needed": False,
+            "sender_name": None, "sender_at": None,
+            "priority_tier": None, "priority_label": None,
+            "overrides": [],
+            "in_revisions": False, "revisions_since": None,
+            "is_complete": True, "is_misc": False,
+            "step_complete": True, "designer_step": None,
+            "is_spotlighted": False,
+        })
     return todos
 
 
@@ -1574,7 +1630,16 @@ async def api_my_set_fields(token: str, todo_id: str, request: Request):
         return Response(status_code=503)  # cache warming after a deploy
     todo = next((t for t in d.get("todos", []) if str(t["id"]) == str(todo_id)), None)
     if not todo:
-        return Response(status_code=403)
+        # Not in the live open list — may be a completed todo from the
+        # archive (e.g. logging hours they missed on something already
+        # checked off), which never appears in d["todos"] once finished.
+        archived = next((a for a in store.get_completed_todos(d["bc_id"], days=365)
+                          if str(a["todo_id"]) == str(todo_id)), None)
+        if not archived:
+            return Response(status_code=403)
+        todo = {"id": archived["todo_id"], "title": archived["title"],
+                "bucket_name": archived["bucket_name"], "total_hours": archived["total_hours"],
+                "logged": archived["logged"], "hdd": archived["hdd"]}
     body = await request.json()
     return await _apply_todo_fields(str(todo_id), body, todo, d)
 

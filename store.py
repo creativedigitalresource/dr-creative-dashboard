@@ -93,6 +93,29 @@ def init_db():
                 created_at REAL DEFAULT (unixepoch()),
                 PRIMARY KEY (designer_bc_id, todo_id)
             );
+
+            -- Completed-todos archive (2026-09-30): Basecamp's assigned-todos
+            -- report only ever returns OPEN items — there's no "completed"
+            -- filter on it, and no account-wide "my completed work" report
+            -- exists at all. So the only way to know what someone finished
+            -- is to notice a todo has dropped out of their open list between
+            -- refreshes and snapshot it here (main.py verifies it's actually
+            -- completed, not just reassigned, before inserting). Starts
+            -- empty from the day this shipped forward — it can't retroactively
+            -- know about anything finished before that.
+            CREATE TABLE IF NOT EXISTS completed_todos_archive (
+                designer_bc_id TEXT NOT NULL,
+                todo_id TEXT NOT NULL,
+                title TEXT NOT NULL DEFAULT '',
+                bucket_name TEXT NOT NULL DEFAULT '',
+                url TEXT NOT NULL DEFAULT '',
+                category TEXT NOT NULL DEFAULT '',
+                total_hours REAL NOT NULL DEFAULT 0,
+                logged REAL NOT NULL DEFAULT 0,
+                hdd TEXT,
+                completed_at REAL DEFAULT (unixepoch()),
+                PRIMARY KEY (designer_bc_id, todo_id)
+            );
             CREATE TABLE IF NOT EXISTS standups (
                 designer_bc_id TEXT NOT NULL,
                 date TEXT NOT NULL,
@@ -856,6 +879,40 @@ def get_spotlight_ids(designer_bc_id: str) -> list:
             "SELECT todo_id FROM spotlight WHERE designer_bc_id=? ORDER BY position",
             (str(designer_bc_id),)).fetchall()
     return [r["todo_id"] for r in rows]
+
+
+def archive_completed_todo(designer_bc_id: str, todo_id: str, snapshot: dict) -> bool:
+    """Insert-or-ignore so the first-detected completion sticks — a todo
+    can only disappear from someone's open list once, but this guards
+    against a duplicate refresh double-inserting it."""
+    with get_db() as c:
+        try:
+            c.execute(
+                """INSERT INTO completed_todos_archive
+                   (designer_bc_id, todo_id, title, bucket_name, url, category, total_hours, logged, hdd)
+                   VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)""",
+                (str(designer_bc_id), str(todo_id), snapshot.get("title", ""),
+                 snapshot.get("bucket_name", ""), snapshot.get("url", ""),
+                 snapshot.get("category", ""), snapshot.get("total_hours", 0) or 0,
+                 snapshot.get("logged", 0) or 0, snapshot.get("hdd")))
+            return True
+        except sqlite3.IntegrityError:
+            return False  # already archived
+
+
+def get_completed_todos(designer_bc_id: str, days: int = 30) -> list:
+    """A designer's completed-todo history from the archive, most recent
+    first — only covers completions detected since this feature shipped
+    (2026-09-30), not anything finished before then."""
+    cutoff = time.time() - days * 86400
+    with get_db() as c:
+        rows = c.execute(
+            """SELECT todo_id, title, bucket_name, url, category, total_hours, logged, hdd, completed_at
+               FROM completed_todos_archive
+               WHERE designer_bc_id=? AND completed_at >= ?
+               ORDER BY completed_at DESC""",
+            (str(designer_bc_id), cutoff)).fetchall()
+    return [dict(r) for r in rows]
 
 
 # Standups feature (designer's daily "what I'm working on today" post) was
