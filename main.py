@@ -1027,10 +1027,17 @@ async def _compute_richard_alerts(now: datetime | None = None) -> dict:
                 "designer_bc_id": d["bc_id"], "designer_name": d["name"],
                 "designer_slack_id": d.get("slack_id"),
             }
-            if t.get("reply_needed") or t.get("hdd_stale") or t.get("in_revisions"):
-                reason = ("reply_needed" if t.get("reply_needed")
-                          else "hdd_stale" if t.get("hdd_stale") else "in_revisions")
-                needs_decision.append({**base, "reason": reason})
+            reasons = []
+            if t.get("reply_needed"):
+                reasons.append("reply_needed")
+            if t.get("hdd_stale"):
+                reasons.append("hdd_stale")
+            if t.get("in_revisions"):
+                reasons.append("in_revisions")
+            if not t.get("total_hours"):
+                reasons.append("needs_est")
+            if reasons:
+                needs_decision.append({**base, "reason": ", ".join(reasons)})
             hdd = t.get("hdd")
             if hdd == today:
                 hdd_today.append(base)
