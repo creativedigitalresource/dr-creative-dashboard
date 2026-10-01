@@ -1379,10 +1379,21 @@ async def api_auto_assign(todo_id: str):
     # reason — every real designer has an sgid, this isn't the normal path.
     mention = f'<bc-attachment sgid="{html.escape(sgid)}"></bc-attachment>' if sgid \
         else f"@{html.escape(designer['name'])}"
+    # HDD/EST as separate bold, highlighted lines below the message rather
+    # than buried mid-sentence — confirmed with Richard 2026-10-01 via a
+    # live test comment (bucket 43484427, todo 10156420327) that Basecamp's
+    # API preserves inline background-color styling rather than sanitizing
+    # it out, so this renders as real yellow/green highlight pills, not
+    # just stored markup.
+    hdd_date = date.fromisoformat(hdd)
+    hdd_fmt = f"{hdd_date.month}/{hdd_date.day:02d}"
+    est_fmt = f"{float(est):g}" if est else "0"
     comment = (
         f"<div>Hey {mention}! Sending this one your way. "
-        f"HDD: {html.escape(hdd)} &middot; EST: {est}h.<br>"
-        f"Please let me know if you have any questions before or during the project. Thank you!</div>"
+        f"Please let me know if you have any questions before or during the project. Thank you!"
+        f"<br><br>"
+        f'<strong style="background-color:#fdf07a;">HDD: {html.escape(hdd_fmt)}</strong><br>'
+        f'<strong style="background-color:#b6f0b6;">EST: {html.escape(est_fmt)}hrs</strong></div>'
     )
     await bc.post_comment(todo["bucket_id"], todo_id, comment)
 
