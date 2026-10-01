@@ -881,6 +881,18 @@ def get_spotlight_ids(designer_bc_id: str) -> list:
     return [r["todo_id"] for r in rows]
 
 
+def set_spotlight_order(designer_bc_id: str, todo_ids: list):
+    """Drag-to-reorder: todo_ids is the designer's full spotlight list in
+    its new order. Only touches rows that are actually theirs, so a stale
+    or tampered id list can't reposition (or reveal) another designer's
+    spotlight."""
+    with get_db() as c:
+        for i, tid in enumerate(todo_ids):
+            c.execute(
+                "UPDATE spotlight SET position=? WHERE designer_bc_id=? AND todo_id=?",
+                (i, str(designer_bc_id), str(tid)))
+
+
 def archive_completed_todo(designer_bc_id: str, todo_id: str, snapshot: dict) -> bool:
     """Insert-or-ignore so the first-detected completion sticks — a todo
     can only disappear from someone's open list once, but this guards

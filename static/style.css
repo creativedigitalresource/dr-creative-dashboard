@@ -1358,6 +1358,16 @@ input.cal-filter-select { font-weight: 500; }
 }
 .spotlight-list .todo-item { padding-left: 4px; padding-right: 4px; }
 .spotlight-list .todo-item:last-child { border-bottom: none; }
+/* Draggable spotlight items get a third grid column for the handle —
+   .todo-item's base grid (1fr auto) is shared with non-draggable lists,
+   so the handle column only applies here. */
+.spotlight-list .todo-item[draggable="true"] { grid-template-columns: auto 1fr auto; cursor: grab; }
+.spotlight-list .todo-item[draggable="true"]:active { cursor: grabbing; }
+.spotlight-drag-handle {
+  color: var(--text-muted); font-size: 13px; line-height: 1;
+  align-self: center; padding: 0 2px; user-select: none;
+}
+.spotlight-list .todo-item.spotlight-dragging { opacity: 0.4; }
 
 .spotlight-star {
   border: none; background: none; cursor: pointer;

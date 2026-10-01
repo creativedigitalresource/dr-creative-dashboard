@@ -1474,7 +1474,8 @@ async def designer_page(token: str):
 
 def _public_todos(d: dict) -> list:
     """Client-safe todo projection shared by the designer page and My Stuff."""
-    spotlight_ids = set(store.get_spotlight_ids(d["bc_id"]))
+    spotlight_order = store.get_spotlight_ids(d["bc_id"])  # already position-ordered
+    spotlight_ids = set(spotlight_order)
     todos = []
     for t in d.get("todos", []):
         todos.append({
@@ -1495,6 +1496,7 @@ def _public_todos(d: dict) -> list:
             "step_complete": bool((t.get("designer_step") or {}).get("completed")),
             "designer_step": {"completed": bool((t.get("designer_step") or {}).get("completed"))} if t.get("designer_step") else None,
             "is_spotlighted": str(t["id"]) in spotlight_ids,
+            "spotlight_position": spotlight_order.index(str(t["id"])) if str(t["id"]) in spotlight_ids else None,
         })
     # Completed-todos archive (last 30 days) — these dropped out of the
     # live open list once finished, so they only exist here, not in
@@ -1671,6 +1673,20 @@ async def api_my_set_spotlight(token: str, todo_id: str, request: Request):
         return Response(status_code=403)
     body = await request.json()
     return store.set_spotlight(str(d["bc_id"]), str(todo_id), bool(body.get("on")))
+
+
+@app.put("/api/my/{token}/spotlight/order")
+async def api_my_set_spotlight_order(token: str, request: Request):
+    """Drag-to-reorder a designer's own Spotlight list."""
+    d = _designer_for_token(token)
+    if not d:
+        return Response(status_code=404 if not store.resolve_designer_token(token) else 503)
+    body = await request.json()
+    ids = body.get("ids", [])
+    if not isinstance(ids, list):
+        return {"ok": False, "error": "ids required"}
+    store.set_spotlight_order(str(d["bc_id"]), [str(i) for i in ids])
+    return {"ok": True}
 
 
 @app.put("/api/my/{token}/planner-order")
@@ -2347,6 +2363,20 @@ async def set_todo_spotlight(todo_id: str, request: Request):
     if not me or not any(str(t["id"]) == str(todo_id) for t in me.get("todos", [])):
         return Response(status_code=404)
     return store.set_spotlight(str(me["bc_id"]), str(todo_id), bool(body.get("on")))
+
+
+@app.put("/api/spotlight/order")
+async def api_set_spotlight_order(request: Request):
+    """Drag-to-reorder Richard's own Spotlight list (My Stuff)."""
+    me = _cached_data.get("me")
+    if not me:
+        return Response(status_code=503)
+    body = await request.json()
+    ids = body.get("ids", [])
+    if not isinstance(ids, list):
+        return {"ok": False, "error": "ids required"}
+    store.set_spotlight_order(str(me["bc_id"]), [str(i) for i in ids])
+    return {"ok": True}
 
 
 async def _apply_todo_fields(todo_id: str, body: dict, cached_todo, cached_designer):

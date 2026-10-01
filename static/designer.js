@@ -102,6 +102,15 @@ window.__commitSpotlight = async (todoId, on) => {
   renderMe();
 };
 
+// Designer commit hook for shared.js's spotlight drag-to-reorder
+window.__commitSpotlightOrder = async (ids) => {
+  await fetch(`/api/my/${TOKEN}/spotlight/order`, {
+    method: "PUT",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ ids }),
+  }).catch(() => null);
+};
+
 let _me = null;
 let _dragId = null;
 let _mySort = { key: "hdd", dir: "asc" };

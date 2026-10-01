@@ -623,7 +623,7 @@ function buildTaskTable(todos, color, opts = {}) {
 
 /* ---- Task card, shared by Designer Workload cards and the Spotlight
    section (spotlightOpts = null hides the star entirely) ---- */
-function renderTodoItem(t, color, isCompleted = false, pulledForward = false, spotlightOpts = null, ehId = null) {
+function renderTodoItem(t, color, isCompleted = false, pulledForward = false, spotlightOpts = null, ehId = null, draggable = false) {
   const dateStr = pillDate(t);
   const hddStr = pillHdd(t);
   const estStr = pillEst(t);
@@ -651,9 +651,16 @@ function renderTodoItem(t, color, isCompleted = false, pulledForward = false, sp
   }
 
   const spotlightBtn = spotlightOpts ? spotlightStarHTML(t, spotlightOpts.atCap) : "";
+  const dragAttrs = draggable
+    ? ` draggable="true" data-todo-id="${t.id}"
+        ondragstart="_spotlightDragStart(event)" ondragover="_spotlightDragOver(event)"
+        ondrop="_spotlightDrop(event)" ondragend="_spotlightDragEnd(event)"`
+    : "";
+  const dragHandle = draggable ? `<span class="spotlight-drag-handle" title="Drag to reorder">&#8942;&#8942;</span>` : "";
 
   return `
-  <li class="todo-item${isCompleted ? " todo-done" : ""}${pulledForward ? " pulled-forward" : ""}" id="todo-${t.id}">
+  <li class="todo-item${isCompleted ? " todo-done" : ""}${pulledForward ? " pulled-forward" : ""}"${dragAttrs} id="todo-${t.id}">
+    ${dragHandle}
     <div class="todo-item-left">
       ${clientLabel}
       <div class="todo-item-title" title="${esc(t.title)}">${isCompleted ? `<s>${esc(truncate(t.title, 60))}</s>` : esc(truncate(t.title, 60))} ${replyBadgeHTML(t)}</div>
@@ -689,9 +696,12 @@ function toggleSpotlight(todoId, on) {
 }
 
 function buildSpotlightSection(todos, color, ehId) {
-  const spotlighted = todos.filter(t => t.is_spotlighted && !t.is_complete);
+  const spotlighted = todos
+    .filter(t => t.is_spotlighted && !t.is_complete)
+    .sort((a, b) => (a.spotlight_position ?? 0) - (b.spotlight_position ?? 0));
   if (!spotlighted.length) return "";
-  const items = spotlighted.map(t => renderTodoItem(t, color, false, false, { atCap: false }, ehId)).join("");
+  const draggable = spotlighted.length > 1;
+  const items = spotlighted.map(t => renderTodoItem(t, color, false, false, { atCap: false }, ehId, draggable)).join("");
   return `<div class="pulse-panel spotlight-panel">
     <div class="spotlight-head">
       <div class="spotlight-title"><img src="/static/img/icons/lightbulb-on.png" class="spotlight-bulb" alt="" /> Spotlight</div>
@@ -699,6 +709,45 @@ function buildSpotlightSection(todos, color, ehId) {
     </div>
     <ul class="designer-todos spotlight-list">${items}</ul>
   </div>`;
+}
+
+/* ---- Spotlight drag-to-reorder — plain HTML5 drag/drop, no library.
+   Reorders the <li> elements client-side on drop (instant feedback),
+   then commits the new order via window.__commitSpotlightOrder, which
+   each page defines (designer.js hits /api/my/{token}/spotlight/order,
+   app.js hits /api/spotlight/order for Richard's own My Stuff list) —
+   same split as the existing __commitSpotlight star toggle. ---- */
+let _spotlightDragId = null;
+
+function _spotlightDragStart(e) {
+  _spotlightDragId = e.currentTarget.dataset.todoId;
+  e.dataTransfer.effectAllowed = "move";
+  e.currentTarget.classList.add("spotlight-dragging");
+}
+
+function _spotlightDragOver(e) {
+  e.preventDefault(); // required to allow a drop at all
+  e.dataTransfer.dropEffect = "move";
+}
+
+function _spotlightDragEnd(e) {
+  e.currentTarget.classList.remove("spotlight-dragging");
+}
+
+function _spotlightDrop(e) {
+  e.preventDefault();
+  const targetId = e.currentTarget.dataset.todoId;
+  const list = e.currentTarget.closest(".spotlight-list");
+  if (!list || !_spotlightDragId || _spotlightDragId === targetId) return;
+  const items = Array.from(list.children);
+  const fromEl = items.find(li => li.dataset.todoId === _spotlightDragId);
+  const toEl = items.find(li => li.dataset.todoId === targetId);
+  if (!fromEl || !toEl) return;
+  const fromIdx = items.indexOf(fromEl), toIdx = items.indexOf(toEl);
+  if (fromIdx < toIdx) toEl.after(fromEl); else toEl.before(fromEl);
+  const newOrder = Array.from(list.children).map(li => li.dataset.todoId);
+  _spotlightDragId = null;
+  window.__commitSpotlightOrder(newOrder);
 }
 
 /* ---- Sort — client-side only, mirrors the existing By-load/By-availability

@@ -703,6 +703,15 @@ window.__commitSpotlight = async (todoId, on) => {
   renderMyStuff();
 };
 
+// Manager commit hook for shared.js's spotlight drag-to-reorder
+window.__commitSpotlightOrder = async (ids) => {
+  await fetch("/api/spotlight/order", {
+    method: "PUT",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ ids }),
+  }).catch(() => null);
+};
+
 // ---------------------------------------------------------------------------
 // Calendar scheduling
 // ---------------------------------------------------------------------------
