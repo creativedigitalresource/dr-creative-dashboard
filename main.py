@@ -1129,6 +1129,13 @@ async def _do_refresh():
                 await _detect_and_archive_completions(d["bc_id"], old_todos, person["todos"])
             except Exception as e:
                 print(f"[refresh] completion-archive error for {d['name']}: {type(e).__name__}: {e}")
+            try:
+                valid_ids = {str(t["id"]) for t in person["todos"]}
+                pruned = store.prune_stale_spotlight(d["bc_id"], valid_ids)
+                if pruned:
+                    print(f"[refresh] pruned {pruned} stale spotlight row(s) for {d['name']}")
+            except Exception as e:
+                print(f"[refresh] spotlight-prune error for {d['name']}: {type(e).__name__}: {e}")
             print(f"[refresh] {d['name']}: {len(person['todos'])} todos")
         except asyncio.TimeoutError:
             print(f"[refresh] {d['name']} timed out")
@@ -1144,6 +1151,13 @@ async def _do_refresh():
     try:
         me_out = await _fetch_person(ME, overrides, week_end)
         print(f"[refresh] Richard: {len(me_out['todos'])} todos")
+        try:
+            valid_ids = {str(t["id"]) for t in me_out["todos"]}
+            pruned = store.prune_stale_spotlight(ME["bc_id"], valid_ids)
+            if pruned:
+                print(f"[refresh] pruned {pruned} stale spotlight row(s) for Richard")
+        except Exception as e:
+            print(f"[refresh] spotlight-prune error for Richard: {type(e).__name__}: {e}")
     except Exception as e:
         print(f"[refresh] Richard error: {type(e).__name__}: {e}")
         me_out = _cached_data.get("me") or {**ME, "todos": [], "weekly_est": 0,
