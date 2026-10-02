@@ -128,22 +128,50 @@ function setMySort(key) {
 let _myCompletedOpen = false;
 let _myCompletedSort = { key: null, dir: "asc" };
 let _myCompletedFilter = "";
+// Stashed by myCompletedTasksHTML so the filter/sort handlers below can
+// re-render just the table mount without needing a fresh renderMe() call.
+let _myCompletedCache = null;
 
+// BUG FIX 2026-10-02: setMyCompletedFilter used to call the full renderMe(),
+// which replaces #my-root's entire innerHTML — including the filter <input>
+// itself — on every keystroke. That destroys and recreates the input each
+// time, so it loses focus immediately and the page jumps to the top.
+// Filter/sort now only touch #my-completed-table-mount, leaving the input
+// (and everything else on the page) untouched.
 function toggleMyCompleted() {
   _myCompletedOpen = !_myCompletedOpen;
   renderMe();
+}
+
+function _renderMyCompletedTable() {
+  if (!_myCompletedCache) return "";
+  const { all, color, ehId } = _myCompletedCache;
+  const q = _myCompletedFilter.trim().toLowerCase();
+  const filtered = q ? all.filter(t =>
+    (t.title || "").toLowerCase().includes(q) ||
+    cleanClient(t.bucket_name || "").toLowerCase().includes(q) ||
+    (t.category || "").toLowerCase().includes(q)
+  ) : all;
+  const sorted = sortTodos(filtered, _myCompletedSort.key, _myCompletedSort.dir);
+  return buildTaskTable(sorted, color, {
+    sort: _myCompletedSort.key ? _myCompletedSort : null,
+    sortFn: "setMyCompletedSort",
+    ehId,
+  });
 }
 
 function setMyCompletedSort(key) {
   _myCompletedSort = _myCompletedSort.key === key
     ? { key, dir: _myCompletedSort.dir === "asc" ? "desc" : "asc" }
     : { key, dir: "asc" };
-  renderMe();
+  const mount = document.getElementById("my-completed-table-mount");
+  if (mount) mount.innerHTML = _renderMyCompletedTable();
 }
 
 function setMyCompletedFilter(value) {
   _myCompletedFilter = value;
-  renderMe();
+  const mount = document.getElementById("my-completed-table-mount");
+  if (mount) mount.innerHTML = _renderMyCompletedTable();
 }
 
 // One text box searching client + task + category rather than six
@@ -153,13 +181,7 @@ function setMyCompletedFilter(value) {
 function myCompletedTasksHTML(allTodos, color, ehId) {
   const completed = (allTodos || []).filter(t => t.is_complete);
   if (!completed.length) return "";
-  const q = _myCompletedFilter.trim().toLowerCase();
-  const filtered = q ? completed.filter(t =>
-    (t.title || "").toLowerCase().includes(q) ||
-    cleanClient(t.bucket_name || "").toLowerCase().includes(q) ||
-    (t.category || "").toLowerCase().includes(q)
-  ) : completed;
-  const sorted = sortTodos(filtered, _myCompletedSort.key, _myCompletedSort.dir);
+  _myCompletedCache = { all: completed, color, ehId };
   return `
     <div class="pulse-panel">
       <button class="qa-archived-toggle" onclick="toggleMyCompleted()">
@@ -170,11 +192,7 @@ function myCompletedTasksHTML(allTodos, color, ehId) {
         <input type="text" class="priority-input" style="max-width:280px;margin:12px 0 10px"
           placeholder="Filter by client, task, or category…"
           value="${esc(_myCompletedFilter)}" oninput="setMyCompletedFilter(this.value)" />
-        <div class="my-table-wrap">${buildTaskTable(sorted, color, {
-          sort: _myCompletedSort.key ? _myCompletedSort : null,
-          sortFn: "setMyCompletedSort",
-          ehId,
-        })}</div>
+        <div class="my-table-wrap" id="my-completed-table-mount">${_renderMyCompletedTable()}</div>
       ` : ""}
     </div>`;
 }
