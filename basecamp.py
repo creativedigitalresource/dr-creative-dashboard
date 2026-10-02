@@ -215,7 +215,15 @@ async def assign_todo(bucket_id: str, todo_id: str, assignee_ids: list, due_on: 
     Richard reported a real to-do's description got wiped. The identical
     bug also existed in update_todo_due below (present since 2026-06-22,
     hit any time anyone edited a due date via the app's date pill) — both
-    are fixed together here."""
+    are fixed together here.
+
+    BUG FIX 2026-10-02: same blast radius, different field — this never
+    preserved completion_subscribers ("when done, notify these people")
+    either, so every Auto Assign silently cleared that list too.
+    Confirmed live against a real to-do (bucket 43484427/todo
+    10156420327): a PUT without completion_subscriber_ids wipes it to
+    [], and re-sending the existing subscribers' ids under that exact
+    key round-trips correctly. Same fix applied to update_todo_due."""
     token = get_token("access_token")
     if not token:
         return False
@@ -227,8 +235,11 @@ async def assign_todo(bucket_id: str, todo_id: str, assignee_ids: list, due_on: 
     detail = await get_todo_detail(bucket_id, todo_id)
     content = (detail or {}).get("content", "")
     description = (detail or {}).get("description", "")
+    completion_subscriber_ids = [p["id"] for p in (detail or {}).get("completion_subscribers", []) if p.get("id")]
     import json as _json
     payload = {"content": content, "description": description, "assignee_ids": assignee_ids}
+    if completion_subscriber_ids:
+        payload["completion_subscriber_ids"] = completion_subscriber_ids
     if due_on:
         payload["due_on"] = due_on
     r = await get_http().put(
@@ -333,7 +344,12 @@ async def update_todo_due(bucket_id: str, todo_id: str, due_on: str, title: str 
     call here (this function backs the app's ordinary editable due-date
     pill, used since 2026-06-22) silently blanked out whatever was in
     the to-do's description. Caught via assign_todo's identical bug;
-    fixed the same way here."""
+    fixed the same way here.
+
+    BUG FIX 2026-10-02: same blast radius, different field — never
+    preserved completion_subscribers ("when done, notify these people")
+    either, so every due-date edit silently cleared that list too. Same
+    fix as assign_todo: fetch current subscribers, re-send their ids."""
     token = get_token("access_token")
     if not token:
         return False
@@ -348,10 +364,13 @@ async def update_todo_due(bucket_id: str, todo_id: str, due_on: str, title: str 
     assignee_ids = [a["id"] for a in (detail or {}).get("assignees", []) if a.get("id")]
     content = title or (detail or {}).get("content", "")
     description = (detail or {}).get("description", "")
+    completion_subscriber_ids = [p["id"] for p in (detail or {}).get("completion_subscribers", []) if p.get("id")]
     import json as _json
     payload = {"content": content, "description": description, "due_on": due_on}
     if assignee_ids:
         payload["assignee_ids"] = assignee_ids
+    if completion_subscriber_ids:
+        payload["completion_subscriber_ids"] = completion_subscriber_ids
     r = await get_http().put(
         f"{BC_BASE}/buckets/{bucket_id}/todos/{todo_id}.json",
         headers=headers,
