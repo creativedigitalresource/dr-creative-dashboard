@@ -261,6 +261,7 @@ const CATEGORIES = [
   "Multi - Photo/Video/Edits",
   "IPM - Campaigns/Reports",
   "SM - templates/graphics/reels",
+  "Graphic Design",
   "Misc.",
   "Admin",
 ];
@@ -486,6 +487,7 @@ const CATEGORY_COLORS = {
   "Multi - Photo/Video/Edits": "#1baf7a",
   "IPM - Campaigns/Reports": "#eda100",
   "SM - templates/graphics/reels": "#e11d48",
+  "Graphic Design": "#c026d3",
   "Misc.": "#78716c",
   "Admin": "#57534e",
 };

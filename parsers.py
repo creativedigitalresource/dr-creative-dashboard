@@ -55,6 +55,7 @@ CATEGORIES = [
     "Multi - Photo/Video/Edits",
     "IPM - Campaigns/Reports",
     "SM - templates/graphics/reels",
+    "Graphic Design",
     "Misc.",
     "Admin",
 ]

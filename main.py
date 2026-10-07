@@ -188,6 +188,7 @@ DESIGN_POOL_CATEGORIES = {
     "LP - New", "LP - Maintenance", "Digital - Banner/Display Ads",
     "Web - Sites/Applications/UI", "Web - Maintenance",
     "Print - Collateral/Packaging", "Branding/Logo - Creation/Edits",
+    "Graphic Design",
 }
 
 # Historical per-category EST fallback (2026-09-10, confirmed with Richard
@@ -215,6 +216,11 @@ CATEGORY_HISTORICAL_EST_HOURS = {
     "SM - templates/graphics/reels": 2.0,
     "Web - Maintenance": 1.0,
     "Print - Collateral/Packaging": 6.0,
+    # Added 2026-10-07 — new general/one-off design catch-all, no real
+    # completions data yet to pull a median from, so starting at the same
+    # 2h default as the other general-purpose categories (Misc., SM
+    # templates) until enough real data exists to correct it.
+    "Graphic Design": 2.0,
 }
 
 
