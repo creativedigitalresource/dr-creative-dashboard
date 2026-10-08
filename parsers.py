@@ -48,6 +48,7 @@ CATEGORIES = [
     "Print - Collateral/Packaging",
     "Web - Sites/Applications/UI",
     "Web - Maintenance",
+    "Web - Design QA",
     "Email - Campaigns/Signatures",
     "LP - New",
     "LP - Maintenance",

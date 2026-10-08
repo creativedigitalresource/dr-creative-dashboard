@@ -188,7 +188,7 @@ DESIGN_POOL_CATEGORIES = {
     "LP - New", "LP - Maintenance", "Digital - Banner/Display Ads",
     "Web - Sites/Applications/UI", "Web - Maintenance",
     "Print - Collateral/Packaging", "Branding/Logo - Creation/Edits",
-    "Graphic Design",
+    "Graphic Design", "Web - Design QA",
 }
 
 # Historical per-category EST fallback (2026-09-10, confirmed with Richard
@@ -221,6 +221,11 @@ CATEGORY_HISTORICAL_EST_HOURS = {
     # 2h default as the other general-purpose categories (Misc., SM
     # templates) until enough real data exists to correct it.
     "Graphic Design": 2.0,
+    # Added 2026-10-08 — pre-launch, page-by-page visual design QA across
+    # a whole sitemap (distinct from "Web - Sites/Applications/UI"'s
+    # technical/dev QA). Scope varies a lot by site size, so 2h is a rough
+    # starting point, not a real median, until real completions correct it.
+    "Web - Design QA": 2.0,
 }
 
 
@@ -528,6 +533,24 @@ DEFAULT_QA_TEMPLATES = {
         "Links/buttons touched by the change still work",
         "Cache/CDN cleared if needed so the live site reflects the update",
         "No console errors introduced",
+    ],
+    # Pre-launch, page-by-page visual design QA across a whole sitemap —
+    # deliberately NOT a technical/dev review (that's "Web -
+    # Sites/Applications/UI" above). Confirmed with Richard 2026-10-08:
+    # AI-assisted first pass is a required step, not optional, and the
+    # reviewer walks the real sitemap page by page rather than this
+    # checklist itemizing each page separately.
+    "Web - Design QA": [
+        "Ran each page through Go Full Page + Claude for an initial AI visual-design audit, and reviewed those notes before the manual pass",
+        "Buttons are consistent in style, sizing, and primary/secondary hierarchy across every page",
+        "Spacing within and between sections is consistent — no page feels cramped or unusually loose compared to the others",
+        "Every image fits its content and is consistent in style, cropping, and quality with the rest of the site",
+        "Heading styles are consistent and used in the correct order on every page",
+        "Brand color palette used consistently, text is legible everywhere, and one consistent accent color is used for anything clickable",
+        "Layout and alignment are consistent, with equivalent content blocks following the same pattern across pages",
+        "Header and footer are identical, and repeated components (cards, testimonials, forms) look the same everywhere they reappear",
+        "Layout still looks intentional at mobile/tablet widths — nothing overlaps or looks unfinished",
+        "Reassigned the to-do back to the Web team in Basecamp with notes on anything flagged",
     ],
     "Email - Campaigns/Signatures": [
         "Subject line and preview text match approved copy",
