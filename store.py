@@ -86,6 +86,17 @@ def init_db():
                 created_at REAL DEFAULT (unixepoch()),
                 UNIQUE(designer_bc_id, date)
             );
+            -- Office closed days (2026-10-09): one row per closed date,
+            -- applied to everyone (designers, Richard, and anyone added
+            -- later) at read time by main._all_pto(), instead of copying a
+            -- per-person pto row for each holiday — so a closure can be
+            -- seen and cancelled in one place.
+            CREATE TABLE IF NOT EXISTS office_closed (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                date TEXT NOT NULL UNIQUE,
+                note TEXT DEFAULT '',
+                created_at REAL DEFAULT (unixepoch())
+            );
             CREATE TABLE IF NOT EXISTS spotlight (
                 designer_bc_id TEXT NOT NULL,
                 todo_id TEXT NOT NULL,
@@ -496,6 +507,33 @@ def add_pto(designer_bc_id: str, date: str, note: str = ""):
 def delete_pto(pto_id: int):
     with get_db() as c:
         c.execute("DELETE FROM pto WHERE id=?", (pto_id,))
+
+
+def delete_pto_for(designer_bc_id: str, pto_id: int) -> bool:
+    """Scoped delete for designer self-service: only removes the row if
+    it actually belongs to that designer."""
+    with get_db() as c:
+        cur = c.execute("DELETE FROM pto WHERE id=? AND designer_bc_id=?",
+                        (pto_id, str(designer_bc_id)))
+        return cur.rowcount > 0
+
+
+def add_office_closed(date: str, note: str = ""):
+    with get_db() as c:
+        c.execute(
+            "INSERT OR REPLACE INTO office_closed (date, note, created_at) VALUES (?, ?, unixepoch())",
+            (date, note))
+
+
+def delete_office_closed(closed_id: int):
+    with get_db() as c:
+        c.execute("DELETE FROM office_closed WHERE id=?", (closed_id,))
+
+
+def get_office_closed() -> list:
+    with get_db() as c:
+        rows = c.execute("SELECT id, date, note FROM office_closed ORDER BY date").fetchall()
+    return [dict(r) for r in rows]
 
 
 def get_all_pto() -> dict:

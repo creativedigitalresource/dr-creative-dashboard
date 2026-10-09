@@ -22,6 +22,7 @@
       </div>
       <div class="header-right">
         <span id="last-updated" class="last-updated"></span>
+        <button class="btn btn-ghost" onclick="openMyPto()">OOO</button>
         <button class="btn btn-ghost" onclick="switchMyTab('guide')">&#9432; Guide</button>
         <button id="refresh-btn" class="btn btn-ghost" onclick="myRefresh()">&#8635; Refresh</button>
       </div>
@@ -81,7 +82,33 @@
       <div id="guide-root"></div>
     </div>
   </div>
-  <script src="/static/shared.js"></script>
+    <!-- Self-service OOO: lives outside #my-root so the 90s auto-refresh
+       re-render can't wipe a half-entered date range -->
+  <div id="my-pto-modal" class="modal hidden">
+    <div class="modal-backdrop" onclick="closeMyPto()"></div>
+    <div class="modal-box" style="width:440px">
+      <h3>My out-of-office days</h3>
+      <div id="my-pto-list" style="margin:14px 0;display:flex;flex-direction:column;gap:6px"></div>
+      <div style="border-top:1px solid var(--border);padding-top:14px;margin-top:4px">
+        <div style="font-size:12px;font-weight:600;color:var(--text-muted);text-transform:uppercase;letter-spacing:.05em;margin-bottom:10px">Add OOO</div>
+        <div style="display:grid;grid-template-columns:1fr 1fr;gap:10px;margin-bottom:10px">
+          <div class="form-row"><label>Start date</label><input type="date" id="my-pto-start" /></div>
+          <div class="form-row"><label>End date (optional)</label><input type="date" id="my-pto-end" /></div>
+        </div>
+        <div class="form-row" style="margin-bottom:14px">
+          <label>Note (optional)</label>
+          <input type="text" id="my-pto-note" placeholder="e.g. Vacation, Appointment…"
+            style="padding:9px 12px;background:var(--surface2);border:1px solid var(--border);border-radius:var(--radius-sm);color:var(--text);font-size:14px;width:100%" />
+        </div>
+        <div style="font-size:12px;color:var(--text-muted)">Work scheduled for OOO days rolls to your next working day, and Richard is alerted if anything is due on a day you're out.</div>
+      </div>
+      <div class="modal-actions">
+        <button class="btn btn-ghost" onclick="closeMyPto()">Close</button>
+        <button class="btn btn-primary" onclick="saveMyPto()">Add OOO days</button>
+      </div>
+    </div>
+  </div>
+<script src="/static/shared.js"></script>
   <script src="/static/designer.js"></script>
 </body>
 </html>

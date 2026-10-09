@@ -197,6 +197,59 @@ function myCompletedTasksHTML(allTodos, color, ehId) {
     </div>`;
 }
 
+
+/* ---- Self-service OOO — a designer marks their own days out. Office-
+   closed days show here read-only (only Richard can reopen the office). ---- */
+async function openMyPto() {
+  document.getElementById("my-pto-start").value = "";
+  document.getElementById("my-pto-end").value = "";
+  document.getElementById("my-pto-note").value = "";
+  document.getElementById("my-pto-modal").classList.remove("hidden");
+  await loadMyPto();
+}
+
+function closeMyPto() { document.getElementById("my-pto-modal").classList.add("hidden"); }
+
+async function loadMyPto() {
+  const rows = await fetch(`/api/my/${TOKEN}/pto`).then(r => r.json()).catch(() => []);
+  const el = document.getElementById("my-pto-list");
+  if (!rows.length) { el.innerHTML = `<div style="color:var(--text-muted);font-size:12px">No upcoming OOO days</div>`; return; }
+  el.innerHTML = rows.map(p => p.closed
+    ? `<div class="pto-entry"><span>${fmtDate(p.date)} — <strong>Office closed</strong></span></div>`
+    : `<div class="pto-entry"><span>${fmtDate(p.date)}${p.note ? " — " + esc(p.note) : ""}</span>
+         <button class="pto-delete" onclick="deleteMyPto(${p.id})">✕</button></div>`).join("");
+}
+
+async function saveMyPto() {
+  const startVal = document.getElementById("my-pto-start").value;
+  const endVal = document.getElementById("my-pto-end").value;
+  const note = document.getElementById("my-pto-note").value.trim();
+  if (!startVal) return;
+  const dates = [];
+  const start = new Date(startVal + "T12:00:00");
+  const end = endVal ? new Date(endVal + "T12:00:00") : start;
+  for (let d = new Date(start); d <= end; d.setDate(d.getDate() + 1)) {
+    if (d.getDay() !== 0 && d.getDay() !== 6) dates.push(localISO(d));
+  }
+  if (!dates.length) return;
+  await fetch(`/api/my/${TOKEN}/pto`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ dates, note }),
+  });
+  document.getElementById("my-pto-start").value = "";
+  document.getElementById("my-pto-end").value = "";
+  document.getElementById("my-pto-note").value = "";
+  await loadMyPto();
+  loadMe();
+}
+
+async function deleteMyPto(ptoId) {
+  await fetch(`/api/my/${TOKEN}/pto/${ptoId}`, { method: "DELETE" });
+  await loadMyPto();
+  loadMe();
+}
+
 async function loadMe() {
   const r = await fetch(`/api/my/${TOKEN}`);
   if (!r.ok) {

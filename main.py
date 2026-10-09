@@ -333,6 +333,28 @@ def _suggested_timeline_days(category: str) -> int:
     return _parse_timeline_days(CATEGORY_TIMELINE.get(category))
 
 
+def _all_pto() -> dict:
+    """Per-person OOO rows plus office-closed days, merged at read time so
+    every consumer (capacity math, the delegation strip, suggestions,
+    alerts) treats a closed day as OOO for everyone — designers, Richard,
+    and anyone added later — without copying a row per person. Closed
+    entries are tagged closed=True with their own closure_id so the UI
+    can cancel the closure itself rather than a per-person row."""
+    out = {k: list(v) for k, v in store.get_all_pto().items()}
+    closed = store.get_office_closed()
+    if not closed:
+        return out
+    for bc_id in [d["bc_id"] for d in DESIGNERS] + [ME["bc_id"]]:
+        rows = out.setdefault(str(bc_id), [])
+        have = {r["date"] for r in rows}
+        for c in closed:
+            if c["date"] not in have:
+                rows.append({"id": None, "closure_id": c["id"], "date": c["date"],
+                             "note": c["note"] or "Office closed", "closed": True})
+        rows.sort(key=lambda r: r["date"])
+    return out
+
+
 def _is_ooo_today(bc_id, pto: dict) -> bool:
     today_str = date.today().isoformat()
     return any(p.get("date") == today_str for p in pto.get(str(bc_id), []))
@@ -460,7 +482,7 @@ def _attach_unassigned_suggestions(unassigned: list, overrides: dict):
     (it's a real decision, not a guess), which is also why this only
     accumulates AFTER computing chosen_designer_bc_id, not before."""
     today = date.today()
-    pto = store.get_all_pto()
+    pto = _all_pto()
     designers_cache = {str(d["bc_id"]): d for d in _cached_data.get("designers", [])}
     history: dict = defaultdict(lambda: defaultdict(int))
     for r in store.get_analytics_category_volume():
@@ -1050,7 +1072,7 @@ async def _logged_today_task_ids(eh_id, today: str) -> set:
 async def _compute_richard_alerts(now: datetime | None = None) -> dict:
     now = now or _est_now()
     today = now.date().isoformat()
-    pto = store.get_all_pto()
+    pto = _all_pto()
     designers = _cached_data.get("designers", [])
 
     logged_sets = await asyncio.gather(*[
@@ -1058,9 +1080,30 @@ async def _compute_richard_alerts(now: datetime | None = None) -> dict:
     ])
 
     spotlight_midday, spotlight_eod, hdd_today, past_due, needs_decision = [], [], [], [], []
+    due_on_ooo = []
     midday_open = _hhmm_passed(RICHARD_ALERT_MIDDAY, now)
+    ooo_horizon = (now.date() + timedelta(days=30)).isoformat()
 
     for d, logged_ids in zip(designers, logged_sets):
+        # Work due on a day this person is out (or the office is closed)
+        # can't get done that day — flagged ahead of time so Richard can
+        # move the HDD or reassign. Checked before the OOO-today skip
+        # below, since someone out today can still have work due today.
+        ooo_by_date = {r["date"]: (r.get("note") or ("Office closed" if r.get("closed") else "OOO"))
+                       for r in pto.get(str(d["bc_id"]), [])
+                       if today <= r["date"] <= ooo_horizon}
+        if ooo_by_date:
+            for t in d.get("todos", []):
+                if t.get("is_complete") or t.get("is_misc"):
+                    continue
+                if t.get("hdd") in ooo_by_date:
+                    due_on_ooo.append({
+                        "todo_id": str(t["id"]), "title": t.get("title"), "url": t.get("url"),
+                        "bucket_name": t.get("bucket_name"), "hdd": t["hdd"],
+                        "ooo_reason": ooo_by_date[t["hdd"]],
+                        "designer_bc_id": d["bc_id"], "designer_name": d["name"],
+                        "designer_slack_id": d.get("slack_id"),
+                    })
         if _is_ooo_today(d["bc_id"], pto):
             continue
         todos = d.get("todos", [])
@@ -1113,6 +1156,7 @@ async def _compute_richard_alerts(now: datetime | None = None) -> dict:
         "hdd_today": hdd_today,
         "past_due": past_due,
         "needs_decision": needs_decision,
+        "due_on_ooo": due_on_ooo,
     }
 
 
@@ -1471,7 +1515,7 @@ async def api_auto_assign(todo_id: str):
 @app.get("/api/designers")
 async def api_designers():
     designers = _cached_data.get("designers", [])
-    pto_map = store.get_all_pto()
+    pto_map = _all_pto()
     pipeline = _compute_pipeline_forecast()
     for d in designers:
         # Attach PTO so client can calculate real capacity
@@ -1575,7 +1619,7 @@ async def api_me():
     me = _cached_data.get("me")
     if not me:
         return {"warming": True}
-    pto = store.get_all_pto().get(str(ME["bc_id"]), [])
+    pto = _all_pto().get(str(ME["bc_id"]), [])
     pipeline_hours = _compute_pipeline_forecast()["by_person"].get(str(ME["bc_id"]), 0)
     return {"name": me["name"], "color": me["color"], "avatar": me.get("avatar"), "pto": pto,
             "eh_id": ME.get("eh_id"), "pipeline_hours": pipeline_hours,
@@ -1611,7 +1655,7 @@ async def api_my(token: str):
     d = _designer_for_token(token)
     if not d:
         return {"warming": True}
-    pto = store.get_all_pto().get(str(d["bc_id"]), [])
+    pto = _all_pto().get(str(d["bc_id"]), [])
     todos = _public_todos(d)
     today = date.today()
     week_start = (today - timedelta(days=today.weekday())).isoformat()
@@ -2286,7 +2330,7 @@ async def api_designer_links(pin: str = ""):
 
 @app.get("/api/pto")
 async def get_pto():
-    return store.get_all_pto()
+    return _all_pto()
 
 
 @app.post("/api/pto")
@@ -2310,20 +2354,24 @@ async def delete_pto(pto_id: int):
 
 @app.post("/api/pto/company-holiday")
 async def add_company_holiday(request: Request):
-    """A company holiday is just everyone getting the same OOO day at
-    once — no separate data model needed, since capacity math already
-    reduces each person's capacity for any date in their own pto rows.
-    Applies to every designer and Richard in one call."""
+    """Office closed: one row per date in office_closed, applied to
+    everyone at read time by _all_pto() (see its docstring). Kept at this
+    URL because the OOO modal's "apply to entire team" checkbox already
+    posts here."""
     body = await request.json()
     dates = body.get("dates", [])
-    note = str(body.get("note", "")).strip() or "Company Holiday"
+    note = str(body.get("note", "")).strip() or "Office closed"
     if not dates:
         return {"ok": False, "error": "missing dates"}
-    bc_ids = [d["bc_id"] for d in DESIGNERS] + [ME["bc_id"]]
-    for bc_id in bc_ids:
-        for d in dates:
-            store.add_pto(str(bc_id), d, note)
-    return {"ok": True, "people": len(bc_ids), "dates": len(dates)}
+    for d in dates:
+        store.add_office_closed(d, note)
+    return {"ok": True, "dates": len(dates)}
+
+
+@app.delete("/api/office-closed/{closed_id}")
+async def delete_office_closed(closed_id: int):
+    store.delete_office_closed(closed_id)
+    return {"ok": True}
 
 
 @app.get("/api/calendar")
@@ -2406,6 +2454,48 @@ async def set_todo_spotlight(todo_id: str, request: Request):
     if not me or not any(str(t["id"]) == str(todo_id) for t in me.get("todos", [])):
         return Response(status_code=404)
     return store.set_spotlight(str(me["bc_id"]), str(todo_id), bool(body.get("on")))
+
+
+@app.get("/api/my/{token}/pto")
+async def api_my_pto(token: str):
+    """A designer's own OOO days (deletable) plus office-closed days
+    (read-only to them), from today forward."""
+    bc_id = store.resolve_designer_token(token)
+    if not bc_id:
+        return Response(status_code=404)
+    today = date.today().isoformat()
+    rows = _all_pto().get(str(bc_id), [])
+    return [r for r in rows if r["date"] >= today]
+
+
+@app.post("/api/my/{token}/pto")
+async def api_my_add_pto(token: str, request: Request):
+    """Designers mark their own OOO days (confirmed with Richard
+    2026-10-09). Only ever writes under the token's own designer id."""
+    bc_id = store.resolve_designer_token(token)
+    if not bc_id:
+        return Response(status_code=404)
+    body = await request.json()
+    dates = [d for d in body.get("dates", []) if isinstance(d, str)]
+    note = str(body.get("note", "")).strip()[:200]
+    if not dates:
+        return {"ok": False, "error": "missing dates"}
+    for d in dates:
+        try:
+            date.fromisoformat(d)
+        except ValueError:
+            return {"ok": False, "error": "bad date"}
+    for d in dates:
+        store.add_pto(str(bc_id), d, note)
+    return {"ok": True, "added": len(dates)}
+
+
+@app.delete("/api/my/{token}/pto/{pto_id}")
+async def api_my_delete_pto(token: str, pto_id: int):
+    bc_id = store.resolve_designer_token(token)
+    if not bc_id:
+        return Response(status_code=404)
+    return {"ok": store.delete_pto_for(str(bc_id), pto_id)}
 
 
 @app.put("/api/spotlight/order")

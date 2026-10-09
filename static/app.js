@@ -1651,7 +1651,11 @@ function openPtoModal(bcId, name) {
 function renderPtoList(pto) {
   const el = document.getElementById("pto-existing");
   if (!pto.length) { el.innerHTML = `<div style="color:var(--text-muted);font-size:12px">No OOO days set</div>`; return; }
-  el.innerHTML = pto.map(p => `
+  el.innerHTML = pto.map(p => p.closed ? `
+    <div class="pto-entry">
+      <span>${fmtDateISO(p.date)} — <strong>Office closed</strong>${p.note && p.note !== "Office closed" ? " (" + esc(p.note) + ")" : ""}</span>
+      <button class="pto-delete" title="Reopen the office on this day (everyone)" onclick="deleteOfficeClosed(${p.closure_id})">✕</button>
+    </div>` : `
     <div class="pto-entry">
       <span>${fmtDateISO(p.date)}${p.note ? " — " + esc(p.note) : ""}</span>
       <button class="pto-delete" onclick="deletePto(${p.id})">✕</button>
@@ -1691,6 +1695,11 @@ async function savePto() {
       body: JSON.stringify({ designer_bc_id: _ptoDesignerId, dates, note }),
     });
   }
+  await refreshAfterPto();
+}
+
+async function deleteOfficeClosed(closedId) {
+  await fetch(`/api/office-closed/${closedId}`, { method: "DELETE" });
   await refreshAfterPto();
 }
 
