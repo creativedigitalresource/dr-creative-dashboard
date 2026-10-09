@@ -589,6 +589,7 @@ DEFAULT_QA_TEMPLATES = {
         "Design matches the approved mockup",
         "Headline, copy, and CTAs match the approved final copy doc",
         "Form submits successfully and leads route to the correct destination",
+        "If an HTML block (e.g. a DRLM form) replaces the Instapage form, it stays inside its container when the window is resized on desktop and on mobile",
         "Thank-you page/redirect works after form submission",
         "Mobile responsive check passes",
         "Phone numbers, click-to-call, and tracking numbers are correct",
@@ -1273,10 +1274,30 @@ def _cache_is_stale() -> bool:
 # App lifecycle — no background loop
 # ---------------------------------------------------------------------------
 
+LP_FORM_CONTAINER_QA_ITEM = "If an HTML block (e.g. a DRLM form) replaces the Instapage form, it stays inside its container when the window is resized on desktop and on mobile"
+
+
+def _migrate_lp_form_container_qa_item():
+    """One-time: seed_qa_templates never overwrites an existing DB
+    template (so dashboard edits survive redeploys), which means a new
+    default item can't reach the live LP - New checklist that way. Runs
+    once, guarded by a marker, so deleting the item later sticks."""
+    marker = "qa_migration_lp_form_container_2026_10_09"
+    if store.get_token(marker):
+        return
+    items = store.get_qa_templates().get("LP - New")
+    if items is not None and LP_FORM_CONTAINER_QA_ITEM not in items:
+        at = next((i + 1 for i, t in enumerate(items) if t.startswith("Form submits successfully")), len(items))
+        items.insert(at, LP_FORM_CONTAINER_QA_ITEM)
+        store.set_qa_template("LP - New", items)
+    store.set_token(marker, "1")
+
+
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     store.init_db()
     store.seed_qa_templates(DEFAULT_QA_TEMPLATES)
+    _migrate_lp_form_container_qa_item()
     print("[startup] ready")
     yield
 
