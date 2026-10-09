@@ -513,6 +513,58 @@ def _attach_unassigned_suggestions(unassigned: list, overrides: dict):
 # QA checklist templates, one per deliverable service (mirrors CATEGORIES,
 # minus Misc./Admin which aren't QA'd). Seeded into the DB once; after that
 # the DB copy is authoritative and editable from the QA tab.
+# DR Lead Manager (DRLM) form block — the checklist item is one line; the
+# "How to" dropdown content below is served separately by /api/qa/item-help
+# and matched to the item by its exact text (so editing the item's wording
+# in the QA tab detaches its dropdown). Confirmed with Richard 2026-10-09:
+# template starts with NO background color (designer matches it to their
+# Instapage container), and the real form embed is deliberately NOT in the
+# template — pasting a client-specific form ID onto another client's page
+# would put the wrong form live.
+QA_DRLM_ITEM = "DR Lead Manager form block matches its Instapage container (see instructions)"
+
+QA_DRLM_CODE = """<style>
+  /* ===== DESIGNER SETTINGS: edit these values only ===== */
+  .dr-form-wrap {
+    --box-color: transparent;       /* match the Instapage container above, e.g. #000000 */
+    --box-radius: 0px 0px 0px 0px;  /* top-left, top-right, bottom-right, bottom-left. Keep the top two at 0px so it joins the heading container */
+    --box-padding: 24px;            /* space between the form and the box edge */
+    --box-border: none;             /* e.g. 1px solid #e5e5e5 */
+    --box-border-top: none;         /* keep "none" so there's no line at the seam */
+    --box-shadow: none;             /* e.g. 0 8px 24px rgba(0,0,0,.08) */
+  }
+  /* ===== END SETTINGS: don't edit below this line ===== */
+
+  .dr-form-wrap {
+    box-sizing: border-box; width: 100%;
+    background: var(--box-color); border-radius: var(--box-radius);
+    padding: var(--box-padding); border: var(--box-border);
+    border-top: var(--box-border-top); box-shadow: var(--box-shadow);
+    overflow: hidden;
+  }
+  .dr-form-wrap iframe { display: block; width: 100%; min-height: 600px; border: none; }
+</style>
+
+<div class="dr-form-wrap">
+  <!-- ===== PASTE THE DR LEAD MANAGER <iframe> HERE. Not the designer's job. ===== -->
+</div>
+<!-- ===== PASTE THE FORM'S <script> LINE HERE. Not the designer's job. ===== -->
+"""
+
+QA_ITEM_HELP = {
+    QA_DRLM_ITEM: {
+        "sections": [
+            {"title": "Your job", "body": "Match the box color, corners, padding, and border to the container you built in Instapage, and match its width at desktop and mobile. You only edit the values in the DESIGNER SETTINGS block."},
+            {"title": "Not your job", "body": "The form code. Leave the placeholder comments in place; the DR Lead Manager <iframe> and <script> get pasted there by whoever owns the form."},
+            {"title": "Placement", "body": "Keep the heading and subheading in an Instapage container. Put this HTML block directly underneath it at the same width, with no gap and no visible seam, so the two read as one piece of content."},
+            {"title": "Test", "body": "Resize the window on desktop and check on mobile: the form must stay inside the box. Submit the form empty on both and confirm nothing is cut off when the error messages appear."},
+        ],
+        "code": QA_DRLM_CODE,
+        "code_label": "Starter template",
+    },
+}
+
+
 DEFAULT_QA_TEMPLATES = {
     "Branding/Logo - Creation/Edits": [
         "Logo is legible and scales cleanly from favicon size to billboard size",
@@ -589,7 +641,7 @@ DEFAULT_QA_TEMPLATES = {
         "Design matches the approved mockup",
         "Headline, copy, and CTAs match the approved final copy doc",
         "Form submits successfully and leads route to the correct destination",
-        "If an HTML block (e.g. a DRLM form) replaces the Instapage form, it stays inside its container when the window is resized on desktop and on mobile",
+        QA_DRLM_ITEM,
         "Thank-you page/redirect works after form submission",
         "Mobile responsive check passes",
         "Phone numbers, click-to-call, and tracking numbers are correct",
@@ -601,6 +653,7 @@ DEFAULT_QA_TEMPLATES = {
     "LP - Maintenance": [
         "Requested edit implemented exactly as described",
         "Form still submits and routes to the right destination after the edit",
+        QA_DRLM_ITEM,
         "Tracking/pixels still firing after the change",
         "Mobile view checked after the change",
         "No unrelated content broken by the edit",
@@ -1274,22 +1327,28 @@ def _cache_is_stale() -> bool:
 # App lifecycle — no background loop
 # ---------------------------------------------------------------------------
 
-LP_FORM_CONTAINER_QA_ITEM = "If an HTML block (e.g. a DRLM form) replaces the Instapage form, it stays inside its container when the window is resized on desktop and on mobile"
-
-
-def _migrate_lp_form_container_qa_item():
+def _migrate_lp_drlm_qa_item():
     """One-time: seed_qa_templates never overwrites an existing DB
-    template (so dashboard edits survive redeploys), which means a new
-    default item can't reach the live LP - New checklist that way. Runs
-    once, guarded by a marker, so deleting the item later sticks."""
-    marker = "qa_migration_lp_form_container_2026_10_09"
+    template (so dashboard edits survive redeploys), so a new default item
+    can't reach the live checklists that way. Swaps the earlier one-line
+    container check for the DRLM form item in LP - New and adds it to LP -
+    Maintenance. Marker-guarded so deleting the item later sticks."""
+    marker = "qa_migration_lp_drlm_form_2026_10_09"
     if store.get_token(marker):
         return
-    items = store.get_qa_templates().get("LP - New")
-    if items is not None and LP_FORM_CONTAINER_QA_ITEM not in items:
-        at = next((i + 1 for i, t in enumerate(items) if t.startswith("Form submits successfully")), len(items))
-        items.insert(at, LP_FORM_CONTAINER_QA_ITEM)
-        store.set_qa_template("LP - New", items)
+    old = "If an HTML block (e.g. a DRLM form) replaces the Instapage form, it stays inside its container when the window is resized on desktop and on mobile"
+    templates = store.get_qa_templates()
+    for service, after_prefix in (("LP - New", "Form submits successfully"),
+                                  ("LP - Maintenance", "Form still submits")):
+        items = templates.get(service)
+        if items is None or QA_DRLM_ITEM in items:
+            continue
+        if old in items:
+            items[items.index(old)] = QA_DRLM_ITEM
+        else:
+            at = next((i + 1 for i, t in enumerate(items) if t.startswith(after_prefix)), len(items))
+            items.insert(at, QA_DRLM_ITEM)
+        store.set_qa_template(service, items)
     store.set_token(marker, "1")
 
 
@@ -1297,7 +1356,7 @@ def _migrate_lp_form_container_qa_item():
 async def lifespan(app: FastAPI):
     store.init_db()
     store.seed_qa_templates(DEFAULT_QA_TEMPLATES)
-    _migrate_lp_form_container_qa_item()
+    _migrate_lp_drlm_qa_item()
     print("[startup] ready")
     yield
 
@@ -1973,6 +2032,13 @@ async def api_delete_priority_todo(todo_id: int):
 # ---------------------------------------------------------------------------
 # QA checklists — per-service templates and completed certificates
 # ---------------------------------------------------------------------------
+
+@app.get("/api/qa/item-help")
+async def api_get_qa_item_help():
+    """Optional "How to" dropdown content for specific checklist items,
+    keyed by the item's exact text."""
+    return QA_ITEM_HELP
+
 
 @app.get("/api/qa/templates")
 async def api_get_qa_templates():

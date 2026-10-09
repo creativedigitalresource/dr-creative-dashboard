@@ -1511,6 +1511,11 @@ function toggleGuideSection(mountId, sectionId) {
    see saveQaDraftNow — so a refresh or closed tab never loses it. ---- */
 
 let _qaTemplates = {};
+// Optional "How to" dropdown content per checklist item (keyed by exact item
+// text), plus which dropdowns are open. Open state is toggled straight in
+// the DOM so opening one never re-renders (and scroll-jumps) the checklist.
+let _qaItemHelp = {};
+const _qaHelpOpen = new Set();
 let _qaService = null;
 let _qaItems = []; // [{text, state: "unchecked"|"checked"|"na"}]
 // Meta/notes/feedback fields live in state (not just the DOM) because
@@ -1548,10 +1553,12 @@ function renderQaMount() {
 
 async function loadQaServices() {
   const root = document.getElementById("qa-root");
-  const [templates] = await Promise.all([
+  const [templates, itemHelp] = await Promise.all([
     fetchWithTimeout("/api/qa/templates").then(r => r.json()).catch(() => null),
+    fetchWithTimeout("/api/qa/item-help").then(r => r.json()).catch(() => ({})),
     loadQaDraftsAndHistory(),
   ]);
+  _qaItemHelp = itemHelp || {};
   if (!templates) { root.innerHTML = `<div class="loading-card">Couldn't load QA checklists.</div>`; return; }
   _qaTemplates = templates;
   renderQaServiceGrid();
@@ -1726,6 +1733,41 @@ async function saveQaDraftNow() {
   await _qaDraftCreatePromise;
 }
 
+function qaHelpPanelHTML(i, text) {
+  const h = _qaItemHelp[text];
+  const open = _qaHelpOpen.has(text);
+  return `<div class="qa-help-panel${open ? "" : " hidden"}" id="qa-help-${i}">
+    ${(h.sections || []).map(sec => `
+      <div class="qa-help-section"><div class="qa-help-title">${esc(sec.title)}</div><div>${esc(sec.body)}</div></div>`).join("")}
+    ${h.code ? `
+      <div class="qa-help-section">
+        <div class="qa-help-title">${esc(h.code_label || "Code")}
+          <button class="btn btn-ghost btn-sm" style="margin-left:8px" onclick="copyQaHelpCode(${i}, this)">Copy</button></div>
+        <pre class="qa-help-code">${esc(h.code)}</pre>
+      </div>` : ""}
+  </div>`;
+}
+
+function toggleQaHelp(i, btn) {
+  const text = _qaItems[i] && _qaItems[i].text;
+  const panel = document.getElementById(`qa-help-${i}`);
+  if (!panel || !text) return;
+  const nowOpen = panel.classList.contains("hidden");
+  panel.classList.toggle("hidden", !nowOpen);
+  btn.classList.toggle("open", nowOpen);
+  const chev = btn.querySelector(".qa-archived-chevron");
+  if (chev) chev.classList.toggle("open", nowOpen);
+  if (nowOpen) _qaHelpOpen.add(text); else _qaHelpOpen.delete(text);
+}
+
+async function copyQaHelpCode(i, btn) {
+  const h = _qaItemHelp[_qaItems[i] && _qaItems[i].text];
+  if (!h || !h.code) return;
+  try { await navigator.clipboard.writeText(h.code); btn.textContent = "Copied"; }
+  catch (e) { btn.textContent = "Copy failed"; }
+  setTimeout(() => { btn.textContent = "Copy"; }, 1500);
+}
+
 function renderQaChecklistView() {
   const root = document.getElementById("qa-root");
   // Both "checked" and "na" satisfy an item — only "unchecked" is incomplete.
@@ -1740,7 +1782,9 @@ function renderQaChecklistView() {
     <ul class="qa-item-list">
       ${_qaItems.map((item, i) => `
         <li class="qa-item ${item.state !== "unchecked" ? "done" : ""}">
-          <span class="qa-item-text">${esc(item.text)}</span>
+          <span class="qa-item-text">${esc(item.text)}${_qaItemHelp[item.text] ? `
+            <button class="qa-help-toggle${_qaHelpOpen.has(item.text) ? " open" : ""}"
+              onclick="event.stopPropagation();toggleQaHelp(${i}, this)">How to <span class="qa-archived-chevron${_qaHelpOpen.has(item.text) ? " open" : ""}">&#9656;</span></button>` : ""}</span>
           <div class="qa-item-actions">
             <div class="qa-state-group">
               <button class="qa-state-btn${item.state === "checked" ? " active" : ""}"
@@ -1754,6 +1798,7 @@ function renderQaChecklistView() {
               onclick="event.stopPropagation();deleteQaChecklistItem(${i})">&times;</button>
             ` : ""}
           </div>
+          ${_qaItemHelp[item.text] ? qaHelpPanelHTML(i, item.text) : ""}
         </li>
       `).join("")}
     </ul>
