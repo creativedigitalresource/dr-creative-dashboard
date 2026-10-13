@@ -532,12 +532,7 @@ function renderMyAttention(active, color) {
   const decRows = decisions.map(item => {
     const t = item.t;
     if (item.kind === "revision") {
-      let waiting = "";
-      if (t.revisions_since) {
-        const days = Math.max(0, Math.floor((Date.now() - new Date(t.revisions_since)) / 86400000));
-        waiting = ` ${days}d`;
-      }
-      return row(t, `<span class="ov-pill revision">&#8617; waiting${waiting}</span>`);
+      return row(t, revisionPillHTML(t));
     }
     if (item.kind === "trueest") return row(t, `<span class="ov-pill needed">+${t.over_by}h · True EST?</span>`);
     return row(t, `<span class="ov-pill needed">needs ${item.what}</span>`);

@@ -405,6 +405,13 @@ async def get_unassigned_todos() -> list:
     return result
 
 
+def _ts(iso: str):
+    """Basecamp timestamps mix "Z" and "-04:00" offsets, so they can't be
+    compared as strings."""
+    from datetime import datetime
+    return datetime.fromisoformat(iso.replace("Z", "+00:00"))
+
+
 async def get_designer_todos(designer_bc_id: int) -> list:
     """All incomplete todos assigned to a specific designer.
     Fetches comments with a 3-request concurrency limit to get EST/REVS
@@ -512,7 +519,19 @@ async def get_designer_todos(designer_bc_id: int) -> list:
             completions = [(s.get("completion") or {}).get("created_at")
                            for s in designer_steps]
             completions = [c for c in completions if c]
-            revisions_since = max(completions) if completions else None
+            handed_off = max(completions, key=_ts) if completions else None
+            # Anchor on when it came BACK to the designer, not when they
+            # handed it off — the first comment from anyone else after their
+            # step was completed (e.g. web's "published, let me know if
+            # adjustments are needed"). Confirmed with Richard 2026-10-13: a
+            # handoff on Sep 30 that only came back today was showing
+            # "waiting 12d". Falls back to the handoff time if nobody has
+            # commented since.
+            returned = [c.get("created_at") for c in comments
+                        if c.get("created_at")
+                        and (c.get("creator") or {}).get("id") != designer_bc_id
+                        and (handed_off is None or _ts(c["created_at"]) > _ts(handed_off))]
+            revisions_since = min(returned, key=_ts) if returned else handed_off
 
         # HDD priority: step due_on (authoritative) > comment/title HDD > parent todo due_on
         step_due = designer_step.get("due_on") if designer_step else None

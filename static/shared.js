@@ -576,6 +576,25 @@ function fromCellHTML(t) {
 
 /* ---- Editable task table — the Overview expanded row and the designer
    page render exactly this ---- */
+/* Working days a task has been back for revisions — computed server-side
+   (revisions_waiting_days: skips weekends, OOO, and office-closed days,
+   counted from when it came back to the designer). Same day = 0. */
+function revisionWaitingDays(t) {
+  if (typeof t.revisions_waiting_days === "number") return t.revisions_waiting_days;
+  if (!t.revisions_since) return null;
+  return Math.max(0, Math.floor((Date.now() - new Date(t.revisions_since)) / 86400000));
+}
+function revisionWaitingText(t) {
+  const n = revisionWaitingDays(t);
+  if (n === null || n === 0) return "";
+  return ` · ${n} day${n === 1 ? "" : "s"} waiting`;
+}
+function revisionPillHTML(t) {
+  const n = revisionWaitingDays(t);
+  const label = n === 0 ? "back today" : n === null ? "waiting" : `waiting ${n}d`;
+  return `<span class="ov-pill revision">&#8617; ${label}</span>`;
+}
+
 function buildTaskTable(todos, color, opts = {}) {
   if (!todos.length) return `<div class="attention-empty">No active tasks this week.</div>`;
   const showSpotlight = !!opts.spotlight;
@@ -597,9 +616,8 @@ function buildTaskTable(todos, color, opts = {}) {
       }
     }
     let revNote = "";
-    if (t.in_revisions && t.revisions_since) {
-      const days = Math.max(0, Math.floor((Date.now() - new Date(t.revisions_since)) / 86400000));
-      revNote = `<div class="ov-revnote">&#8617; back for revisions · waiting ${days}d</div>`;
+    if (t.in_revisions) {
+      revNote = `<div class="ov-revnote">&#8617; back for revisions${revisionWaitingText(t)}</div>`;
     }
     rowsArr.push(`<tr class="ov-task-row">
       ${showSpotlight ? `<td>${spotlightStarHTML(t, atCap)}</td>` : ""}
@@ -646,12 +664,7 @@ function renderTodoItem(t, color, isCompleted = false, pulledForward = false, sp
 
   let revisionBadge = "";
   if (t.in_revisions) {
-    let waiting = "";
-    if (t.revisions_since) {
-      const days = Math.max(0, Math.floor((Date.now() - new Date(t.revisions_since)) / 86400000));
-      waiting = ` · waiting ${days}d`;
-    }
-    revisionBadge = `<div class="revision-badge" title="Designer finished their step but the task was sent back — no revision deadline set yet">↩ Revisions${waiting}</div>`;
+    revisionBadge = `<div class="revision-badge" title="Designer finished their step but the task was sent back — no revision deadline set yet">↩ Revisions${revisionWaitingText(t)}</div>`;
   }
 
   const spotlightBtn = spotlightOpts ? spotlightStarHTML(t, spotlightOpts.atCap) : "";
@@ -1354,12 +1367,7 @@ function renderAttention(stats) {
   const decisionRows = decisions.map(item => {
     if (item.kind === "revision") {
       const t = item.t;
-      let waiting = "";
-      if (t.revisions_since) {
-        const days = Math.max(0, Math.floor((Date.now() - new Date(t.revisions_since)) / 86400000));
-        waiting = ` ${days}d`;
-      }
-      return taskRow(item.d, t, `<span class="ov-pill revision">&#8617; waiting${waiting}</span>`);
+      return taskRow(item.d, t, revisionPillHTML(t));
     }
     if (item.kind === "trueest") {
       return taskRow(item.d, item.t, `<span class="ov-pill needed">+${item.t.over_by}h · True EST?</span>`);

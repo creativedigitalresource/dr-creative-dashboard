@@ -1613,6 +1613,8 @@ async def api_designers():
         spotlight_ids = set(store.get_spotlight_ids(d["bc_id"]))
         for t in d.get("todos", []):
             t["is_spotlighted"] = str(t["id"]) in spotlight_ids
+            t["revisions_waiting_days"] = (_revision_waiting_days(t.get("revisions_since"), d["pto"])
+                                           if t.get("in_revisions") else None)
     return designers
 
 
@@ -1639,9 +1641,32 @@ async def designer_page(token: str):
     return FileResponse("static/designer.html", headers={"Cache-Control": "no-cache, must-revalidate"})
 
 
+def _revision_waiting_days(revisions_since, pto_rows) -> int | None:
+    """Working days a task has sat back-for-revisions with this person:
+    days strictly after the day it came back, up to and including today,
+    skipping weekends and their OOO / office-closed days. Same day = 0
+    ("back for revisions"), next working day = 1. Confirmed with Richard
+    2026-10-13: back Fri, Mon a holiday, so Tue is day 1 — not 4."""
+    if not revisions_since:
+        return None
+    try:
+        back = datetime.fromisoformat(revisions_since.replace("Z", "+00:00")).astimezone(EST).date()
+    except ValueError:
+        return None
+    off = {r["date"] for r in (pto_rows or [])}
+    today = _est_now().date()
+    n, d = 0, back + timedelta(days=1)
+    while d <= today:
+        if d.weekday() < 5 and d.isoformat() not in off:
+            n += 1
+        d += timedelta(days=1)
+    return n
+
+
 def _public_todos(d: dict) -> list:
     """Client-safe todo projection shared by the designer page and My Stuff."""
     spotlight_order = store.get_spotlight_ids(d["bc_id"])  # already position-ordered
+    pto_rows = _all_pto().get(str(d["bc_id"]), [])
     spotlight_ids = set(spotlight_order)
     todos = []
     for t in d.get("todos", []):
@@ -1659,6 +1684,7 @@ def _public_todos(d: dict) -> list:
             "overrides": t.get("overrides", []),
             "in_revisions": t.get("in_revisions", False),
             "revisions_since": t.get("revisions_since"),
+            "revisions_waiting_days": _revision_waiting_days(t.get("revisions_since"), pto_rows) if t.get("in_revisions") else None,
             "is_complete": t.get("is_complete", False), "is_misc": t.get("is_misc", False),
             "step_complete": bool((t.get("designer_step") or {}).get("completed")),
             "designer_step": {"completed": bool((t.get("designer_step") or {}).get("completed"))} if t.get("designer_step") else None,
