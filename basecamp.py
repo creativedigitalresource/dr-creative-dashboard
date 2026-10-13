@@ -28,13 +28,6 @@ SKIP_KEYWORDS = [
     "maternity", "check-in", "power bi",
 ]
 
-# To Delegate should still surface the weekly overdue-check task — it's a
-# real recurring task that needs picking up, just not counted toward any
-# one designer's personal workload, so it stays hidden from individual
-# todo lists (get_designer_todos) but not from the delegation queue.
-UNASSIGNED_SKIP_KEYWORDS = [k for k in SKIP_KEYWORDS if k != "weekly overdue"]
-
-
 def _is_skip(title: str, keywords: list = SKIP_KEYWORDS) -> bool:
     t = title.lower()
     return any(k in t for k in keywords) or "🚥" in title
@@ -383,13 +376,15 @@ async def update_todo_due(bucket_id: str, todo_id: str, due_on: str, title: str 
 
 async def get_unassigned_todos() -> list:
     """Todos assigned to the Creative Team group — these need delegation.
+    No title filtering here (unlike get_designer_todos' SKIP_KEYWORDS):
+    Richard wants every to-do assigned to Creative visible in To Delegate,
+    including 🔁 recurring, 🚥 dependent, and 🚩 weekly tasks — confirmed
+    2026-10-13 after those were found silently hidden, some overdue.
     Fetches page 1 only (50 most recent) to avoid timeouts on large groups."""
     todos = await _get_reports_assigned(CREATIVE_TEAM_GROUP_ID, page=1)
     result = []
     for t in todos:
         if t.get("completed"):
-            continue
-        if _is_skip(t.get("content", ""), UNASSIGNED_SKIP_KEYWORDS):
             continue
         bucket = t.get("bucket", {})
         result.append({
