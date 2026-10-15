@@ -23,17 +23,12 @@ DESIGNERS = [
     {"name": "Debi",     "bc_id": 52244353, "eh_id": 1445224,  "color": "#d5de23", "slack_id": "U0B0JNXGTKQ", "avatar": "/static/img/avatars/52244353.jpg"},
     {"name": "Maria C",  "bc_id": 52471282, "eh_id": 1451054,  "color": "#14b8a6", "slack_id": "U0B7JK64NT1", "avatar": "/static/img/avatars/52471282.jpg"},
     {"name": "Melany",   "bc_id": 46905124, "eh_id": 1367774,  "color": "#ef4444", "slack_id": "U07RXRYNEMQ", "avatar": "/static/img/avatars/46905124.jpg"},
-    # Added 2026-09-23 — Pilar has a real Basecamp account and Slack
-    # account (both found via search, not asked for) but no Everhour seat
-    # yet, so eh_id is None until one's created. Every eh_id read in this
-    # app already guards with a truthy check (designer.get("eh_id") or
-    # similar) before using it, so this is safe as-is — it just means no
-    # Everhour-derived numbers (capacity_pct inputs from logged hours,
-    # Timesheets, EST suggestions, the Everhour write on Auto Assign) for
-    # her yet, and she won't be eligible for the Design-pool delegation
-    # suggestion either (CAPACITY_GROUPS is keyed by eh_id) until she's
-    # added there too. Avatar is a temporary placeholder photo, not hers.
-    {"name": "Pilar",    "bc_id": 52991964, "eh_id": None,      "color": "#a855f7", "slack_id": "U0C3NT3E4UR", "avatar": "/static/img/avatars/52991964.jpg"},
+    # Added 2026-09-23. Everhour seat (1460616) wired in 2026-10-15 —
+    # until then eh_id was None, so Auto Assign skipped the Everhour
+    # estimate write and her logged/EST fell back to the whole task's
+    # totals (other people's hours counted as hers). Avatar is a temporary
+    # placeholder photo, not hers.
+    {"name": "Pilar",    "bc_id": 52991964, "eh_id": 1460616,   "color": "#a855f7", "slack_id": "U0C3NT3E4UR", "avatar": "/static/img/avatars/52991964.jpg"},
 ]
 
 # QA checklist rollout — was Gaby-only for testing; turned on for the
@@ -146,7 +141,7 @@ STALE_HDD_DAYS = 14  # comment-sourced HDDs older than this are abandoned, not l
 # Service capacity groups (Everhour user ids). Departed members stay listed —
 # they only count toward a month's denominator if they logged time in it.
 CAPACITY_GROUPS = {
-    "Design": [1327353, 1336550, 1422085, 1451054, 1004587],  # Dexter, Lezly, Gaby, Maria C, RJ (departed 4/26)
+    "Design": [1327353, 1336550, 1422085, 1451054, 1004587, 1460616],  # Dexter, Lezly, Gaby, Maria C, RJ (departed 4/26), Pilar
     "Multi":  [1403017],   # Odette
     "IPM":    [1367774],   # Melany
     "Email":  [1445224],   # Debi

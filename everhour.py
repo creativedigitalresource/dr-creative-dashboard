@@ -93,13 +93,31 @@ async def get_time_logged_strict(todo_id: str | int) -> dict:
 
 
 async def set_user_estimate(todo_id: str | int, eh_user_id: int, hours: float) -> bool:
-    """Set per-user Everhour estimate on a Basecamp todo."""
+    """Set one person's per-user Everhour estimate on a Basecamp todo,
+    leaving everyone else's estimate on that task intact.
+
+    BUG FIX 2026-10-15: Everhour's PUT /estimate replaces the entire
+    per-user map with whatever is sent (confirmed live: setting user B
+    removed user A's estimate). This used to send only the one user, so
+    every Auto Assign / EST edit silently wiped other people's estimates
+    (e.g. a web dev's) on shared tasks. Now reads the current map, merges,
+    and sends it all back. If the current state can't be read, it refuses
+    to write rather than risk wiping it — callers already retry."""
     if not EH_KEY or not eh_user_id:
         return False
     seconds = int(hours * 3600)
+    cur = await get_eh_http().get(f"{EH_BASE}/tasks/b3:{todo_id}")
+    users = {}
+    if cur.status_code == 200:
+        est = cur.json().get("estimate") or {}
+        if est.get("type") == "users":
+            users = {str(k): int(v) for k, v in (est.get("users") or {}).items() if v}
+    elif cur.status_code != 404:
+        return False
+    users[str(eh_user_id)] = seconds
     r = await get_eh_http().put(
         f"{EH_BASE}/tasks/b3:{todo_id}/estimate",
-        json={"type": "users", "users": {str(eh_user_id): seconds}},
+        json={"type": "users", "total": sum(users.values()), "users": users},
     )
     return r.status_code == 200
 
