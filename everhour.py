@@ -93,8 +93,15 @@ async def get_time_logged_strict(todo_id: str | int) -> dict:
 
 
 async def set_user_estimate(todo_id: str | int, eh_user_id: int, hours: float) -> bool:
+    ok, _ = await set_user_estimate_detailed(todo_id, eh_user_id, hours)
+    return ok
+
+
+async def set_user_estimate_detailed(todo_id: str | int, eh_user_id: int, hours: float) -> tuple[bool, str | None]:
     """Set one person's per-user Everhour estimate on a Basecamp todo,
-    leaving everyone else's estimate on that task intact.
+    leaving everyone else's estimate on that task intact. Returns (ok,
+    reason) — reason is Everhour's own message when it refuses (e.g. "User
+    X is not assignable to this task." when they aren't on the project).
 
     BUG FIX 2026-10-15: Everhour's PUT /estimate replaces the entire
     per-user map with whatever is sent (confirmed live: setting user B
@@ -103,8 +110,10 @@ async def set_user_estimate(todo_id: str | int, eh_user_id: int, hours: float) -
     (e.g. a web dev's) on shared tasks. Now reads the current map, merges,
     and sends it all back. If the current state can't be read, it refuses
     to write rather than risk wiping it — callers already retry."""
-    if not EH_KEY or not eh_user_id:
-        return False
+    if not EH_KEY:
+        return False, "Everhour isn't connected (no API key)."
+    if not eh_user_id:
+        return False, "This person has no Everhour account linked in the dashboard."
     seconds = int(hours * 3600)
     cur = await get_eh_http().get(f"{EH_BASE}/tasks/b3:{todo_id}")
     users = {}
@@ -112,14 +121,22 @@ async def set_user_estimate(todo_id: str | int, eh_user_id: int, hours: float) -
         est = cur.json().get("estimate") or {}
         if est.get("type") == "users":
             users = {str(k): int(v) for k, v in (est.get("users") or {}).items() if v}
-    elif cur.status_code != 404:
-        return False
+    elif cur.status_code == 404:
+        return False, "This to-do isn't in Everhour yet."
+    else:
+        return False, f"Couldn't read the task's current estimates from Everhour (HTTP {cur.status_code})."
     users[str(eh_user_id)] = seconds
     r = await get_eh_http().put(
         f"{EH_BASE}/tasks/b3:{todo_id}/estimate",
         json={"type": "users", "total": sum(users.values()), "users": users},
     )
-    return r.status_code == 200
+    if r.status_code == 200:
+        return True, None
+    try:
+        msg = r.json().get("message")
+    except Exception:
+        msg = None
+    return False, msg or f"Everhour rejected the estimate (HTTP {r.status_code})."
 
 
 async def log_user_time(todo_id: str | int, eh_user_id: int, new_total_hours: float) -> bool:

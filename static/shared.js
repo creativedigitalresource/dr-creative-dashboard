@@ -1116,6 +1116,7 @@ async function autoAssignUnassigned(todoId) {
   // this call resolves, so this fetch already sees it.
   await loadDelegationRoster();
   renderUnassigned();
+  if (res.warning) alert(res.warning);
 }
 
 /* ---- Team Spotlight — replaces Standups (2026-08-20). No posting step,

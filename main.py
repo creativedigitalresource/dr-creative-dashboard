@@ -44,7 +44,9 @@ ME = {"name": "Richard", "bc_id": 49482127, "eh_id": 1415584, "color": "#6366f1"
 # QA_ENABLED_BC_IDS above. Confirmed working for Richard; adding Maria C
 # next. Add more bc_ids here as each person's confirmed before turning it
 # on for the rest of the team.
-LOGGED_SYNC_BC_IDS = {ME["bc_id"], 52471282}  # Richard, Maria C
+# Rolled out to the whole team 2026-10-16 (was Richard + Maria C only as a
+# trial). Anyone without an eh_id still falls back to a local override.
+LOGGED_SYNC_BC_IDS = {d["bc_id"] for d in DESIGNERS} | {ME["bc_id"]}
 
 # Delegation coverage — lets a designer see the To Delegate queue, everyone's
 # capacity, and Team Spotlight on their own page while Richard is out. Remove
@@ -141,7 +143,7 @@ STALE_HDD_DAYS = 14  # comment-sourced HDDs older than this are abandoned, not l
 # Service capacity groups (Everhour user ids). Departed members stay listed —
 # they only count toward a month's denominator if they logged time in it.
 CAPACITY_GROUPS = {
-    "Design": [1327353, 1336550, 1422085, 1451054, 1004587, 1460616],  # Dexter, Lezly, Gaby, Maria C, RJ (departed 4/26), Pilar
+    "Design": [1327353, 1336550, 1422085, 1451054, 1460616],  # Dexter, Lezly, Gaby, Maria C, Pilar (RJ removed 2026-10-16)
     "Multi":  [1403017],   # Odette
     "IPM":    [1367774],   # Melany
     "Email":  [1445224],   # Debi
@@ -1522,17 +1524,23 @@ async def api_auto_assign(todo_id: str):
     if not step:
         return {"ok": False, "error": "Couldn't create the step in Basecamp. Try again."}
 
+    # Everhour estimate is best-effort (the Basecamp assignment above already
+    # happened), but a failure is reported back so Richard isn't left
+    # assuming it saved — confirmed with him 2026-10-16 after Pilar's
+    # estimates silently never reached Everhour.
+    estimate_warning = None
     if est:
         eh_id = designer.get("eh_id")
-        if eh_id:
-            wrote = False
-            for attempt in range(3):  # Everhour rate-limits under load — same retry pattern used elsewhere
-                if await eh.set_user_estimate(todo_id, eh_id, float(est)):
-                    wrote = True
-                    break
-                await asyncio.sleep(1.5 * (attempt + 1))
-            if not wrote:
-                print(f"[auto-assign] Everhour estimate write failed for todo {todo_id} after retries")
+        reason = None
+        for attempt in range(3):  # Everhour rate-limits under load — same retry pattern used elsewhere
+            wrote, reason = await eh.set_user_estimate_detailed(todo_id, eh_id, float(est))
+            if wrote or not eh_id or (reason and "not assignable" in reason) or (reason and "isn't in Everhour" in reason):
+                break
+            await asyncio.sleep(1.5 * (attempt + 1))
+        if not wrote:
+            print(f"[auto-assign] Everhour estimate write failed for todo {todo_id}: {reason}")
+            estimate_warning = (f"Assigned to {designer['name']}, but the {float(est):g}h estimate "
+                                f"didn't save to Everhour: {reason}")
 
     import html
     person = await bc.get_person(int(designer_bc_id))
@@ -1584,7 +1592,7 @@ async def api_auto_assign(todo_id: str):
             })
             break
 
-    return {"ok": True}
+    return {"ok": True, "warning": estimate_warning}
 
 
 @app.get("/api/designers")
