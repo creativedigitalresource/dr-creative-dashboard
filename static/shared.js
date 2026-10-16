@@ -942,9 +942,12 @@ function renderDelegationCapacityStrip() {
       const ooo = ptoDates.has(dt);
       const hrs = hoursByDay[dt];
       const pct = Math.min(100, (hrs / WORK_HOURS) * 100);
-      const over = hrs > WORK_HOURS * 1.15;
-      const full = !over && hrs >= WORK_HOURS * 0.9;
-      const cls = ooo ? "cap-bar-ooo" : over ? "cap-bar-over" : full ? "cap-bar-full" : hrs > 0 ? "cap-bar-partial" : "cap-bar-empty";
+      // Same thresholds as capacityBarCls, per day against 6.5h; a day
+      // with nothing on it stays the neutral empty track.
+      const dayCls = hrs > 0 ? capacityBarCls(hrs, WORK_HOURS) : null;
+      const cls = ooo ? "cap-bar-ooo" : !dayCls ? "cap-bar-empty"
+        : dayCls === "cap-over" ? "cap-bar-over" : dayCls === "cap-full" ? "cap-bar-full"
+        : dayCls === "cap-filling" ? "cap-bar-partial" : "cap-bar-low";
       const tip = ooo ? `${esc(d.name)} — ${dayLetters[i]} ${fmtDate(dt)}: Out of office`
         : `${esc(d.name)} — ${dayLetters[i]} ${fmtDate(dt)}: ${hrs.toFixed(1)}h / ${WORK_HOURS}h`;
       return `
@@ -1223,7 +1226,20 @@ function _overviewStats(d, weekOffset = 0) {
   return { weekly_est, cap, pct, active, pastDue, free, pipelineHours, projectedPct };
 }
 
-function _barCls(pct) { return pct < 60 ? "low" : pct < 85 ? "mid" : "high"; }
+// One color rule for every capacity bar (Overview/Team Pulse, My Week, the
+// To Delegate day strip) — confirmed with Richard 2026-10-16: red under
+// 50% (needs work), yellow 50-89% (filling up), green 90-100% (full), red
+// again over 100% (overloaded — either way something needs fixing). Uses
+// raw hours vs capacity, not calcCapacity's display pct, which is capped
+// at 100 and so could never show "over".
+function capacityBarCls(hours, cap) {
+  if (!(cap > 0)) return hours > 0 ? "cap-over" : "cap-none";
+  const p = Math.round(hours / cap * 100);
+  if (p > 100) return "cap-over";
+  if (p >= 90) return "cap-full";
+  if (p >= 50) return "cap-filling";
+  return "cap-low";
+}
 
 // Today, specifically — not "has any PTO on record" — since this drives
 // a live "they're out right now" signal, not a historical/future one.
@@ -1249,7 +1265,7 @@ function renderPulseItem(d, s, ctx = "manager") {
         ${oooToday ? `<span class="ooo-badge">OOO Today</span>` : ""}
       </div>
       <div class="pulse-bar-wrap">
-        <div class="cap-bar-outer"><div class="cap-bar-inner ${_barCls(s.pct)}" style="width:${Math.min(100, s.pct)}%"></div></div>
+        <div class="cap-bar-outer"><div class="cap-bar-inner ${capacityBarCls(s.weekly_est, s.cap)}" style="width:${Math.min(100, s.pct)}%"></div></div>
         <span class="pulse-pct">${s.pct}%</span>
       </div>
       <div class="pulse-tasks">${s.active.length} task${s.active.length === 1 ? "" : "s"}</div>

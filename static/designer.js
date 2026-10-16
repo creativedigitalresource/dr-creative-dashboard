@@ -352,7 +352,7 @@ function renderMe() {
   document.getElementById("my-subtitle").textContent = `My Week · ${d.name}`;
   const { weekly_est, cap, pct, pto_days } = calcCapacity(d.todos, d.pto, 0);
   const free = Math.round((cap - weekly_est) * 10) / 10;
-  const barCls = pct < 60 ? "low" : pct < 85 ? "mid" : "high";
+  const barCls = capacityBarCls(weekly_est, cap);
   const active = (d.todos || []).filter(t => !t.is_complete && !t.is_misc);
 
   const kudos = d.kudos || [];

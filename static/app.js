@@ -531,7 +531,7 @@ function updateSplitCapBar(d) {
   }, 0);
 
   const pct = cap > 0 ? Math.min(100, Math.round(scheduled / cap * 100)) : 100;
-  const barCls = pct < 60 ? "low" : pct < 85 ? "mid" : "high";
+  const barCls = capacityBarCls(scheduled, cap);
   wrap.innerHTML = `
     <div class="cal-cap-label">${d.name} &middot; ${Math.round(scheduled*10)/10}h / ${cap}h available${ptoDatesInView ? ` (${ptoDatesInView} OOO)` : ""}</div>
     <div class="cap-bar-outer" style="width:260px"><div class="cap-bar-inner ${barCls}" style="width:${pct}%"></div></div>
@@ -585,7 +585,7 @@ function setWeekOffset(newOffset) {
 
 function renderDesignerCard(d, showCompleted = false) {
   const { weekly_est, cap, pct, pto_days, scheduledIds } = calcCapacity(d.todos, d.pto, _weekOffset);
-  const barCls = pct < 60 ? "low" : pct < 85 ? "mid" : "high";
+  const barCls = capacityBarCls(weekly_est, cap);
   const ptoBadge = pto_days > 0
     ? `<span class="pto-badge">${pto_days} OOO day${pto_days > 1 ? "s" : ""} this wk</span>`
     : "";
@@ -877,7 +877,7 @@ function updateCalCapacityBar() {
   }, 0);
 
   const pct = cap > 0 ? Math.min(100, Math.round(scheduled / cap * 100)) : 100;
-  const barCls = pct < 60 ? "low" : pct < 85 ? "mid" : "high";
+  const barCls = capacityBarCls(scheduled, cap);
 
   wrap.classList.remove("hidden");
   wrap.innerHTML = `
@@ -897,7 +897,7 @@ function updateCalCapacityBar() {
 
 // ---------------------------------------------------------------------------
 // Overview tab — expandable Team Pulse roster + Needs Attention panel.
-// setPulseSort/togglePulseRow/_overviewStats/_barCls/renderPulseItem/
+// setPulseSort/togglePulseRow/_overviewStats/capacityBarCls/renderPulseItem/
 // renderPulseDetail/renderAttention/gotoDesigner live in shared.js — a
 // delegate-enabled designer's own Team Pulse tab reuses the exact same
 // implementation (ctx="delegate" instead of the default "manager").
@@ -1001,7 +1001,7 @@ function renderMyStuff() {
           <div class="my-pulse-sub">${active.length} active task${active.length === 1 ? "" : "s"} this week${pto_days ? ` · ${pto_days} OOO day${pto_days > 1 ? "s" : ""}` : ""}</div>
         </div>
         <div class="pulse-bar-wrap my-pulse-bar">
-          <div class="cap-bar-outer"><div class="cap-bar-inner ${_barCls(pct)}" style="width:${Math.min(100, pct)}%"></div></div>
+          <div class="cap-bar-outer"><div class="cap-bar-inner ${capacityBarCls(weekly_est, cap)}" style="width:${Math.min(100, pct)}%"></div></div>
           <span class="pulse-pct">${pct}%</span>
         </div>
         <div class="pulse-free ${free <= 2 ? "low" : free <= 8 ? "mid" : "ok"}">${free < 0 ? Math.abs(free) + "h over" : free + "h free"}</div>

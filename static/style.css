@@ -259,6 +259,7 @@ body { min-height: 100vh; }
 .cap-bar-track.cap-bar-partial .cap-bar-fill { background: var(--warning); }
 .cap-bar-track.cap-bar-full .cap-bar-fill { background: var(--success); }
 .cap-bar-track.cap-bar-over .cap-bar-fill { background: var(--danger); }
+.cap-bar-track.cap-bar-low .cap-bar-fill { background: var(--danger); }
 .cap-bar-track.cap-bar-ooo {
   background: repeating-linear-gradient(45deg, var(--border), var(--border) 3px, var(--surface2) 3px, var(--surface2) 6px);
 }
@@ -379,6 +380,11 @@ body { min-height: 100vh; }
 .cap-bar-inner.low   { background: linear-gradient(90deg, #10b981, #34d399); }
 .cap-bar-inner.mid   { background: linear-gradient(90deg, #f59e0b, #fbbf24); }
 .cap-bar-inner.high  { background: linear-gradient(90deg, #ef4444, #f87171); }
+.cap-bar-inner.cap-low     { background: linear-gradient(90deg, #ef4444, #f87171); }
+.cap-bar-inner.cap-filling { background: linear-gradient(90deg, #f59e0b, #fbbf24); }
+.cap-bar-inner.cap-full    { background: linear-gradient(90deg, #10b981, #34d399); }
+.cap-bar-inner.cap-over    { background: linear-gradient(90deg, #ef4444, #f87171); }
+.cap-bar-inner.cap-none    { background: var(--border); }
 
 .designer-todos { list-style: none; }
 .todo-item {
