@@ -912,30 +912,42 @@ function renderDelegationCapacityStrip() {
   const cards = _delegationRoster.map(d => {
     const ptoDates = new Set((d.pto || []).map(p => p.date));
 
-    // Assigned work only — confirmed with Richard 2026-10-19. Dropdown
-    // picks used to count here too, but they persist until Auto Assign
-    // (and can be made by anyone with To Delegate access), so picks far
-    // down the list he hadn't looked at yet were filling bars he was
-    // relying on to decide the row in front of him. Auto Assign re-fetches
-    // the roster, so the bar still fills the moment something is assigned.
+    // Solid fill = assigned work only; that alone sets the color, the
+    // number, and what "full" means (confirmed with Richard 2026-10-19 —
+    // picks far down the list were filling bars he was using to decide
+    // the row in front of him). Rows he's picked this person for but not
+    // yet Auto Assigned show as a grey striped segment stacked on top, so
+    // he can see where they'd land without mistaking them for real work.
+    // Picked hours = (schedule with picks) - (schedule without), so they
+    // land wherever the same scheduler would put them.
     const hoursByDay = _scheduleHoursByDay(d.todos || [], days, ptoDates);
+    const picks = _unassignedData
+      .filter(t => (t.overrides || []).includes("delegate_designer")
+        && t.chosen_designer_bc_id === d.bc_id && t.chosen_hdd && (t.chosen_est || 0) > 0)
+      .map(t => ({ bucket_name: t.bucket_name, hdd: t.chosen_hdd, has_hdd: true,
+                   total_hours: t.chosen_est, logged: 0, is_complete: false, is_misc: false }));
+    const withPicks = picks.length ? _scheduleHoursByDay([...(d.todos || []), ...picks], days, ptoDates) : hoursByDay;
 
     const bars = days.map((dt, i) => {
       const ooo = ptoDates.has(dt);
       const hrs = hoursByDay[dt];
+      const picked = Math.max(0, Math.round(((withPicks[dt] || 0) - hrs) * 10) / 10);
       const pct = Math.min(100, (hrs / WORK_HOURS) * 100);
+      const pickPct = Math.min(100 - pct, (picked / WORK_HOURS) * 100);
       // Same thresholds as capacityBarCls, per day against 6.5h; a day
-      // with nothing on it stays the neutral empty track.
+      // with nothing assigned stays the neutral empty track.
       const dayCls = hrs > 0 ? capacityBarCls(hrs, WORK_HOURS) : null;
       const cls = ooo ? "cap-bar-ooo" : !dayCls ? "cap-bar-empty"
         : dayCls === "cap-over" ? "cap-bar-over" : dayCls === "cap-full" ? "cap-bar-full"
         : dayCls === "cap-filling" ? "cap-bar-partial" : "cap-bar-low";
       const tip = ooo ? `${esc(d.name)} — ${dayLetters[i]} ${fmtDate(dt)}: Out of office`
-        : `${esc(d.name)} — ${dayLetters[i]} ${fmtDate(dt)}: ${hrs.toFixed(1)}h / ${WORK_HOURS}h`;
+        : `${esc(d.name)} — ${dayLetters[i]} ${fmtDate(dt)}: ${hrs.toFixed(1)}h assigned / ${WORK_HOURS}h`
+          + (picked > 0 ? ` + ${picked.toFixed(1)}h picked (not yet assigned)` : "");
       return `
         <div class="cap-bar-cell" title="${tip}">
           <div class="cap-bar-track ${cls}">
             <div class="cap-bar-fill" style="height:${ooo ? 0 : pct}%"></div>
+            ${!ooo && picked > 0 ? `<div class="cap-bar-pick" style="height:${pickPct}%"></div>` : ""}
           </div>
           <div class="cap-bar-label">${dayLetters[i]}</div>
           <div class="cap-bar-hours">${ooo ? "OOO" : (hrs > 0 ? Math.round(hrs * 10) / 10 : "–")}</div>
