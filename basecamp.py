@@ -1,5 +1,38 @@
 import httpx, os, time
+from contextvars import ContextVar
 from store import get_token, set_token
+
+# Whose Basecamp login a request runs as. None = the dashboard's main
+# account (Richard). Set to a designer's bc_id via acting_as() so that
+# designer's own actions (e.g. Gaby delegating from her To Delegate tab)
+# show in Basecamp as made by them. Their tokens live under
+# "user:<bc_id>:<name>" keys so they can never overwrite the main login.
+_actor: ContextVar[str | None] = ContextVar("bc_actor", default=None)
+
+
+def _tk(name: str) -> str:
+    a = _actor.get()
+    return name if a is None else f"user:{a}:{name}"
+
+
+def _current_token() -> str | None:
+    return get_token(_tk("access_token"))
+
+
+class acting_as:
+    """with bc.acting_as(bc_id): ... — Basecamp calls inside run as that
+    person's own login."""
+    def __init__(self, bc_id):
+        self.bc_id = str(bc_id) if bc_id else None
+    def __enter__(self):
+        self._reset = _actor.set(self.bc_id)
+        return self
+    def __exit__(self, *exc):
+        _actor.reset(self._reset)
+
+
+def has_user_login(bc_id) -> bool:
+    return bool(get_token(f"user:{bc_id}:access_token"))
 
 # Single persistent client — reuses TCP connections like Node's fetch
 _http: httpx.AsyncClient | None = None
@@ -33,16 +66,23 @@ def _is_skip(title: str, keywords: list = SKIP_KEYWORDS) -> bool:
     return any(k in t for k in keywords) or "🚥" in title
 
 
-def auth_url() -> str:
+def auth_url(state: str | None = None) -> str:
+    from urllib.parse import quote
     return (
         f"{AUTH_BASE}/authorization/new"
         f"?type=web_server"
         f"&client_id={CLIENT_ID}"
         f"&redirect_uri={REDIRECT_URI}"
+        + (f"&state={quote(state)}" if state else "")
     )
 
 
-async def exchange_code(code: str) -> bool:
+async def exchange_code(code: str, for_bc_id=None) -> bool | str:
+    """Main login when for_bc_id is None. Otherwise a designer connecting
+    their own account: the token is only kept if Basecamp says it really
+    belongs to that designer (so nobody can attach someone else's login,
+    and it can never land in the main account's slot). Returns True, or
+    an error string for the designer flow."""
     async with httpx.AsyncClient(timeout=15) as client:
         r = await client.post(
             f"{AUTH_BASE}/authorization/token",
@@ -57,14 +97,23 @@ async def exchange_code(code: str) -> bool:
         if r.status_code != 200:
             return False
         data = r.json()
-        set_token("access_token", data["access_token"])
-        set_token("refresh_token", data["refresh_token"])
-        set_token("expires_at", str(time.time() + int(data.get("expires_in", 1209600))))
+        if for_bc_id is not None:
+            who = await client.get(f"{BC_BASE}/my/profile.json", headers={
+                "Authorization": f"Bearer {data['access_token']}", "User-Agent": USER_AGENT})
+            pid = who.json().get("id") if who.status_code == 200 else None
+            if str(pid) != str(for_bc_id):
+                return "That Basecamp account isn't yours — sign in to Basecamp as yourself and try again."
+            prefix = f"user:{for_bc_id}:"
+        else:
+            prefix = ""
+        set_token(prefix + "access_token", data["access_token"])
+        set_token(prefix + "refresh_token", data["refresh_token"])
+        set_token(prefix + "expires_at", str(time.time() + int(data.get("expires_in", 1209600))))
         return True
 
 
 async def _refresh() -> bool:
-    refresh = get_token("refresh_token")
+    refresh = get_token(_tk("refresh_token"))
     if not refresh:
         return False
     async with httpx.AsyncClient(timeout=15) as client:
@@ -84,22 +133,22 @@ async def _refresh() -> bool:
         if "access_token" not in data:
             print(f"[bc] refresh response missing access_token: {data}")
             return False
-        set_token("access_token", data["access_token"])
+        set_token(_tk("access_token"), data["access_token"])
         if "refresh_token" in data:
-            set_token("refresh_token", data["refresh_token"])
-        set_token("expires_at", str(time.time() + int(data.get("expires_in", 1209600))))
+            set_token(_tk("refresh_token"), data["refresh_token"])
+        set_token(_tk("expires_at"), str(time.time() + int(data.get("expires_in", 1209600))))
         return True
 
 
 async def _get(path: str, params: dict | None = None) -> dict | list | None:
-    token = get_token("access_token")
+    token = _current_token()
     if not token:
         return None
 
-    expires_at = get_token("expires_at")
+    expires_at = get_token(_tk("expires_at"))
     if expires_at and float(expires_at) - time.time() < 300:
         await _refresh()
-        token = get_token("access_token")
+        token = _current_token()
 
     headers = {
         "Authorization": f"Bearer {token}",
@@ -111,7 +160,7 @@ async def _get(path: str, params: dict | None = None) -> dict | list | None:
         refreshed = await _refresh()
         if not refreshed:
             return None
-        token = get_token("access_token")
+        token = _current_token()
         headers["Authorization"] = f"Bearer {token}"
         r = await client.get(f"{BC_BASE}{path}", headers=headers, params=params or {})
     if r.status_code == 429:
@@ -127,7 +176,7 @@ async def _get(path: str, params: dict | None = None) -> dict | list | None:
 
 
 async def _get_raw_status(path: str) -> tuple[int, str]:
-    token = get_token("access_token")
+    token = _current_token()
     if not token:
         return 0, "no token"
     headers = {"Authorization": f"Bearer {token}", "User-Agent": USER_AGENT}
@@ -188,9 +237,11 @@ async def get_person(person_id: int | str) -> dict | None:
 
 
 async def assign_todo(bucket_id: str, todo_id: str, assignee_ids: list, due_on: str | None = None) -> bool:
-    """Sets a todo's assignees to exactly assignee_ids (replaces whoever's
-    there now — delegating a task should make it clearly theirs, not add
-    to a pre-existing group assignment). Optionally sets due_on in the
+    """Adds assignee_ids to the todo and removes only the Creative Team
+    user (CREATIVE_TEAM_GROUP_ID) — everyone else already assigned (Web,
+    other teams) stays. Confirmed with Richard 2026-10-19: this used to
+    replace the whole list, so delegating to one designer silently
+    unassigned everyone else on the to-do. Optionally sets due_on in the
     same PUT — used by Auto Assign to move the parent to-do's due date to
     today the moment it's delegated (the real deadline lives on the step's
     due_on, which is authoritative over this — see get_designer_todos'
@@ -217,7 +268,7 @@ async def assign_todo(bucket_id: str, todo_id: str, assignee_ids: list, due_on: 
     10156420327): a PUT without completion_subscriber_ids wipes it to
     [], and re-sending the existing subscribers' ids under that exact
     key round-trips correctly. Same fix applied to update_todo_due."""
-    token = get_token("access_token")
+    token = _current_token()
     if not token:
         return False
     headers = {
@@ -230,7 +281,12 @@ async def assign_todo(bucket_id: str, todo_id: str, assignee_ids: list, due_on: 
     description = (detail or {}).get("description", "")
     completion_subscriber_ids = [p["id"] for p in (detail or {}).get("completion_subscribers", []) if p.get("id")]
     import json as _json
-    payload = {"content": content, "description": description, "assignee_ids": assignee_ids}
+    keep = [a["id"] for a in (detail or {}).get("assignees", [])
+            if a.get("id") and str(a["id"]) != CREATIVE_TEAM_GROUP_ID]
+    if detail is None:
+        return False  # can't see current assignees — don't risk wiping them
+    new_ids = keep + [i for i in assignee_ids if i not in keep]
+    payload = {"content": content, "description": description, "assignee_ids": new_ids}
     if completion_subscriber_ids:
         payload["completion_subscriber_ids"] = completion_subscriber_ids
     if due_on:
@@ -247,7 +303,7 @@ async def assign_todo(bucket_id: str, todo_id: str, assignee_ids: list, due_on: 
 
 async def update_step_due(bucket_id: str, step_id: str, due_on: str, step: dict | None = None) -> bool:
     """Update a step's due date in Basecamp, preserving existing title and assignees."""
-    token = get_token("access_token")
+    token = _current_token()
     if not token:
         return False
     headers = {
@@ -275,7 +331,7 @@ async def update_step_due(bucket_id: str, step_id: str, due_on: str, step: dict 
 async def create_step(bucket_id: str, todo_id: str, title: str,
                       due_on: str | None = None, assignee_ids: list | None = None) -> dict | None:
     """Create a step (subtask) on a todo. Steps use the card_tables endpoint even for todos."""
-    token = get_token("access_token")
+    token = _current_token()
     if not token:
         return None
     headers = {
@@ -307,7 +363,7 @@ async def post_comment(bucket_id: str, recording_id: str, content: str) -> dict 
     <bc-attachment sgid="..."></bc-attachment> using the person's
     attachable_sgid from get_person() (confirmed live 2026-09-21) — see
     main.py's api_auto_assign for the one place that does this."""
-    token = get_token("access_token")
+    token = _current_token()
     if not token:
         return None
     headers = {
@@ -343,7 +399,7 @@ async def update_todo_due(bucket_id: str, todo_id: str, due_on: str, title: str 
     preserved completion_subscribers ("when done, notify these people")
     either, so every due-date edit silently cleared that list too. Same
     fix as assign_todo: fetch current subscribers, re-send their ids."""
-    token = get_token("access_token")
+    token = _current_token()
     if not token:
         return False
     headers = {

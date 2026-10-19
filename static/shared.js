@@ -1098,7 +1098,9 @@ async function autoAssignUnassigned(todoId) {
 
   const btn = document.querySelector(`button[data-autoassign="${CSS.escape(String(todoId))}"]`);
   if (btn) { btn.disabled = true; btn.textContent = "Assigning…"; }
-  const res = await fetch(`/api/unassigned/${encodeURIComponent(todoId)}/auto-assign`, { method: "POST" })
+  // A delegate designer's page sets window.__autoAssignQuery so the
+  // backend can run this Auto Assign under their own Basecamp login.
+  const res = await fetch(`/api/unassigned/${encodeURIComponent(todoId)}/auto-assign${window.__autoAssignQuery || ""}`, { method: "POST" })
     .then(r => r.json()).catch(() => null);
   if (!res || !res.ok) {
     alert(res?.error || "Couldn't auto-assign. Try again.");

@@ -1373,8 +1373,32 @@ async def auth_login():
     return RedirectResponse(bc.auth_url())
 
 
+@app.get("/auth/designer/{token}/login")
+async def auth_designer_login(token: str):
+    """A delegate-enabled designer connects their own Basecamp login, so
+    what they Auto Assign shows in Basecamp as them (2026-10-19, Gaby).
+    The designer token rides along as OAuth state and the callback checks
+    the Basecamp account really is that designer before storing it."""
+    bc_id = store.resolve_designer_token(token)
+    if not bc_id or int(bc_id) not in DELEGATE_ENABLED_BC_IDS:
+        return Response(status_code=403)
+    return RedirectResponse(bc.auth_url(state=f"designer:{token}"))
+
+
 @app.get("/auth/callback")
-async def auth_callback(code: str):
+async def auth_callback(code: str, state: str = ""):
+    if state.startswith("designer:"):
+        token = state.split(":", 1)[1]
+        bc_id = store.resolve_designer_token(token)
+        if not bc_id or int(bc_id) not in DELEGATE_ENABLED_BC_IDS:
+            return Response(status_code=403)
+        result = await bc.exchange_code(code, for_bc_id=bc_id)
+        if result is not True:
+            import html as _h
+            msg = result if isinstance(result, str) else "Couldn't connect to Basecamp. Try again."
+            return HTMLResponse(f"<h2>{_h.escape(msg)}</h2><p><a href='/my/{_h.escape(token)}'>Back to your dashboard</a></p>",
+                                status_code=400)
+        return RedirectResponse(f"/my/{token}")
     ok = await bc.exchange_code(code)
     if not ok:
         return HTMLResponse("<h2>Auth failed. Try again.</h2>", status_code=400)
@@ -1482,7 +1506,30 @@ async def api_set_delegation_choice(todo_id: str, request: Request):
 
 
 @app.post("/api/unassigned/{todo_id}/auto-assign")
-async def api_auto_assign(todo_id: str):
+async def api_auto_assign(todo_id: str, as_token: str = ""):
+    """as_token = a delegate-enabled designer's page token. If they've
+    connected their own Basecamp login, every Basecamp call in this Auto
+    Assign (assignment, step, comment) runs as them; if not, it runs as
+    the main account like before. No silent fallback once connected — if
+    their login can't do it (e.g. no access to that project) it fails
+    with a clear message rather than posting under someone else's name."""
+    if not as_token:
+        return await _auto_assign_impl(todo_id)
+    bc_id = store.resolve_designer_token(as_token)
+    if not bc_id or int(bc_id) not in DELEGATE_ENABLED_BC_IDS:
+        return Response(status_code=403)
+    if not bc.has_user_login(bc_id):
+        return await _auto_assign_impl(todo_id)
+    with bc.acting_as(bc_id):
+        res = await _auto_assign_impl(todo_id)
+    if isinstance(res, dict) and res.get("ok") is False and "Basecamp" in (res.get("error") or ""):
+        name = next((d["name"] for d in DESIGNERS if str(d["bc_id"]) == str(bc_id)), "your")
+        res["error"] += (f" This ran with {name}'s own Basecamp login — check that "
+                         f"{name} has access to this client's Basecamp project.")
+    return res
+
+
+async def _auto_assign_impl(todo_id: str):
     """Delegates a To Delegate row in one action: assigns the parent to-do
     to the designer and moves its due_on to today (the day it's picked up
     — not the real deadline, which lives on the step below), creates a
@@ -1794,6 +1841,7 @@ async def api_my(token: str):
             "estimate_guide": _compute_estimate_guide(d["bc_id"]),
             "qa_enabled": d["bc_id"] in QA_ENABLED_BC_IDS,
             "delegate_enabled": d["bc_id"] in DELEGATE_ENABLED_BC_IDS,
+            "basecamp_connected": d["bc_id"] in DELEGATE_ENABLED_BC_IDS and bc.has_user_login(d["bc_id"]),
             "last_updated": max(
                 _cached_data.get("last_updated") or 0,
                 _cached_data.get("designer_last_updated", {}).get(str(d["bc_id"])) or 0,

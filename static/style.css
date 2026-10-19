@@ -209,6 +209,12 @@ body { min-height: 100vh; }
 .week-label { font-size: 13px; font-weight: 600; color: var(--text); min-width: 110px; text-align: center; }
 .panel-hint { font-size: 12px; color: var(--text-muted); background: var(--surface2); padding: 3px 10px; border-radius: 20px; }
 .pipeline-pool-note:empty { display: none; }
+.bc-connect-note {
+  display: flex; align-items: center; gap: 10px; flex-wrap: wrap;
+  font-size: 13px; color: var(--text); background: var(--surface2);
+  border: 1px solid var(--border); padding: 8px 14px; border-radius: 8px; margin: 10px 0;
+}
+.bc-connect-note.ok { color: var(--success); }
 .pipeline-pool-note {
   font-size: 13px; font-weight: 600; color: var(--warning);
   background: var(--warning-light); border: 1px solid var(--warning);

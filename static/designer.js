@@ -266,7 +266,15 @@ async function loadMe() {
   }
   _me = data;
   renderMe();
-  if (_me.delegate_enabled) document.getElementById("my-tab-nav").style.display = "";
+  if (_me.delegate_enabled) {
+    document.getElementById("my-tab-nav").style.display = "";
+    window.__autoAssignQuery = `?as_token=${encodeURIComponent(TOKEN)}`;
+    const note = document.getElementById("bc-connect-note");
+    if (note) note.innerHTML = _me.basecamp_connected
+      ? `<div class="bc-connect-note ok">&#10003; Auto Assign posts in Basecamp as you.</div>`
+      : `<div class="bc-connect-note">Auto Assign currently posts in Basecamp as Richard.
+           <a class="btn btn-ghost btn-sm" href="/auth/designer/${encodeURIComponent(TOKEN)}/login">Connect your Basecamp</a></div>`;
+  }
   const lu = document.getElementById("last-updated");
   if (lu && _me.last_updated) {
     lu.textContent = "Updated " + new Date(_me.last_updated * 1000)
