@@ -499,7 +499,10 @@ def _attach_unassigned_suggestions(unassigned: list, overrides: dict):
         t["suggested_hdd"] = suggested_hdd
         t["suggested_est"] = suggested_est
 
-        t["chosen_designer_bc_id"] = int(ov["delegate_designer"]) if ov.get("delegate_designer") else suggested_designer
+        if "delegate_designer" in ov:
+            t["chosen_designer_bc_id"] = int(ov["delegate_designer"]) or None  # "0" = cleared via "— pick —"
+        else:
+            t["chosen_designer_bc_id"] = suggested_designer
         t["chosen_hdd"] = ov.get("delegate_hdd") or suggested_hdd
         t["chosen_est"] = float(ov["delegate_est"]) if ov.get("delegate_est") else suggested_est
 
@@ -1449,6 +1452,11 @@ async def api_set_delegation_choice(todo_id: str, request: Request):
         if val:
             store.set_override(todo_id, "delegate_designer", str(val))
             todo["chosen_designer_bc_id"] = int(val)
+        elif val == 0:
+            # "— pick —": explicitly nobody (stored as "0"), so the row
+            # stays cleared instead of snapping back to the suggestion.
+            store.set_override(todo_id, "delegate_designer", "0")
+            todo["chosen_designer_bc_id"] = None
         else:
             store.delete_override(todo_id, "delegate_designer")
             todo["chosen_designer_bc_id"] = todo.get("suggested_designer_bc_id")

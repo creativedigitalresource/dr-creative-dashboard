@@ -912,31 +912,13 @@ function renderDelegationCapacityStrip() {
   const cards = _delegationRoster.map(d => {
     const ptoDates = new Set((d.pto || []).map(p => p.date));
 
-    // Plus anything YOU'VE actually assigned in this session (picked a
-    // designer for that row via the dropdown) — not the algorithm's
-    // untouched default suggestion for every other row in the queue.
-    // Confirmed with Richard 2026-09-23: this bar is meant to fill up as
-    // he assigns things, one decision at a time, so he knows when to stop
-    // loading someone up for a given day — not to reflect what the
-    // suggestion engine has tentatively guessed across dozens of rows
-    // nobody's looked at yet. "overrides" includes "delegate_designer"
-    // only once that row's dropdown has actually been changed (see
-    // api_set_delegation_choice on the backend). Fed through the same
-    // scheduler as real todos (below) so a freshly-picked assignment gets
-    // the same ASAP/spread treatment as everything already on the books.
-    const pendingPicks = _unassignedData
-      .filter(t => (t.overrides || []).includes("delegate_designer") && t.chosen_designer_bc_id === d.bc_id && t.chosen_hdd)
-      .map(t => ({
-        bucket_name: t.bucket_name,
-        hdd: t.chosen_hdd,
-        has_hdd: true,
-        total_hours: t.chosen_est || 0,
-        logged: 0,
-        is_complete: false,
-        is_misc: false,
-      }));
-
-    const hoursByDay = _scheduleHoursByDay([...(d.todos || []), ...pendingPicks], days, ptoDates);
+    // Assigned work only — confirmed with Richard 2026-10-19. Dropdown
+    // picks used to count here too, but they persist until Auto Assign
+    // (and can be made by anyone with To Delegate access), so picks far
+    // down the list he hadn't looked at yet were filling bars he was
+    // relying on to decide the row in front of him. Auto Assign re-fetches
+    // the roster, so the bar still fills the moment something is assigned.
+    const hoursByDay = _scheduleHoursByDay(d.todos || [], days, ptoDates);
 
     const bars = days.map((dt, i) => {
       const ooo = ptoDates.has(dt);
@@ -1035,7 +1017,9 @@ function selDelegateDesigner(t) {
   if (!_delegationRoster.length) return `<span class="loading-cell">…</span>`;
   const chosen = t.chosen_designer_bc_id;
   const overridden = chosen !== t.suggested_designer_bc_id;
-  const blank = chosen ? "" : `<option value="">— pick —</option>`;
+  // Always offered, so a stale or wrong pick can be cleared to no one —
+  // not just changed to someone else. Value "0" = explicitly nobody.
+  const blank = `<option value="0"${chosen ? "" : " selected"}>— pick —</option>`;
   const options = _delegationRoster.map(d =>
     `<option value="${d.bc_id}"${d.bc_id === chosen ? " selected" : ""}>${esc(d.name)}${_isRosterOOOToday(d) ? " (OOO today)" : ""}</option>`
   ).join("");
@@ -1045,13 +1029,13 @@ function selDelegateDesigner(t) {
 }
 
 async function saveDelegateDesigner(todoId, value) {
-  const bcId = value ? parseInt(value, 10) : null;
+  const bcId = parseInt(value, 10) || 0;  // 0 = "— pick —", cleared to nobody
   await fetch(`/api/unassigned/${encodeURIComponent(todoId)}/delegation`, {
     method: "PUT", headers: { "Content-Type": "application/json" },
     body: JSON.stringify({ designer_bc_id: bcId }),
   }).catch(() => {});
   const t = _unassignedData.find(x => String(x.id) === String(todoId));
-  if (t) t.chosen_designer_bc_id = bcId || t.suggested_designer_bc_id;
+  if (t) t.chosen_designer_bc_id = bcId || null;
   renderUnassigned();
 }
 
