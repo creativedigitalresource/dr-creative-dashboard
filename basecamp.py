@@ -55,17 +55,6 @@ USER_AGENT = "DR Creative Dashboard (richard.vargas@yourdigitalresource.com)"
 CREATIVE_TEAM_GROUP_ID = "44800196"
 RICHARD_BC_ID = 49482127
 
-SKIP_KEYWORDS = [
-    "meeting hours", "weekly overdue", "creative sales", "goals",
-    "vector files", "cowork", "🔁", "🚩 weekly", "bi-weekly",
-    "maternity", "check-in", "power bi",
-]
-
-def _is_skip(title: str, keywords: list = SKIP_KEYWORDS) -> bool:
-    t = title.lower()
-    return any(k in t for k in keywords) or "🚥" in title
-
-
 def auth_url(state: str | None = None) -> str:
     from urllib.parse import quote
     return (
@@ -432,8 +421,8 @@ async def update_todo_due(bucket_id: str, todo_id: str, due_on: str, title: str 
 
 async def get_unassigned_todos() -> list:
     """Todos assigned to the Creative Team group — these need delegation.
-    No title filtering here (unlike get_designer_todos' SKIP_KEYWORDS):
-    Richard wants every to-do assigned to Creative visible in To Delegate,
+    No title filtering here or in get_designer_todos: Richard wants every
+    to-do assigned to Creative (and to each designer) visible,
     including 🔁 recurring, 🚥 dependent, and 🚩 weekly tasks — confirmed
     2026-10-13 after those were found silently hidden, some overdue.
     Fetches page 1 only (50 most recent) to avoid timeouts on large groups."""
@@ -464,7 +453,11 @@ def _ts(iso: str):
 
 
 async def get_designer_todos(designer_bc_id: int) -> list:
-    """All incomplete todos assigned to a specific designer.
+    """All incomplete todos assigned to a specific designer — no title
+    filtering. A keyword skip list (meeting hours, goals, cowork, 🔁, 🚥,
+    etc., in place since the first commit) was removed 2026-10-20 at
+    Richard's request after it hid real work, e.g. Pilar's "Instapage SOP
+    (Claude Cowork)" due that day.
     Fetches comments with a 3-request concurrency limit to get EST/REVS
     without flooding the Basecamp API.
     """
@@ -474,7 +467,6 @@ async def get_designer_todos(designer_bc_id: int) -> list:
     raw = await _get_all_reports_assigned(designer_bc_id)
     active = [t for t in raw
               if not t.get("completed")
-              and not _is_skip(t.get("content", ""))
               and t.get("type") == "Todo"]
 
     # Also surface parent todos for open steps assigned to the designer
@@ -507,7 +499,6 @@ async def get_designer_todos(designer_bc_id: int) -> list:
     parent_todos = await asyncio.gather(*[fetch_parent_todo(s) for s in open_steps])
     for pt in parent_todos:
         if (pt and not pt.get("completed")
-                and not _is_skip(pt.get("content", ""))
                 and pt["id"] not in active_ids):
             active.append(pt)
             active_ids.add(pt["id"])
