@@ -20,7 +20,6 @@ DESIGNERS = [
     {"name": "Lezly",    "bc_id": 45896266, "eh_id": 1336550,  "color": "#26a9e1", "slack_id": "U070TFVNNSK", "avatar": "/static/img/avatars/45896266.jpg"},
     {"name": "Gaby",     "bc_id": 46567979, "eh_id": 1422085,  "color": "#f6931e", "slack_id": "U07JJEF0KCY", "avatar": "/static/img/avatars/46567979.jpg"},
     {"name": "Odette",   "bc_id": 48051100, "eh_id": 1403017,  "color": "#eab308", "slack_id": "U08LAH3CA12", "avatar": "/static/img/avatars/48051100.jpg"},
-    {"name": "Debi",     "bc_id": 52244353, "eh_id": 1445224,  "color": "#d5de23", "slack_id": "U0B0JNXGTKQ", "avatar": "/static/img/avatars/52244353.jpg"},
     {"name": "Maria C",  "bc_id": 52471282, "eh_id": 1451054,  "color": "#14b8a6", "slack_id": "U0B7JK64NT1", "avatar": "/static/img/avatars/52471282.jpg"},
     {"name": "Melany",   "bc_id": 46905124, "eh_id": 1367774,  "color": "#ef4444", "slack_id": "U07RXRYNEMQ", "avatar": "/static/img/avatars/46905124.jpg"},
     # Added 2026-09-23. Everhour seat (1460616) wired in 2026-10-15 —
@@ -29,6 +28,18 @@ DESIGNERS = [
     # totals (other people's hours counted as hers). Avatar is a temporary
     # placeholder photo, not hers.
     {"name": "Pilar",    "bc_id": 52991964, "eh_id": 1460616,   "color": "#a855f7", "slack_id": "U0C3NT3E4UR", "avatar": "/static/img/avatars/52991964.jpg"},
+]
+
+
+# Former team members (2026-10-26, Debi). Removed from DESIGNERS so they
+# drop out of every live view (Team Pulse, To Delegate, alerts,
+# Timesheets, suggestions) — but their history isn't deleted: completed
+# tasks and logged hours stay in analytics_completions, viewable from
+# Analytics > Former team. Their Everhour id stays in CAPACITY_GROUPS so
+# past months in the capacity charts still include their hours.
+FORMER_DESIGNERS = [
+    {"name": "Debi", "bc_id": 52244353, "eh_id": 1445224, "color": "#d5de23",
+     "avatar": "/static/img/avatars/52244353.jpg", "left_on": "2026-10-26"},
 ]
 
 # QA checklist rollout — was Gaby-only for testing; turned on for the
@@ -146,7 +157,7 @@ CAPACITY_GROUPS = {
     "Design": [1327353, 1336550, 1422085, 1451054, 1460616],  # Dexter, Lezly, Gaby, Maria C, Pilar (RJ removed 2026-10-16)
     "Multi":  [1403017],   # Odette
     "IPM":    [1367774],   # Melany
-    "Email":  [1445224],   # Debi
+    "Email":  [1445224],   # Debi (left 2026-10-26) — kept so past months' charts keep her hours
 }
 
 # Task-title categories → service rollup for the monthly counts table
@@ -177,7 +188,8 @@ SERVICE_ROLLUP = {
 # separate design_pool_hours figure instead (see _compute_pipeline_forecast).
 CATEGORY_SOLE_ASSIGNEE = {
     "Multi - Photo/Video/Edits": 48051100,     # Odette
-    "Email - Campaigns/Signatures": 52244353,  # Debi
+    # Email had Debi as sole assignee; since she left (2026-10-26) Richard
+    # picks each Email task himself — no automatic suggestion.
     "IPM - Campaigns/Reports": 46905124,       # Melany
     "SM - templates/graphics/reels": 46905124, # Melany
 }
@@ -3137,6 +3149,51 @@ async def api_analytics_clients():
     out = [{**c, "hours": round(c["hours"], 1), "spend": None} for c in _build_client_todo_groups().values()]
     out.sort(key=lambda c: c["hours"], reverse=True)
     return out
+
+
+@app.get("/api/former-team")
+async def api_former_team():
+    return [{k: d[k] for k in ("name", "bc_id", "color", "avatar", "left_on")} for d in FORMER_DESIGNERS]
+
+
+def _former_history(bc_id: str) -> list | None:
+    if not any(str(d["bc_id"]) == str(bc_id) for d in FORMER_DESIGNERS):
+        return None
+    rows = [r for r in store.get_analytics_completions() if str(r.get("designer_bc_id")) == str(bc_id)]
+    archive_urls = {a["todo_id"]: a["url"] for a in store.get_completed_todos(str(bc_id), days=3650) if a.get("url")}
+    out = []
+    for r in rows:
+        out.append({
+            "todo_id": r.get("todo_id"), "title": r.get("title"), "client": r.get("client_name"),
+            "category": r.get("category"), "est_hours": r.get("est_hours"),
+            "logged_hours": r.get("logged_hours"), "hdd": r.get("hdd"),
+            "completed": datetime.fromtimestamp(r["recorded_at"], EST).date().isoformat() if r.get("recorded_at") else None,
+            "url": r.get("url") or archive_urls.get(str(r.get("todo_id"))),
+        })
+    return out
+
+
+@app.get("/api/former-team/{bc_id}/history")
+async def api_former_history(bc_id: str):
+    rows = _former_history(bc_id)
+    return Response(status_code=404) if rows is None else rows
+
+
+@app.get("/api/former-team/{bc_id}/history.csv")
+async def api_former_history_csv(bc_id: str):
+    import csv, io
+    rows = _former_history(bc_id)
+    if rows is None:
+        return Response(status_code=404)
+    name = next(d["name"] for d in FORMER_DESIGNERS if str(d["bc_id"]) == str(bc_id))
+    buf = io.StringIO()
+    w = csv.writer(buf)
+    w.writerow(["Completed", "Client", "Task", "Category", "EST hours", "Logged hours", "HDD", "Basecamp link"])
+    for r in sorted(rows, key=lambda r: r["completed"] or "", reverse=True):
+        w.writerow([r["completed"], r["client"], r["title"], r["category"], r["est_hours"],
+                    r["logged_hours"], r["hdd"], r["url"]])
+    return Response(buf.getvalue(), media_type="text/csv",
+                    headers={"Content-Disposition": f'attachment; filename="{name}-task-history.csv"'})
 
 
 @app.get("/api/analytics")

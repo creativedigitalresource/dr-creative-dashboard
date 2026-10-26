@@ -1992,6 +1992,76 @@ async function renderClientsSection(el) {
   </table></div>`;
 }
 
+
+/* ---- Analytics > Former team — read-only history for people who've left
+   (main.py FORMER_DESIGNERS). Search and sort only re-render the table
+   mount, so typing in the box never loses focus or jumps the page. ---- */
+let _formerPeople = null;
+let _formerSel = null;
+let _formerRows = [];
+let _formerQuery = "";
+let _formerSort = { key: "completed", dir: "desc" };
+
+async function renderFormerSection(el) {
+  if (!_formerPeople) {
+    el.innerHTML = `<div class="loading-cell" style="padding:30px;text-align:center">Loading…</div>`;
+    _formerPeople = await fetch("/api/former-team").then(r => r.json()).catch(() => []);
+  }
+  if (_analyticsSection !== "former") return;
+  if (!_formerPeople.length) { el.innerHTML = _noData("No former team members."); return; }
+  if (!_formerSel) _formerSel = String(_formerPeople[0].bc_id);
+  el.innerHTML = `
+    <div class="pulse-panel">
+      <div style="display:flex;gap:10px;align-items:center;flex-wrap:wrap;margin-bottom:12px">
+        <select class="category-select" style="max-width:220px" onchange="setFormerPerson(this.value)">
+          ${_formerPeople.map(p => `<option value="${p.bc_id}"${String(p.bc_id) === _formerSel ? " selected" : ""}>${esc(p.name)} (left ${fmtDate(p.left_on)})</option>`).join("")}
+        </select>
+        <input type="text" class="priority-input" style="max-width:280px" placeholder="Search client, task, or category…"
+          value="${esc(_formerQuery)}" oninput="setFormerQuery(this.value)" />
+        <a class="btn btn-ghost btn-sm" href="/api/former-team/${encodeURIComponent(_formerSel)}/history.csv">Download spreadsheet</a>
+        <span class="cap-chart-sub" id="former-count"></span>
+      </div>
+      <div class="table-wrap" id="former-table-mount"><div class="loading-cell">Loading…</div></div>
+    </div>`;
+  _formerRows = await fetch(`/api/former-team/${encodeURIComponent(_formerSel)}/history`).then(r => r.json()).catch(() => []);
+  renderFormerTable();
+}
+
+function setFormerPerson(v) { _formerSel = v; renderFormerSection(document.getElementById("analytics-content")); }
+function setFormerQuery(v) { _formerQuery = v; renderFormerTable(); }
+function setFormerSort(key) {
+  _formerSort = _formerSort.key === key ? { key, dir: _formerSort.dir === "asc" ? "desc" : "asc" } : { key, dir: "asc" };
+  renderFormerTable();
+}
+
+function renderFormerTable() {
+  const mount = document.getElementById("former-table-mount");
+  if (!mount) return;
+  const q = _formerQuery.trim().toLowerCase();
+  let rows = q ? _formerRows.filter(r =>
+    [r.client, r.title, r.category].some(x => (x || "").toLowerCase().includes(q))) : _formerRows.slice();
+  const k = _formerSort.key, dir = _formerSort.dir === "asc" ? 1 : -1;
+  rows.sort((a, b) => {
+    const x = a[k] ?? "", y = b[k] ?? "";
+    return (typeof x === "number" && typeof y === "number" ? x - y : String(x).localeCompare(String(y))) * dir;
+  });
+  const cnt = document.getElementById("former-count");
+  if (cnt) cnt.textContent = `${rows.length} of ${_formerRows.length} completed tasks`;
+  if (!rows.length) { mount.innerHTML = _noData(_formerRows.length ? "Nothing matches the search." : "No completed tasks on record."); return; }
+  const th = (label, key) => `<th style="cursor:pointer" onclick="setFormerSort('${key}')">${label}${_formerSort.key === key ? (_formerSort.dir === "asc" ? " ▲" : " ▼") : ""}</th>`;
+  mount.innerHTML = `<table class="data-table">
+    <thead><tr>${th("Completed", "completed")}${th("Client", "client")}${th("Task", "title")}${th("Category", "category")}${th("EST", "est_hours")}${th("Logged", "logged_hours")}${th("HDD", "hdd")}</tr></thead>
+    <tbody>${rows.map(r => `<tr>
+      <td>${r.completed ? fmtDate(r.completed) : "—"}</td>
+      <td class="text-muted">${esc(cleanClient(r.client || ""))}</td>
+      <td>${r.url ? `<a href="${r.url}" target="_blank" title="Open in Basecamp">${esc(r.title || "")}</a>` : esc(r.title || "")}</td>
+      <td>${categoryBadgeHTML(r.category)}</td>
+      <td>${r.est_hours ? r.est_hours + "h" : "—"}</td>
+      <td>${r.logged_hours ? Math.round(r.logged_hours * 10) / 10 + "h" : "—"}</td>
+      <td>${r.hdd ? fmtDate(r.hdd) : "—"}</td>
+    </tr>`).join("")}</tbody></table>`;
+}
+
 async function loadAnalytics() {
   const content = document.getElementById("analytics-content");
   const stats   = document.getElementById("analytics-stats");
@@ -2341,11 +2411,12 @@ function renderAnalyticsSection(section) {
   const el = document.getElementById("analytics-content");
   // The completions-based stat strip and filters are noise on capacity/clients —
   // both are their own independent rollups, not a filtered view of completions.
-  const ownRollup = section === "capacity" || section === "clients";
+  const ownRollup = section === "capacity" || section === "clients" || section === "former";
   document.getElementById("analytics-stats")?.classList.toggle("hidden", ownRollup);
   document.getElementById("analytics-filters")?.classList.toggle("hidden", ownRollup);
   if (section === "capacity") { renderCapacitySection(el); return; }
   if (section === "clients") { renderClientsSection(el); return; }
+  if (section === "former") { renderFormerSection(el); return; }
   if (!_analyticsData) return;
 
   const f = _anFilters;
