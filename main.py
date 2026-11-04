@@ -186,6 +186,17 @@ SERVICE_ROLLUP = {
 # Design pool (Dexter/Lezly/Gaby/Maria C) with no fixed assignee — Richard
 # chose NOT to force those onto one name, so they're reported as a
 # separate design_pool_hours figure instead (see _compute_pipeline_forecast).
+# Client-based pre-pick for To Delegate (2026-11-04, Richard): any
+# Creative to-do from these Basecamp projects comes in with this designer
+# already chosen, ahead of category or capacity. It's only a pre-pick —
+# nothing happens in Basecamp until Richard clicks Auto Assign, and he can
+# change it in the dropdown. Keyed by Basecamp project (bucket) id.
+CLIENT_DESIGNER_ROUTING = {
+    "35754079": 45896266,  # iTech Palm Beach -> Lezly
+    "35753309": 45896266,  # DebtHelper -> Lezly
+    "35756002": 46567979,  # Bagels With Deli -> Gaby
+}
+
 CATEGORY_SOLE_ASSIGNEE = {
     "Multi - Photo/Video/Edits": 48051100,     # Odette
     # Email had Debi as sole assignee; since she left (2026-10-26) Richard
@@ -503,7 +514,8 @@ def _attach_unassigned_suggestions(unassigned: list, overrides: dict):
         t["category"] = ov.get("category") or _categorize_with_learning(t.get("title", ""))
         t["overrides"] = list(ov.keys())
 
-        suggested_designer = _suggest_designer_bc_id(t["category"], pto, designers_cache, history, running_load)
+        suggested_designer = (CLIENT_DESIGNER_ROUTING.get(str(t.get("bucket_id")))
+                              or _suggest_designer_bc_id(t["category"], pto, designers_cache, history, running_load))
         suggested_hdd = _add_business_days(today, _suggested_timeline_days(t["category"])).isoformat()
         suggested_est = _suggest_est_hours(t["category"], t.get("title", ""), suggested_designer)
 
