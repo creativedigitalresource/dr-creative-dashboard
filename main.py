@@ -881,6 +881,120 @@ def _record_queue_tracking(unassigned: list, ts: float):
             client_name=t.get("bucket_name", ""),
             ts=ts,
         )
+    known = store.get_creative_intake_ids()
+    fresh = [t for t in unassigned if str(t["id"]) not in known]
+    if fresh:
+        asyncio.create_task(_capture_creative_intake(fresh, ts))
+
+
+# ---------------------------------------------------------------------------
+# Creative intake — how many to-dos get handed to Creative per day, by
+# category (Analytics > Intake, 2026-11-05). Each to-do is logged once,
+# stamped with when the Creative user was first added as an assignee
+# (Basecamp assignment_changed event), so the count reflects the day work
+# came in, not the day someone happened to open the dashboard.
+# ---------------------------------------------------------------------------
+
+_intake_capturing: set = set()
+
+
+async def _capture_creative_intake(items: list, seen_ts: float):
+    for t in items:
+        tid = str(t["id"])
+        if tid in _intake_capturing:
+            continue
+        _intake_capturing.add(tid)
+        try:
+            ev = await bc.get_creative_assignment(tid)
+            if ev:
+                at, by, src = bc._ts(ev["at"]).timestamp(), ev.get("by", ""), "event"
+            else:
+                # Event lookup failed or shows no Creative add: fall back to
+                # when the poller first saw it in the Creative queue
+                at, by, src = seen_ts, "", "first_seen"
+            store.add_creative_intake(tid, at, t.get("title", ""), t.get("bucket_name", ""),
+                                      t.get("category") or _categorize_with_learning(t.get("title", "")),
+                                      by, src, t.get("url", ""))
+        except Exception as e:
+            print(f"[intake] capture failed for {tid}: {type(e).__name__}: {e}")
+        finally:
+            _intake_capturing.discard(tid)
+
+
+INTAKE_BACKFILL_MARKER = "creative_intake_backfill_v1"
+
+
+async def _backfill_creative_intake():
+    """One-time: every to-do the dashboard has ever tracked (completions,
+    queue history, designer tracking, completed archive) gets its Basecamp
+    events checked, and the ones Creative was assigned on go into
+    creative_intake with their real assignment date. To-dos that went
+    straight to a designer without passing through Creative are skipped."""
+    if store.get_token(INTAKE_BACKFILL_MARKER) or not store.get_token("access_token"):
+        return
+    cands: dict = {}
+    def add(tid, title, client, cat):
+        tid = str(tid)
+        if tid and tid not in cands:
+            cands[tid] = {"title": title or "", "client": client or "", "category": cat or ""}
+    for r in store.get_analytics_completions():
+        add(r["todo_id"], r.get("title"), r.get("client_name"), r.get("category"))
+    for r in store.get_all_todo_tracking().values():
+        add(r["todo_id"], r.get("title"), r.get("client_name"), r.get("category"))
+    for r in store.get_analytics_queue_time():
+        add(r["todo_id"], r.get("title"), r.get("client_name"), "")
+    for r in store.get_all_queue_tracking().values():
+        add(r["todo_id"], r.get("title"), r.get("client_name"), "")
+    with store.get_db() as c:
+        for r in c.execute("SELECT todo_id, title, bucket_name, category FROM completed_todos_archive").fetchall():
+            add(r["todo_id"], r["title"], r["bucket_name"], r["category"])
+    known = store.get_creative_intake_ids()
+    todo = [(k, v) for k, v in cands.items() if k not in known]
+    print(f"[intake] backfill: checking {len(todo)} to-dos")
+    sem = asyncio.Semaphore(3)
+    added = failed = 0
+
+    async def one(tid, meta):
+        nonlocal added, failed
+        async with sem:
+            ev = await bc.get_creative_assignment(tid)
+            await asyncio.sleep(0.3)
+        if ev is None:
+            failed += 1
+            return
+        if not ev:
+            return
+        async with sem:
+            detail = await bc._get(f"/todos/{tid}.json") or {}
+        if store.add_creative_intake(tid, bc._ts(ev["at"]).timestamp(), meta["title"],
+                                     meta["client"] or (detail.get("bucket") or {}).get("name", ""),
+                                     meta["category"] or _categorize_with_learning(meta["title"]),
+                                     ev.get("by", ""), "event", detail.get("app_url", "")):
+            added += 1
+
+    try:
+        await asyncio.gather(*(one(k, v) for k, v in todo))
+    except Exception as e:
+        print(f"[intake] backfill error: {type(e).__name__}: {e}")
+        return
+    print(f"[intake] backfill done: {added} added, {failed} lookups failed")
+    store.set_token(INTAKE_BACKFILL_MARKER, str(time.time()))
+
+
+async def _intake_poll_loop():
+    """Checks the Creative queue every 15 minutes during the workday so a
+    to-do assigned to Creative and delegated before anyone opens the
+    dashboard still gets counted. One Basecamp call per tick."""
+    await asyncio.sleep(60)
+    await _backfill_creative_intake()
+    while True:
+        try:
+            now = _est_now()
+            if now.weekday() < 5 and 7 <= now.hour < 21 and store.get_token("access_token"):
+                await api_unassigned_refresh()
+        except Exception as e:
+            print(f"[intake] poll error: {type(e).__name__}: {e}")
+        await asyncio.sleep(15 * 60)
 
 
 # ---------------------------------------------------------------------------
@@ -1381,6 +1495,7 @@ async def lifespan(app: FastAPI):
     store.init_db()
     store.seed_qa_templates(DEFAULT_QA_TEMPLATES)
     _migrate_lp_drlm_qa_item()
+    asyncio.create_task(_intake_poll_loop())
     print("[startup] ready")
     yield
 
@@ -3146,6 +3261,23 @@ def _build_client_todo_groups() -> dict[str, dict]:
         c["todos"].sort(key=lambda t: (t["title"] or "").lower())
 
     return clients
+
+
+@app.get("/api/analytics/intake")
+async def api_analytics_intake(days: int = 0):
+    """Every to-do handed to Creative (creative_intake), newest first.
+    days=0 means all history. A category you've since corrected on the
+    To Delegate row wins over the one logged at intake."""
+    since = time.time() - days * 86400 if days > 0 else 0
+    overrides = store.get_all_overrides()
+    rows = store.get_creative_intake(since)
+    for r in rows:
+        cat = (overrides.get(r["todo_id"]) or {}).get("category")
+        if cat:
+            r["category"] = cat
+        r["day"] = datetime.fromtimestamp(r["assigned_at"], EST).date().isoformat()
+    return {"rows": rows, "backfilled": bool(store.get_token(INTAKE_BACKFILL_MARKER)),
+            "categories": CATEGORIES}
 
 
 @app.get("/api/analytics/clients")

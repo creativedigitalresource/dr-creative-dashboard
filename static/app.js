@@ -2062,6 +2062,258 @@ function renderFormerTable() {
     </tr>`).join("")}</tbody></table>`;
 }
 
+/* ---- Analytics > Intake — to-dos handed to the Creative user per day
+   (main.py creative_intake). Range/grouping/sort only re-render the
+   section from the cached rows; clicking a bar lists that day's to-dos. ---- */
+let _intakeData = null;
+let _intakeRange = 30;           // days; 0 = all history
+let _intakeGroup = "day";        // "day" | "week"
+let _intakeSort = { key: "count", dir: "desc" };
+let _intakeSelBucket = null;
+
+const _weekStartISO = iso => {
+  const d = new Date(iso + "T12:00:00");
+  d.setDate(d.getDate() - ((d.getDay() + 6) % 7));
+  return localISO(d);
+};
+
+async function renderIntakeSection(el) {
+  if (!_intakeData) {
+    el.innerHTML = `<div class="loading-cell" style="padding:40px;text-align:center">Loading intake…</div>`;
+    try {
+      _intakeData = await fetch("/api/analytics/intake").then(r => r.json());
+    } catch {
+      el.innerHTML = _noData("Failed to load intake data.");
+      return;
+    }
+    if (_analyticsSection !== "intake") return;
+  }
+  const all = _intakeData.rows || [];
+  const today = localISO(new Date());
+  const dayMs = 86400000;
+  const startISO = _intakeRange
+    ? localISO(new Date(Date.now() - (_intakeRange - 1) * dayMs))
+    : (all.length ? all[all.length - 1].day : today);
+  const rows = all.filter(r => r.day >= startISO);
+  // Prior period of the same length, for the category trend column
+  const prevStartISO = _intakeRange ? localISO(new Date(Date.now() - (2 * _intakeRange - 1) * dayMs)) : null;
+  const prev = prevStartISO ? all.filter(r => r.day >= prevStartISO && r.day < startISO) : [];
+  // No comparison when history doesn't reach back through the prior period
+  const hasPrev = !!prevStartISO && all.length && all[all.length - 1].day <= prevStartISO;
+
+  // Every calendar day (or week) in range, so zero days show as gaps
+  const buckets = [];
+  for (let d = new Date(startISO + "T12:00:00"); localISO(d) <= today; d.setDate(d.getDate() + 1)) {
+    const iso = localISO(d);
+    const key = _intakeGroup === "week" ? _weekStartISO(iso) : iso;
+    if (!buckets.length || buckets[buckets.length - 1].key !== key)
+      buckets.push({ key, weekend: _intakeGroup === "day" && (d.getDay() === 0 || d.getDay() === 6), rows: [] });
+  }
+  const byKey = Object.fromEntries(buckets.map(b => [b.key, b]));
+  for (const r of rows) {
+    const b = byKey[_intakeGroup === "week" ? _weekStartISO(r.day) : r.day];
+    if (b) b.rows.push(r);
+  }
+
+  const workdays = buckets.length && _intakeGroup === "day"
+    ? buckets.filter(b => !b.weekend).length
+    : (() => { let n = 0; for (let d = new Date(startISO + "T12:00:00"); localISO(d) <= today; d.setDate(d.getDate() + 1)) if (d.getDay() % 6) n++; return n; })();
+  const perDay = workdays ? (rows.length / workdays) : 0;
+  const busiest = buckets.reduce((m, b) => b.rows.length > (m?.rows.length || 0) ? b : m, null);
+  const todayCount = all.filter(r => r.day === today).length;
+  const fmtKey = k => _intakeGroup === "week" ? "Week of " + fmtDate(k) : fmtDate(k);
+
+  // Category table, including categories with nothing in range so the
+  // ones Creative rarely gets are visible, not just absent
+  const weeks = Math.max(1, workdays / 5);
+  const lastSeen = {};
+  for (const r of all) if (!lastSeen[r.category] || r.day > lastSeen[r.category]) lastSeen[r.category] = r.day;
+  const cats = new Set([...(_intakeData.categories || []), ...all.map(r => r.category)]);
+  let catRows = [...cats].map(cat => {
+    const count = rows.filter(r => r.category === cat).length;
+    const before = prev.filter(r => r.category === cat).length;
+    const ls = lastSeen[cat] || null;
+    return { cat, count, share: rows.length ? count / rows.length : 0, perWeek: count / weeks, before,
+             change: count - before, last: ls,
+             daysSince: ls ? Math.round((new Date(today + "T12:00:00") - new Date(ls + "T12:00:00")) / dayMs) : null };
+  });
+  const k = _intakeSort.key, dir = _intakeSort.dir === "asc" ? 1 : -1;
+  const val = r => k === "cat" ? r.cat : k === "last" ? (r.daysSince ?? 99999) : r[k];
+  catRows.sort((a, b) => {
+    const x = val(a), y = val(b);
+    return (typeof x === "number" ? x - y : String(x).localeCompare(String(y))) * dir || b.count - a.count;
+  });
+  const th = (label, key, right) => `<th style="cursor:pointer${right ? ";text-align:right" : ""}" onclick="setIntakeSort('${key}')">${label}${_intakeSort.key === key ? (_intakeSort.dir === "asc" ? " ▲" : " ▼") : ""}</th>`;
+  const changeCell = r => {
+    if (!hasPrev) return `<td class="text-muted" style="text-align:right" title="Not enough history yet">—</td>`;
+    if (!r.change) return `<td class="text-muted" style="text-align:right">same (${r.before})</td>`;
+    const up = r.change > 0;
+    return `<td style="text-align:right;color:${up ? "#15803d" : "#b91c1c"};font-weight:600">${up ? "▲" : "▼"} ${Math.abs(r.change)} <span class="text-muted" style="font-weight:400">(was ${r.before})</span></td>`;
+  };
+  const catTable = `<table class="data-table">
+    <thead><tr>${th("Category", "cat")}${th("Assigned", "count", 1)}${th("Share", "share", 1)}${th("Per week", "perWeek", 1)}
+      ${_intakeRange ? th(`vs prior ${_intakeRange} days`, "change", 1) : ""}${th("Last assigned", "last", 1)}</tr></thead>
+    <tbody>${catRows.map(r => `<tr${r.count ? "" : ` style="opacity:.6"`}>
+      <td>${categoryBadgeHTML(r.cat)}</td>
+      <td style="text-align:right;font-weight:600">${r.count}</td>
+      <td style="text-align:right">${Math.round(r.share * 100)}%</td>
+      <td style="text-align:right">${r.perWeek.toFixed(1)}</td>
+      ${_intakeRange ? changeCell(r) : ""}
+      <td style="text-align:right" class="${r.daysSince != null && r.daysSince > 30 ? "" : "text-muted"}">${
+        r.last ? `${fmtDate(r.last)} <span class="text-muted">(${r.daysSince === 0 ? "today" : r.daysSince + "d ago"})</span>` : "never"}</td>
+    </tr>`).join("")}</tbody></table>`;
+
+  const tally = (list, fn) => {
+    const m = {};
+    for (const r of list) { const x = fn(r) || "Unknown"; m[x] = (m[x] || 0) + 1; }
+    return Object.entries(m).sort((a, b) => b[1] - a[1]);
+  };
+  const miniTable = (title, entries, label) => `<div class="cap-table-block">
+    <div class="cap-chart-title">${title}</div>
+    <div class="table-wrap"><table class="data-table cap-table">
+      <thead><tr><th>${label}</th><th style="text-align:right">Assigned</th><th style="text-align:right">Share</th></tr></thead>
+      <tbody>${entries.slice(0, 15).map(([n, c]) => `<tr><td>${esc(n)}</td><td style="text-align:right">${c}</td><td style="text-align:right">${Math.round(c / rows.length * 100)}%</td></tr>`).join("")
+        || `<tr><td colspan="3" class="text-muted">Nothing in this range.</td></tr>`}</tbody>
+    </table></div></div>`;
+
+  const card = (v, label, sub) => `<div class="analytics-stat-card">
+    <div class="stat-value">${v}</div><div class="stat-label">${label}</div>${sub ? `<div class="stat-sub">${sub}</div>` : ""}</div>`;
+  const rangeOpt = (v, l) => `<option value="${v}"${_intakeRange === v ? " selected" : ""}>${l}</option>`;
+  const note = _intakeData.backfilled ? "" :
+    `<div class="cap-chart-sub" style="margin-bottom:10px">History is still being pulled from Basecamp in the background. Older days will fill in shortly; reload this section in a few minutes.</div>`;
+
+  el.innerHTML = `
+    <div style="display:flex;gap:10px;align-items:center;flex-wrap:wrap;margin-bottom:14px">
+      <select class="category-select" style="max-width:180px" onchange="setIntakeRange(+this.value)">
+        ${rangeOpt(7, "Last 7 days")}${rangeOpt(30, "Last 30 days")}${rangeOpt(90, "Last 90 days")}${rangeOpt(180, "Last 6 months")}${rangeOpt(0, "All history")}
+      </select>
+      <div class="analytics-sections">
+        <button class="section-btn${_intakeGroup === "day" ? " active" : ""}" onclick="setIntakeGroup('day')">Daily</button>
+        <button class="section-btn${_intakeGroup === "week" ? " active" : ""}" onclick="setIntakeGroup('week')">Weekly</button>
+      </div>
+    </div>
+    ${note}
+    <div class="analytics-stats" style="margin-bottom:18px">
+      ${card(rows.length, "Assigned to Creative", _intakeRange ? `last ${_intakeRange} days` : "all history")}
+      ${card(perDay.toFixed(1), "Per workday", `${workdays} weekdays in range`)}
+      ${card(busiest && busiest.rows.length ? busiest.rows.length : "—", _intakeGroup === "week" ? "Busiest week" : "Busiest day", busiest && busiest.rows.length ? fmtKey(busiest.key) : "")}
+      ${card(todayCount, "Today", fmtDate(today))}
+    </div>
+    <div class="cap-chart-panel">
+      <div class="cap-chart-head">
+        <div>
+          <div class="cap-chart-title">To-dos assigned to Creative, ${_intakeGroup === "week" ? "week by week" : "day by day"}</div>
+          <div class="cap-chart-sub">Counted on the day the Creative user was added in Basecamp. Bars are split by category; hover for the breakdown, click to list the to-dos.</div>
+        </div>
+      </div>
+      <div id="intake-chart" class="cap-chart-wrap"></div>
+      <div id="intake-day-list"></div>
+    </div>
+    <div class="cap-chart-panel">
+      <div class="cap-chart-title" style="margin-bottom:4px">By category</div>
+      <div class="cap-chart-sub" style="margin-bottom:10px">Sort by Assigned or Last assigned to see what Creative gets least often.</div>
+      <div class="table-wrap">${catTable}</div>
+    </div>
+    <div class="cap-tables">
+      ${miniTable("Who sends work to Creative", tally(rows, r => r.assigned_by), "Assigned by")}
+      ${miniTable("Top clients", tally(rows, r => cleanClient(r.client_name || "")), "Client")}
+    </div>`;
+  drawIntakeChart(document.getElementById("intake-chart"), buckets, fmtKey);
+  if (_intakeSelBucket && byKey[_intakeSelBucket]) showIntakeBucket(byKey[_intakeSelBucket], fmtKey);
+}
+
+function setIntakeRange(v) { _intakeRange = v; _intakeSelBucket = null; renderIntakeSection(document.getElementById("analytics-content")); }
+function setIntakeGroup(g) { _intakeGroup = g; _intakeSelBucket = null; renderIntakeSection(document.getElementById("analytics-content")); }
+function setIntakeSort(key) {
+  _intakeSort = _intakeSort.key === key ? { key, dir: _intakeSort.dir === "asc" ? "desc" : "asc" } : { key, dir: key === "cat" ? "asc" : "desc" };
+  renderIntakeSection(document.getElementById("analytics-content"));
+}
+
+function drawIntakeChart(mount, buckets, fmtKey) {
+  const W = 920, H = 260, L = 34, R = 10, T = 12, B = 28;
+  const n = buckets.length;
+  if (!n) { mount.innerHTML = _noData("Nothing in this range."); return; }
+  const max = Math.max(4, ...buckets.map(b => b.rows.length));
+  const yMax = Math.ceil(max / 4) * 4;
+  const slot = (W - L - R) / n;
+  const bw = Math.max(2, Math.min(28, slot * 0.72));
+  const y = v => T + (H - T - B) * (1 - v / yMax);
+  let grid = "";
+  for (let g = 0; g <= yMax; g += yMax / 4) {
+    grid += `<line x1="${L}" y1="${y(g)}" x2="${W - R}" y2="${y(g)}" stroke="#e9e8f3"/>` +
+            `<text x="${L - 6}" y="${y(g) + 3.5}" text-anchor="end" class="cap-axis">${g}</text>`;
+  }
+  const every = Math.ceil(n / 12);
+  let bars = "", labels = "";
+  buckets.forEach((b, i) => {
+    const cx = L + slot * (i + 0.5);
+    if (b.weekend) bars += `<rect x="${L + slot * i}" y="${T}" width="${slot}" height="${H - T - B}" fill="#f4f3f8"/>`;
+    const counts = {};
+    for (const r of b.rows) counts[r.category] = (counts[r.category] || 0) + 1;
+    let acc = 0;
+    for (const [cat, c] of Object.entries(counts).sort((a, b) => b[1] - a[1])) {
+      bars += `<rect x="${cx - bw / 2}" y="${y(acc + c)}" width="${bw}" height="${y(acc) - y(acc + c)}" fill="${categoryColor(cat)}"/>`;
+      acc += c;
+    }
+    if (i % every === 0) {
+      const d = new Date(b.key + "T12:00:00");
+      labels += `<text x="${cx}" y="${H - 9}" text-anchor="middle" class="cap-axis">${d.toLocaleDateString("en-US", { month: "short", day: "numeric" })}</text>`;
+    }
+  });
+  mount.innerHTML = `<svg viewBox="0 0 ${W} ${H}" class="cap-svg" preserveAspectRatio="xMidYMid meet">
+      ${grid}${bars}${labels}
+      <rect id="intake-hl" x="0" y="${T}" width="${slot}" height="${H - T - B}" fill="#7b8db8" opacity="0"/>
+      <rect x="${L}" y="${T}" width="${W - L - R}" height="${H - T - B}" fill="transparent" id="intake-hit" style="cursor:pointer"/>
+    </svg>
+    <div id="intake-tip" class="cap-tip hidden"></div>`;
+  const svg = mount.querySelector("svg"), hit = mount.querySelector("#intake-hit");
+  const hl = mount.querySelector("#intake-hl"), tip = mount.querySelector("#intake-tip");
+  const idxAt = e => {
+    const pt = svg.createSVGPoint(); pt.x = e.clientX; pt.y = e.clientY;
+    const loc = pt.matrixTransform(svg.getScreenCTM().inverse());
+    return Math.max(0, Math.min(n - 1, Math.floor((loc.x - L) / slot)));
+  };
+  hit.addEventListener("mousemove", e => {
+    const i = idxAt(e), b = buckets[i];
+    hl.setAttribute("x", L + slot * i); hl.setAttribute("opacity", "0.12");
+    const counts = {};
+    for (const r of b.rows) counts[r.category] = (counts[r.category] || 0) + 1;
+    tip.innerHTML = `<div class="cap-tip-title">${fmtKey(b.key)}: ${b.rows.length}</div>` +
+      Object.entries(counts).sort((a, b) => b[1] - a[1]).map(([cat, c]) =>
+        `<div class="cap-tip-row"><span class="cap-dot" style="background:${categoryColor(cat)}"></span><span>${esc(cat)}</span><b>${c}</b></div>`).join("");
+    tip.classList.remove("hidden");
+    const rect = mount.getBoundingClientRect();
+    const px = ((L + slot * (i + 0.5)) / W) * rect.width;
+    tip.style.left = (px > rect.width - 240 ? px - 240 : px + 14) + "px";
+    tip.style.top = "12px";
+  });
+  hit.addEventListener("mouseleave", () => { hl.setAttribute("opacity", "0"); tip.classList.add("hidden"); });
+  hit.addEventListener("click", e => {
+    const b = buckets[idxAt(e)];
+    _intakeSelBucket = b.key;
+    showIntakeBucket(b, fmtKey);
+  });
+}
+
+function showIntakeBucket(b, fmtKey) {
+  const el = document.getElementById("intake-day-list");
+  if (!el) return;
+  const list = b.rows.slice().sort((x, y) => y.assigned_at - x.assigned_at);
+  el.innerHTML = `<div style="display:flex;align-items:center;gap:10px;margin:14px 0 8px">
+      <div class="cap-chart-title">${fmtKey(b.key)}: ${list.length} to-do${list.length === 1 ? "" : "s"}</div>
+      <button class="btn btn-ghost btn-sm" onclick="_intakeSelBucket=null;document.getElementById('intake-day-list').innerHTML=''">Close</button>
+    </div>
+    ${list.length ? `<div class="table-wrap"><table class="data-table">
+      <thead><tr><th>Assigned</th><th>Client</th><th>To-do</th><th>Category</th><th>By</th></tr></thead>
+      <tbody>${list.map(r => `<tr>
+        <td class="text-muted">${new Date(r.assigned_at * 1000).toLocaleString("en-US", { month: "short", day: "numeric", hour: "numeric", minute: "2-digit" })}</td>
+        <td class="text-muted">${esc(cleanClient(r.client_name || ""))}</td>
+        <td>${r.url ? `<a href="${r.url}" target="_blank" title="Open in Basecamp">${esc(r.title || "")}</a>` : esc(r.title || "")}</td>
+        <td>${categoryBadgeHTML(r.category)}</td>
+        <td class="text-muted">${esc(r.assigned_by || "—")}</td>
+      </tr>`).join("")}</tbody></table></div>` : `<div class="text-muted" style="font-size:13px">Nothing assigned.</div>`}`;
+}
+
 async function loadAnalytics() {
   const content = document.getElementById("analytics-content");
   const stats   = document.getElementById("analytics-stats");
@@ -2411,12 +2663,13 @@ function renderAnalyticsSection(section) {
   const el = document.getElementById("analytics-content");
   // The completions-based stat strip and filters are noise on capacity/clients —
   // both are their own independent rollups, not a filtered view of completions.
-  const ownRollup = section === "capacity" || section === "clients" || section === "former";
+  const ownRollup = section === "capacity" || section === "clients" || section === "former" || section === "intake";
   document.getElementById("analytics-stats")?.classList.toggle("hidden", ownRollup);
   document.getElementById("analytics-filters")?.classList.toggle("hidden", ownRollup);
   if (section === "capacity") { renderCapacitySection(el); return; }
   if (section === "clients") { renderClientsSection(el); return; }
   if (section === "former") { renderFormerSection(el); return; }
+  if (section === "intake") { renderIntakeSection(el); return; }
   if (!_analyticsData) return;
 
   const f = _anFilters;

@@ -445,6 +445,23 @@ async def get_unassigned_todos() -> list:
     return result
 
 
+async def get_creative_assignment(todo_id) -> dict | None:
+    """When the Creative Team user was first added as an assignee on a
+    to-do, from its assignment_changed events (they also cover to-dos
+    created already assigned to Creative). Returns {"at": iso, "by": name},
+    {} if Creative was never added, or None if the lookup failed."""
+    events = await _get(f"/recordings/{todo_id}/events.json")
+    if events is None:
+        return None
+    hits = [e for e in events
+            if e.get("action") == "assignment_changed"
+            and int(CREATIVE_TEAM_GROUP_ID) in ((e.get("details") or {}).get("added_person_ids") or [])]
+    if not hits:
+        return {}
+    first = min(hits, key=lambda e: _ts(e["created_at"]))
+    return {"at": first["created_at"], "by": (first.get("creator") or {}).get("name", "")}
+
+
 def _ts(iso: str):
     """Basecamp timestamps mix "Z" and "-04:00" offsets, so they can't be
     compared as strings."""

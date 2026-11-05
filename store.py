@@ -217,6 +217,20 @@ def init_db():
                 UNIQUE(todo_id)
             );
 
+            -- Analytics: every to-do handed to the Creative Team user, stamped
+            -- with when Creative was added as an assignee (Basecamp's
+            -- assignment_changed event; first_seen = poller time fallback)
+            CREATE TABLE IF NOT EXISTS creative_intake (
+                todo_id TEXT PRIMARY KEY,
+                assigned_at REAL NOT NULL,
+                title TEXT NOT NULL DEFAULT '',
+                client_name TEXT NOT NULL DEFAULT '',
+                category TEXT NOT NULL DEFAULT 'Misc.',
+                assigned_by TEXT NOT NULL DEFAULT '',
+                source TEXT NOT NULL DEFAULT 'event',
+                url TEXT NOT NULL DEFAULT ''
+            );
+
             -- Analytics: weekly task count by category per designer
             CREATE TABLE IF NOT EXISTS analytics_category_volume (
                 designer_bc_id TEXT NOT NULL,
@@ -768,6 +782,31 @@ def get_analytics_queue_time() -> list:
         rows = c.execute(
             "SELECT * FROM analytics_queue_time ORDER BY recorded_at DESC"
         ).fetchall()
+    return [dict(r) for r in rows]
+
+
+def get_creative_intake_ids() -> set:
+    with get_db() as c:
+        return {r["todo_id"] for r in c.execute("SELECT todo_id FROM creative_intake").fetchall()}
+
+
+def add_creative_intake(todo_id, assigned_at, title, client_name, category,
+                        assigned_by="", source="event", url="") -> bool:
+    with get_db() as c:
+        cur = c.execute("""
+            INSERT OR IGNORE INTO creative_intake
+              (todo_id, assigned_at, title, client_name, category, assigned_by, source, url)
+            VALUES (?,?,?,?,?,?,?,?)
+        """, (str(todo_id), assigned_at, title or "", client_name or "",
+              category or "Misc.", assigned_by or "", source, url or ""))
+        return cur.rowcount > 0
+
+
+def get_creative_intake(since_ts: float = 0) -> list:
+    with get_db() as c:
+        rows = c.execute(
+            "SELECT * FROM creative_intake WHERE assigned_at >= ? ORDER BY assigned_at DESC",
+            (since_ts,)).fetchall()
     return [dict(r) for r in rows]
 
 
