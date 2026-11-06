@@ -2070,6 +2070,7 @@ let _intakeRange = 30;           // days; 0 = all history
 let _intakeGroup = "day";        // "day" | "week"
 let _intakeSort = { key: "count", dir: "desc" };
 let _intakeSelBucket = null;
+const INTAKE_TRACKED_FROM = "2026-07-01";
 
 const _weekStartISO = iso => {
   const d = new Date(iso + "T12:00:00");
@@ -2091,15 +2092,19 @@ async function renderIntakeSection(el) {
   const all = _intakeData.rows || [];
   const today = localISO(new Date());
   const dayMs = 86400000;
-  const startISO = _intakeRange
+  let startISO = _intakeRange
     ? localISO(new Date(Date.now() - (_intakeRange - 1) * dayMs))
     : (all.length ? all[all.length - 1].day : today);
+  // Before this the dashboard wasn't tracking every to-do yet, so the few
+  // older rows would read as a quiet period and skew the trend line
+  const clipped = startISO < INTAKE_TRACKED_FROM;
+  if (clipped) startISO = INTAKE_TRACKED_FROM;
   const rows = all.filter(r => r.day >= startISO);
   // Prior period of the same length, for the category trend column
   const prevStartISO = _intakeRange ? localISO(new Date(Date.now() - (2 * _intakeRange - 1) * dayMs)) : null;
   const prev = prevStartISO ? all.filter(r => r.day >= prevStartISO && r.day < startISO) : [];
   // No comparison when history doesn't reach back through the prior period
-  const hasPrev = !!prevStartISO && all.length && all[all.length - 1].day <= prevStartISO;
+  const hasPrev = !!prevStartISO && prevStartISO >= INTAKE_TRACKED_FROM;
 
   // Every calendar day (or week) in range, so zero days show as gaps
   const buckets = [];
@@ -2109,6 +2114,7 @@ async function renderIntakeSection(el) {
     if (!buckets.length || buckets[buckets.length - 1].key !== key)
       buckets.push({ key, weekend: _intakeGroup === "day" && (d.getDay() === 0 || d.getDay() === 6), rows: [] });
   }
+  buckets.partialFirst = _intakeGroup === "week" && new Date(startISO + "T12:00:00").getDay() !== 1;
   const byKey = Object.fromEntries(buckets.map(b => [b.key, b]));
   for (const r of rows) {
     const b = byKey[_intakeGroup === "week" ? _weekStartISO(r.day) : r.day];
@@ -2203,9 +2209,14 @@ async function renderIntakeSection(el) {
       <div class="cap-chart-head">
         <div>
           <div class="cap-chart-title">To-dos assigned to Creative, ${_intakeGroup === "week" ? "week by week" : "day by day"}</div>
-          <div class="cap-chart-sub">Counted on the day the Creative user was added in Basecamp. Bars are split by category; hover for the breakdown, click to list the to-dos.</div>
+          <div class="cap-chart-sub">Counted on the day the Creative user was added in Basecamp. Bars are split by category; hover for the breakdown, click to list the to-dos.${clipped ? ` Full tracking starts ${fmtDate(INTAKE_TRACKED_FROM)}, so the chart starts there.` : ""}</div>
+        </div>
+        <div class="cap-legend">
+          <span class="cap-legend-item"><svg width="22" height="10"><line x1="1" y1="5" x2="21" y2="5" stroke="#010f37" stroke-width="2.5"/></svg>${_intakeGroup === "week" ? "4-week" : "5-workday"} average</span>
+          <span class="cap-legend-item"><svg width="22" height="10"><line x1="1" y1="5" x2="21" y2="5" stroke="#f6931e" stroke-width="2.5" stroke-dasharray="5 3"/></svg>Trend</span>
         </div>
       </div>
+      <div id="intake-trend" class="intake-trend"></div>
       <div id="intake-chart" class="cap-chart-wrap"></div>
       <div id="intake-day-list"></div>
     </div>
@@ -2244,6 +2255,8 @@ function drawIntakeChart(mount, buckets, fmtKey) {
             `<text x="${L - 6}" y="${y(g) + 3.5}" text-anchor="end" class="cap-axis">${g}</text>`;
   }
   const every = Math.ceil(n / 12);
+  const tr = _intakeTrend(buckets);
+  _renderIntakeTrendSummary(tr);
   let bars = "", labels = "";
   buckets.forEach((b, i) => {
     const cx = L + slot * (i + 0.5);
@@ -2261,7 +2274,7 @@ function drawIntakeChart(mount, buckets, fmtKey) {
     }
   });
   mount.innerHTML = `<svg viewBox="0 0 ${W} ${H}" class="cap-svg" preserveAspectRatio="xMidYMid meet">
-      ${grid}${bars}${labels}
+      ${grid}${bars}${labels}${_intakeTrendLines(tr, i => L + slot * (i + 0.5), y)}
       <rect id="intake-hl" x="0" y="${T}" width="${slot}" height="${H - T - B}" fill="#7b8db8" opacity="0"/>
       <rect x="${L}" y="${T}" width="${W - L - R}" height="${H - T - B}" fill="transparent" id="intake-hit" style="cursor:pointer"/>
     </svg>
@@ -2278,7 +2291,9 @@ function drawIntakeChart(mount, buckets, fmtKey) {
     hl.setAttribute("x", L + slot * i); hl.setAttribute("opacity", "0.12");
     const counts = {};
     for (const r of b.rows) counts[r.category] = (counts[r.category] || 0) + 1;
+    const avg = tr.avg[i];
     tip.innerHTML = `<div class="cap-tip-title">${fmtKey(b.key)}: ${b.rows.length}</div>` +
+      (avg != null ? `<div class="cap-tip-row" style="color:var(--text-muted)"><span>${_intakeGroup === "week" ? "4-week" : "5-workday"} average</span><b>${avg.toFixed(1)}</b></div>` : "") +
       Object.entries(counts).sort((a, b) => b[1] - a[1]).map(([cat, c]) =>
         `<div class="cap-tip-row"><span class="cap-dot" style="background:${categoryColor(cat)}"></span><span>${esc(cat)}</span><b>${c}</b></div>`).join("");
     tip.classList.remove("hidden");
@@ -2293,6 +2308,68 @@ function drawIntakeChart(mount, buckets, fmtKey) {
     _intakeSelBucket = b.key;
     showIntakeBucket(b, fmtKey);
   });
+}
+
+/* Rolling average (5 workdays daily / 4 weeks weekly; weekends skipped)
+   plus a least-squares line through the workday/week counts. The current
+   day or week is still filling up, so it's left out of both lines. */
+function _intakeTrend(buckets) {
+  const win = _intakeGroup === "week" ? 4 : 5;
+  const pts = [];
+  buckets.forEach((b, i) => { if (!b.weekend) pts.push({ i, v: b.rows.length }); });
+  if (pts.length && pts[pts.length - 1].i === buckets.length - 1) pts.pop();
+  if (buckets.partialFirst && pts.length && pts[0].i === 0) pts.shift();
+  const avg = buckets.map(() => null);
+  pts.forEach((p, k) => {
+    if (k + 1 < win) return;
+    const w = pts.slice(k + 1 - win, k + 1);
+    avg[p.i] = w.reduce((a, x) => a + x.v, 0) / win;
+  });
+  let fit = null;
+  if (pts.length >= 6) {
+    const xs = pts.map((_, k) => k), ys = pts.map(p => p.v), m = pts.length;
+    const mx = xs.reduce((a, b) => a + b, 0) / m, my = ys.reduce((a, b) => a + b, 0) / m;
+    let num = 0, den = 0;
+    xs.forEach((x, k) => { num += (x - mx) * (ys[k] - my); den += (x - mx) ** 2; });
+    const slope = den ? num / den : 0;
+    const at = k => Math.max(0, my + slope * (k - mx));
+    fit = { i0: pts[0].i, i1: pts[m - 1].i, v0: at(0), v1: at(m - 1), mean: my };
+  }
+  return { avg, fit };
+}
+
+function _intakeTrendLines(tr, xAt, y) {
+  let out = "";
+  let d = "", pen = false;
+  tr.avg.forEach((v, i) => {
+    if (v == null) return;   // weekends: line bridges straight across
+    d += `${pen ? "L" : "M"}${xAt(i).toFixed(1)},${y(v).toFixed(1)}`;
+    pen = true;
+  });
+  const halo = 'stroke="#fff" stroke-width="5" stroke-linecap="round" stroke-linejoin="round" fill="none" opacity="0.85"';
+  if (d) out += `<path d="${d}" ${halo}/><path d="${d}" fill="none" stroke="#010f37" stroke-width="2.5" stroke-linejoin="round" stroke-linecap="round"/>`;
+  if (tr.fit) {
+    const f = tr.fit;
+    const ln = `x1="${xAt(f.i0)}" y1="${y(f.v0)}" x2="${xAt(f.i1)}" y2="${y(f.v1)}"`;
+    out += `<line ${ln} ${halo}/><line ${ln} stroke="#f6931e" stroke-width="2.5" stroke-dasharray="7 4" stroke-linecap="round"/>`;
+  }
+  return `<g pointer-events="none">${out}</g>`;
+}
+
+function _renderIntakeTrendSummary(tr) {
+  const el = document.getElementById("intake-trend");
+  if (!el) return;
+  if (!tr.fit) { el.innerHTML = `<span class="text-muted">Not enough history in this range to call a trend yet.</span>`; return; }
+  const { v0, v1, mean } = tr.fit;
+  const unit = _intakeGroup === "week" ? "per week" : "per workday";
+  const pct = mean ? (v1 - v0) / mean * 100 : 0;
+  const dir = Math.abs(pct) < 10 ? "steady" : pct > 0 ? "up" : "down";
+  const label = { steady: "Holding steady", up: "Trending up", down: "Trending down" }[dir];
+  const color = { steady: "var(--text-muted)", up: "#15803d", down: "#b91c1c" }[dir];
+  const arrow = { steady: "→", up: "↗", down: "↘" }[dir];
+  el.innerHTML = `<span class="intake-trend-pill" style="color:${color};border-color:${color}">${arrow} ${label}</span>
+    <span>From about <b>${v0.toFixed(1)}</b> to <b>${v1.toFixed(1)}</b> to-dos ${unit} across this range
+    (${pct >= 0 ? "+" : ""}${Math.round(pct)}% vs. the ${mean.toFixed(1)} average).</span>`;
 }
 
 function showIntakeBucket(b, fmtKey) {

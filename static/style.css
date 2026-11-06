@@ -1794,3 +1794,7 @@ input.cal-filter-select { font-weight: 500; }
   .pin-inputs { gap: 8px; }
   .pin-digit { width: 44px; height: 54px; font-size: 20px; }
 }
+
+/* Analytics > Intake trend summary */
+.intake-trend { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; font-size: 13px; margin: 4px 0 10px; }
+.intake-trend-pill { font-weight: 700; font-size: 12px; border: 1px solid; border-radius: 999px; padding: 2px 10px; white-space: nowrap; }
