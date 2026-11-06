@@ -3057,10 +3057,23 @@ async def _compute_capacity_analytics() -> dict:
                 if tid:
                     tasks_by_month[mo][tid] = task.get("name") or ""
 
-    def month_avail(mo: str, n_people: int) -> float:
+    # Former team members only count as available through their last day,
+    # so a partial final month (Debi, out 10/26) isn't read as idle time
+    left_on = {f["eh_id"]: date.fromisoformat(f["left_on"]) for f in FORMER_DESIGNERS if f.get("eh_id")}
+
+    def month_avail(mo: str, uids) -> float:
         yy, mm = int(mo[:4]), int(mo[5:7])
         upto = today if (yy, mm) == (today.year, today.month) else None
-        return _workdays_in_month(yy, mm, upto) * WORK_HOURS * n_people
+        total = 0
+        for uid in uids:
+            cut = upto
+            if uid in left_on:
+                last = left_on[uid] - timedelta(days=1)
+                cut = min(cut, last) if cut else last
+            if cut and cut < date(yy, mm, 1):
+                continue
+            total += _workdays_in_month(yy, mm, cut)
+        return total * WORK_HOURS
 
     # Per-month one-person available hours — lets the frontend simulate headcount
     workhours = []
@@ -3073,15 +3086,16 @@ async def _compute_capacity_analytics() -> dict:
     for g in CAPACITY_GROUPS:
         capacity[g], hours_out[g], people[g] = [], [], []
         for mo in months:
-            avail = month_avail(mo, len(active[g][mo]))
+            avail = month_avail(mo, active[g][mo])
             capacity[g].append(round(hours[g][mo] / avail * 100, 1) if avail > 0 else None)
             hours_out[g].append(round(hours[g][mo], 1))
             people[g].append(len(active[g][mo]))
     capacity["All"], hours_out["All"], people["All"] = [], [], []
     for i, mo in enumerate(months):
         total_h = sum(hours[g][mo] for g in CAPACITY_GROUPS)
-        n = len(set().union(*(active[g][mo] for g in CAPACITY_GROUPS)))
-        avail = month_avail(mo, n)
+        everyone = set().union(*(active[g][mo] for g in CAPACITY_GROUPS))
+        n = len(everyone)
+        avail = month_avail(mo, everyone)
         capacity["All"].append(round(total_h / avail * 100, 1) if avail > 0 else None)
         hours_out["All"].append(round(total_h, 1))
         people["All"].append(n)
@@ -3105,11 +3119,11 @@ async def _compute_capacity_analytics() -> dict:
 
 @app.get("/api/analytics/capacity")
 async def api_capacity_analytics(refresh: int = 0):
-    cached = store.cache_get("capacity_analytics_v2")
+    cached = store.cache_get("capacity_analytics_v3")
     if cached and not refresh:
         return cached
     data = await _compute_capacity_analytics()
-    store.cache_set("capacity_analytics_v2", data, ttl_seconds=6 * 3600)
+    store.cache_set("capacity_analytics_v3", data, ttl_seconds=6 * 3600)
     return data
 
 
