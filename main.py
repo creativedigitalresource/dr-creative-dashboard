@@ -16,7 +16,6 @@ _sse_clients: list[asyncio.Queue] = []
 _refresh_running = False
 
 DESIGNERS = [
-    {"name": "Dexter",   "bc_id": 44800252, "eh_id": 1327353,  "color": "#7dcbed", "slack_id": "U01S46XJU8G", "avatar": "/static/img/avatars/44800252.jpg"},
     {"name": "Lezly",    "bc_id": 45896266, "eh_id": 1336550,  "color": "#26a9e1", "slack_id": "U070TFVNNSK", "avatar": "/static/img/avatars/45896266.jpg"},
     {"name": "Gaby",     "bc_id": 46567979, "eh_id": 1422085,  "color": "#f6931e", "slack_id": "U07JJEF0KCY", "avatar": "/static/img/avatars/46567979.jpg"},
     {"name": "Odette",   "bc_id": 48051100, "eh_id": 1403017,  "color": "#eab308", "slack_id": "U08LAH3CA12", "avatar": "/static/img/avatars/48051100.jpg"},
@@ -31,7 +30,7 @@ DESIGNERS = [
 ]
 
 
-# Former team members (2026-10-26, Debi). Removed from DESIGNERS so they
+# Former team members (Debi 2026-10-26, Dexter 2026-11-13). Removed from DESIGNERS so they
 # drop out of every live view (Team Pulse, To Delegate, alerts,
 # Timesheets, suggestions) — but their history isn't deleted: completed
 # tasks and logged hours stay in analytics_completions, viewable from
@@ -40,6 +39,8 @@ DESIGNERS = [
 FORMER_DESIGNERS = [
     {"name": "Debi", "bc_id": 52244353, "eh_id": 1445224, "color": "#d5de23",
      "avatar": "/static/img/avatars/52244353.jpg", "left_on": "2026-10-26"},
+    {"name": "Dexter", "bc_id": 44800252, "eh_id": 1327353, "color": "#7dcbed",
+     "avatar": "/static/img/avatars/44800252.jpg", "left_on": "2026-11-13"},
 ]
 
 # QA checklist rollout — was Gaby-only for testing; turned on for the
@@ -154,7 +155,7 @@ STALE_HDD_DAYS = 14  # comment-sourced HDDs older than this are abandoned, not l
 # Service capacity groups (Everhour user ids). Departed members stay listed —
 # they only count toward a month's denominator if they logged time in it.
 CAPACITY_GROUPS = {
-    "Design": [1327353, 1336550, 1422085, 1451054, 1460616],  # Dexter, Lezly, Gaby, Maria C, Pilar (RJ removed 2026-10-16)
+    "Design": [1327353, 1336550, 1422085, 1451054, 1460616],  # Dexter (left 2026-11-13, kept for past months), Lezly, Gaby, Maria C, Pilar (RJ removed 2026-10-16)
     "Multi":  [1403017],   # Odette
     "IPM":    [1367774],   # Melany
     "Email":  [1445224],   # Debi (left 2026-10-26) — kept so past months' charts keep her hours
@@ -183,7 +184,7 @@ SERVICE_ROLLUP = {
 # a forward-looking counterpart to their already-assigned weekly_est.
 # Every other real category (LP-New/Maintenance, Digital-Banner, Web,
 # Print, Branding) is currently a judgment call across the whole 4-person
-# Design pool (Dexter/Lezly/Gaby/Maria C) with no fixed assignee — Richard
+# Design pool (Lezly/Gaby/Maria C/Pilar) with no fixed assignee — Richard
 # chose NOT to force those onto one name, so they're reported as a
 # separate design_pool_hours figure instead (see _compute_pipeline_forecast).
 # Client-based pre-pick for To Delegate (2026-11-04, Richard): any
